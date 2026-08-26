@@ -3,88 +3,89 @@
  * Auth Mapper
  * ==========================================================
  * Responsible for:
+ * - Mapping User payload to Database Entity creation format
  * - Mapping User domain entity to API Response
- * - Hiding sensitive database fields (password, tokenVersion, deletedAt, etc.)
+ * - Hiding sensitive database fields (password, tokenVersion, etc.)
+ * Placed directly at module root matching Option A Standard.
  * ==========================================================
  */
 
-/**
- * Map User Domain Entity to Safe User Response Object
- *
- * @param {Object} user
- * @returns {Object|null}
- */
-const toUserResponse = (user) => {
-  if (!user) return null;
+class AuthMapper {
+  /**
+   * Convert registration payload into DB User creation entity
+   */
+  static toCreateEntity(data) {
+    if (!data) return null;
 
-  return {
-    id: user.id,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    fullName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-    email: user.email,
-    role: user.role,
-    isActive: user.isActive,
-    emailVerified: user.emailVerified,
-    lastLoginAt: user.lastLoginAt,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-  };
-};
+    return {
+      email: data.email ? data.email.toLowerCase().trim() : data.email,
+      password: data.password,
+      firstName: data.firstName ? data.firstName.trim() : null,
+      lastName: data.lastName ? data.lastName.trim() : null,
+      role: data.role || "HR",
+    };
+  }
 
-/**
- * Login Response DTO Builder
- *
- * Access Token returned in body.
- * Refresh Token sent via HTTP-only Cookie.
- *
- * @param {Object} user
- * @param {string} accessToken
- */
-const toLoginResponse = (user, accessToken) => ({
-  user: toUserResponse(user),
-  accessToken,
-});
+  /**
+   * Map User Domain Entity to Safe User Response Object
+   */
+  static toUserResponse(user) {
+    if (!user) return null;
 
-/**
- * Register Response DTO Builder
- *
- * @param {Object} user
- */
-const toRegisterResponse = (user) => ({
-  user: toUserResponse(user),
-});
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      fullName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      emailVerified: user.emailVerified,
+      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
 
-/**
- * Refresh Token Response DTO Builder
- *
- * @param {string} accessToken
- */
-const toRefreshTokenResponse = (accessToken) => ({
-  accessToken,
-});
+  static toLoginResponse(user, accessToken) {
+    return {
+      user: this.toUserResponse(user),
+      accessToken,
+    };
+  }
 
-/**
- * Logout Response DTO Builder
- */
-const toLogoutResponse = () => ({
-  success: true,
-});
+  static toRegisterResponse(user) {
+    return {
+      user: this.toUserResponse(user),
+    };
+  }
 
-/**
- * Profile Response DTO Builder
- *
- * @param {Object} user
- */
-const toProfileResponse = (user) => ({
-  user: toUserResponse(user),
-});
+  static toRefreshTokenResponse(accessToken) {
+    return {
+      accessToken,
+    };
+  }
+
+  static toLogoutResponse() {
+    return {
+      success: true,
+    };
+  }
+
+  static toProfileResponse(user) {
+    return {
+      user: this.toUserResponse(user),
+    };
+  }
+}
 
 module.exports = {
-  toUserResponse,
-  toLoginResponse,
-  toRegisterResponse,
-  toRefreshTokenResponse,
-  toLogoutResponse,
-  toProfileResponse,
+  AuthMapper,
+  toUserResponse: AuthMapper.toUserResponse.bind(AuthMapper),
+  toCreateEntity: AuthMapper.toCreateEntity.bind(AuthMapper),
+  toLoginResponse: AuthMapper.toLoginResponse.bind(AuthMapper),
+  toRegisterResponse: AuthMapper.toRegisterResponse.bind(AuthMapper),
+  toRefreshTokenResponse: AuthMapper.toRefreshTokenResponse.bind(AuthMapper),
+  toLogoutResponse: AuthMapper.toLogoutResponse.bind(AuthMapper),
+  toProfileResponse: AuthMapper.toProfileResponse.bind(AuthMapper),
 };

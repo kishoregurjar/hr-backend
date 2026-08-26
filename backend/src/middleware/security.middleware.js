@@ -1,3 +1,5 @@
+"use strict";
+
 const helmet = require("helmet");
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
@@ -27,11 +29,11 @@ const securityMiddleware = (app) => {
   app.use(compression());
 
   /**
-   * Parse JSON Body
+   * Parse JSON Body (Production Limit: 1mb)
    */
   app.use(
     express.json({
-      limit: "10kb",
+      limit: "1mb",
     })
   );
 
@@ -41,7 +43,7 @@ const securityMiddleware = (app) => {
   app.use(
     express.urlencoded({
       extended: true,
-      limit: "10kb",
+      limit: "1mb",
     })
   );
 

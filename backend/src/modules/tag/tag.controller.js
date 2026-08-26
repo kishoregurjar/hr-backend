@@ -1,7 +1,7 @@
 const { StatusCodes } = require("http-status-codes");
-const asyncHandler = require("../../common/middlewares/async-handler");
+const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
-const { TAG_MESSAGES } = require("./constants/tag-message.constants");
+const { TAG_MESSAGES } = require("./tag.constants");
 const tagService = require("./tag.service");
 
 /**
@@ -13,10 +13,6 @@ const tagService = require("./tag.service");
  * ==========================================================
  */
 class TagController {
-  /**
-   * Create Tag Handler
-   * POST /api/v1/question-tags
-   */
   create = asyncHandler(async (req, res) => {
     const payload = req.validatedData || req.body;
     const userId = req.user.id;
@@ -33,10 +29,6 @@ class TagController {
     );
   });
 
-  /**
-   * List Tags Handler (Paginated, Filtered, Sorted, Searched)
-   * GET /api/v1/question-tags
-   */
   list = asyncHandler(async (req, res) => {
     const query = req.validatedData || req.query;
 
@@ -53,10 +45,6 @@ class TagController {
     );
   });
 
-  /**
-   * Get Tag By ID Handler
-   * GET /api/v1/question-tags/:id
-   */
   getById = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
@@ -72,10 +60,6 @@ class TagController {
     );
   });
 
-  /**
-   * Update Tag Handler
-   * PATCH /api/v1/question-tags/:id
-   */
   update = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const payload = req.validatedData || req.body;
@@ -93,10 +77,6 @@ class TagController {
     );
   });
 
-  /**
-   * Soft Delete Tag Handler
-   * DELETE /api/v1/question-tags/:id
-   */
   delete = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
@@ -113,10 +93,6 @@ class TagController {
     );
   });
 
-  /**
-   * Restore Soft Deleted Tag Handler
-   * PATCH /api/v1/question-tags/:id/restore
-   */
   restore = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;

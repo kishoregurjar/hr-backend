@@ -1,8 +1,10 @@
 /**
  * ==========================================================
- * Assessment Module Constants
+ * Assessment Module Unified Constants
  * ==========================================================
- * Standardized Enums, Messages, Errors, and Defaults for Assessment domain.
+ * Single source of truth for Assessment status enums, limits,
+ * error codes, success messages, and lifecycle state transitions.
+ * Placed directly at module root matching Ultra-Flat Standard.
  * ==========================================================
  */
 
@@ -13,68 +15,197 @@ const ASSESSMENT_STATUS = Object.freeze({
   ARCHIVED: "ARCHIVED",
 });
 
-const DIFFICULTY_LEVELS = Object.freeze({
-  EASY: "EASY",
-  MEDIUM: "MEDIUM",
-  HARD: "HARD",
-});
-
-const ASSESSMENT_TYPES = Object.freeze({
+const ASSESSMENT_TYPE = Object.freeze({
   TECHNICAL: "TECHNICAL",
   GAMING: "GAMING",
   MIXED: "MIXED",
 });
 
-const ASSESSMENT_DEFAULTS = Object.freeze({
-  PASSING_SCORE: 70,
-  MAX_ATTEMPTS: 1,
-  DURATION: 60,
-  MAX_SCORE: 100,
+const ASSESSMENT_DIFFICULTY = Object.freeze({
+  EASY: "EASY",
+  MEDIUM: "MEDIUM",
+  HARD: "HARD",
 });
 
-const AUDIT_ACTIONS = Object.freeze({
-  CREATE: "CREATE",
-  UPDATE: "UPDATE",
-  DELETE: "DELETE",
-  PUBLISH: "PUBLISH",
-  ARCHIVE: "ARCHIVE",
-  DUPLICATE: "DUPLICATE",
+const ASSESSMENT_LIMITS = Object.freeze({
+  TITLE_MIN_LENGTH: 3,
+  TITLE_MAX_LENGTH: 255,
+  DESCRIPTION_MAX_LENGTH: 5000,
+  INSTRUCTIONS_MAX_LENGTH: 10000,
+  MIN_DURATION_MINUTES: 1,
+  MAX_DURATION_MINUTES: 1440,
+  MIN_PASSING_SCORE: 0,
+  MAX_PASSING_SCORE: 100,
+  MINIMUM_SCORE: 1,
+  MAXIMUM_SCORE: 100000,
+  MIN_ATTEMPTS: 1,
+  MAX_ATTEMPTS: 10,
 });
 
-const AUDIT_MODULES = Object.freeze({
-  ASSESSMENT: "ASSESSMENT",
-  AUTH: "AUTH",
+const ASSESSMENT_PAGINATION = Object.freeze({
+  DEFAULT_PAGE: 1,
+  DEFAULT_LIMIT: 10,
+  MIN_LIMIT: 1,
+  MAX_LIMIT: 100,
 });
+
+const ASSESSMENT_SORT_FIELDS = Object.freeze([
+  "title",
+  "status",
+  "type",
+  "difficulty",
+  "durationMinutes",
+  "passingScore",
+  "createdAt",
+  "updatedAt",
+]);
+
+const ASSESSMENT_SORT_ORDER = Object.freeze({
+  ASC: "asc",
+  DESC: "desc",
+});
+
+const ASSESSMENT_SEARCH_FIELDS = Object.freeze([
+  "title",
+  "description",
+]);
+
+const ASSESSMENT_DEFAULT_SORT = Object.freeze({
+  FIELD: "createdAt",
+  ORDER: ASSESSMENT_SORT_ORDER.DESC,
+});
+
+const ASSESSMENT_QUESTION_LIMITS = Object.freeze({
+  MIN_QUESTIONS_TO_PUBLISH: 1,
+  MIN_MARKS_PER_QUESTION: 1,
+  MAX_MARKS_PER_QUESTION: 100,
+  MIN_NEGATIVE_MARKS: 0,
+  MAX_NEGATIVE_MARKS: 100,
+  MIN_QUESTIONS: 1,
+  MAX_QUESTIONS_PER_REQUEST: 100,
+  MIN_SEQUENCE: 1,
+  MIN_MARKS: 1,
+  MAX_MARKS: 100000,
+});
+
+const ASSESSMENT_REORDER_LIMITS = Object.freeze({
+  MIN_QUESTIONS: 1,
+  MAX_QUESTIONS: 100,
+  MIN_SEQUENCE: 1,
+});
+
+const ASSESSMENT_TRANSITIONS = Object.freeze({
+  [ASSESSMENT_STATUS.DRAFT]: Object.freeze([
+    ASSESSMENT_STATUS.PUBLISHED,
+  ]),
+  [ASSESSMENT_STATUS.PUBLISHED]: Object.freeze([
+    ASSESSMENT_STATUS.DRAFT,
+    ASSESSMENT_STATUS.ACTIVE,
+  ]),
+  [ASSESSMENT_STATUS.ACTIVE]: Object.freeze([
+    ASSESSMENT_STATUS.ARCHIVED,
+  ]),
+  [ASSESSMENT_STATUS.ARCHIVED]: Object.freeze([]),
+});
+
+const isAssessmentTransitionAllowed = (fromStatus, toStatus) => {
+  const allowedTransitions = ASSESSMENT_TRANSITIONS[fromStatus] ?? [];
+  return allowedTransitions.includes(toStatus);
+};
 
 const ASSESSMENT_MESSAGES = Object.freeze({
-  CREATE_SUCCESS: "Assessment created successfully.",
-  UPDATE_SUCCESS: "Assessment updated successfully.",
-  DELETE_SUCCESS: "Assessment deleted successfully.",
-  PUBLISH_SUCCESS: "Assessment published successfully.",
-  ARCHIVE_SUCCESS: "Assessment archived successfully.",
-  DUPLICATE_SUCCESS: "Assessment duplicated successfully.",
-  ASSESSMENT_FETCHED: "Assessment fetched successfully.",
-  ASSESSMENTS_FETCHED: "Assessments retrieved successfully.",
+  CREATED: "Assessment created successfully.",
+  FETCHED: "Assessment fetched successfully.",
+  LIST_FETCHED: "Assessments retrieved successfully.",
+  UPDATED: "Assessment updated successfully.",
+  DELETED: "Assessment deleted successfully.",
+  RESTORED: "Assessment restored successfully.",
+  PUBLISHED: "Assessment published successfully.",
+  UNPUBLISHED: "Assessment unpublished successfully.",
+  ACTIVATED: "Assessment activated successfully.",
+  ARCHIVED: "Assessment archived successfully.",
+  DUPLICATED: "Assessment duplicated successfully.",
+  QUESTION_ADDED: "Question added to assessment successfully.",
+  QUESTIONS_ADDED: "Questions added to assessment successfully.",
+  QUESTION_REMOVED: "Question removed from assessment successfully.",
+  QUESTIONS_REORDERED: "Assessment questions reordered successfully.",
 });
 
 const ASSESSMENT_ERRORS = Object.freeze({
-  NOT_FOUND: "Assessment not found.",
-  ALREADY_PUBLISHED: "Assessment is already published.",
-  ALREADY_ARCHIVED: "Assessment is already archived.",
-  INVALID_STATUS: "Invalid assessment status transition.",
-  DUPLICATE_TITLE: "An assessment with this title already exists.",
-  MAX_ATTEMPTS_INVALID: "Max attempts must be at least 1.",
-  PASSING_SCORE_INVALID: "Passing score cannot exceed maximum score.",
-  CANNOT_EDIT_PUBLISHED: "Published assessments cannot be edited directly.",
+  NOT_FOUND: "ASSESSMENT_NOT_FOUND",
+  ALREADY_EXISTS: "ASSESSMENT_ALREADY_EXISTS",
+  TITLE_ALREADY_EXISTS: "ASSESSMENT_TITLE_ALREADY_EXISTS",
+  INVALID_STATUS: "ASSESSMENT_INVALID_STATUS",
+  INVALID_TYPE: "ASSESSMENT_INVALID_TYPE",
+  INVALID_DIFFICULTY: "ASSESSMENT_INVALID_DIFFICULTY",
+  INVALID_DURATION: "ASSESSMENT_INVALID_DURATION",
+  INVALID_PASSING_SCORE: "ASSESSMENT_INVALID_PASSING_SCORE",
+  INVALID_MAXIMUM_SCORE: "ASSESSMENT_INVALID_MAXIMUM_SCORE",
+  INVALID_ATTEMPTS: "ASSESSMENT_INVALID_ATTEMPTS",
+  INVALID_DATE_RANGE: "ASSESSMENT_INVALID_DATE_RANGE",
+  INVALID_QUESTIONS: "ASSESSMENT_INVALID_QUESTIONS",
+  NO_QUESTIONS: "ASSESSMENT_NO_QUESTIONS",
+  INVALID_QUESTION_SEQUENCE: "ASSESSMENT_INVALID_QUESTION_SEQUENCE",
+  INVALID_TOTAL_MARKS: "ASSESSMENT_INVALID_TOTAL_MARKS",
+  QUESTION_NOT_FOUND: "ASSESSMENT_QUESTION_NOT_FOUND",
+  QUESTION_ALREADY_ASSIGNED: "ASSESSMENT_QUESTION_ALREADY_ASSIGNED",
+  QUESTION_NOT_ASSIGNED: "ASSESSMENT_QUESTION_NOT_ASSIGNED",
+  CANNOT_UPDATE: "ASSESSMENT_CANNOT_BE_UPDATED",
+  CANNOT_DELETE: "ASSESSMENT_CANNOT_BE_DELETED",
+  CANNOT_PUBLISH: "ASSESSMENT_CANNOT_BE_PUBLISHED",
+  CANNOT_UNPUBLISH: "ASSESSMENT_CANNOT_BE_UNPUBLISHED",
+  UNPUBLISH_NOT_ALLOWED: "ASSESSMENT_UNPUBLISH_NOT_ALLOWED",
+  CANNOT_ACTIVATE: "ASSESSMENT_CANNOT_BE_ACTIVATED",
+  ALREADY_EXPIRED: "ASSESSMENT_ALREADY_EXPIRED",
+  CANNOT_ARCHIVE: "ASSESSMENT_CANNOT_BE_ARCHIVED",
+  ALREADY_ARCHIVED: "ASSESSMENT_ALREADY_ARCHIVED",
+  DUPLICATE_FAILED: "ASSESSMENT_DUPLICATE_FAILED",
+  DUPLICATE_NOT_ALLOWED: "ASSESSMENT_DUPLICATE_NOT_ALLOWED",
+  CANNOT_RESTORE: "ASSESSMENT_CANNOT_BE_RESTORED",
+  ALREADY_ACTIVE: "ASSESSMENT_ALREADY_ACTIVE",
+  OWNERSHIP_REQUIRED: "ASSESSMENT_OWNERSHIP_REQUIRED",
+  ACCESS_DENIED: "ASSESSMENT_ACCESS_DENIED",
 });
 
-module.exports = Object.freeze({
+const ASSESSMENT_QUESTION_MESSAGES = Object.freeze({
+  ASSIGNED: "Questions assigned to assessment successfully.",
+  REMOVED: "Question removed from assessment successfully.",
+  REORDERED: "Assessment questions reordered successfully.",
+});
+
+const ASSESSMENT_QUESTION_ERRORS = Object.freeze({
+  INVALID_PAYLOAD: "ASSESSMENT_QUESTION_INVALID_PAYLOAD",
+  ASSESSMENT_NOT_FOUND: "ASSESSMENT_NOT_FOUND",
+  ASSESSMENT_NOT_EDITABLE: "ASSESSMENT_NOT_EDITABLE",
+  ACCESS_DENIED: "ASSESSMENT_ACCESS_DENIED",
+  QUESTIONS_NOT_FOUND: "ASSESSMENT_QUESTIONS_NOT_FOUND",
+  QUESTION_NOT_PUBLISHED: "ASSESSMENT_QUESTION_NOT_PUBLISHED",
+  QUESTION_INACTIVE: "ASSESSMENT_QUESTION_INACTIVE",
+  DUPLICATE_QUESTION: "ASSESSMENT_QUESTION_DUPLICATE",
+  DUPLICATE_SEQUENCE: "ASSESSMENT_QUESTION_DUPLICATE_SEQUENCE",
+  INVALID_SEQUENCE: "ASSESSMENT_QUESTION_INVALID_SEQUENCE",
+  INVALID_MARKS: "ASSESSMENT_QUESTION_INVALID_MARKS",
+  INVALID_NEGATIVE_MARKS: "ASSESSMENT_QUESTION_INVALID_NEGATIVE_MARKS",
+  MAXIMUM_SCORE_EXCEEDED: "ASSESSMENT_MAXIMUM_SCORE_EXCEEDED",
+  INVALID_REORDER: "ASSESSMENT_QUESTION_INVALID_REORDER",
+});
+
+module.exports = {
   ASSESSMENT_STATUS,
-  DIFFICULTY_LEVELS,
-  ASSESSMENT_TYPES,
-  ASSESSMENT_DEFAULTS,
-  AUDIT_ACTIONS,
-  AUDIT_MODULES,
+  ASSESSMENT_TYPE,
+  ASSESSMENT_DIFFICULTY,
+  ASSESSMENT_LIMITS,
+  ASSESSMENT_PAGINATION,
+  ASSESSMENT_SORT_FIELDS,
+  ASSESSMENT_SORT_ORDER,
+  ASSESSMENT_SEARCH_FIELDS,
+  ASSESSMENT_DEFAULT_SORT,
+  ASSESSMENT_QUESTION_LIMITS,
+  ASSESSMENT_REORDER_LIMITS,
+  ASSESSMENT_TRANSITIONS,
+  isAssessmentTransitionAllowed,
   ASSESSMENT_MESSAGES,
   ASSESSMENT_ERRORS,
-});
+  ASSESSMENT_QUESTION_MESSAGES,
+  ASSESSMENT_QUESTION_ERRORS,
+};

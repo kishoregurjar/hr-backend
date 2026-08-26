@@ -1,26 +1,26 @@
-const routes = require("./assessment.routes");
-const service = require("./assessment.service");
-const controller = require("./assessment.controller");
-const repository = require("./assessment.repository");
-const validator = require("./assessment.validator");
-const mapper = require("./assessment.mapper");
-const constants = require("./assessment.constants");
+const assessmentRoutes = require("./assessment.routes");
+const assessmentService = require("./assessment.service");
+const assessmentRepository = require("./assessment.repository");
+const assessmentController = require("./assessment.controller");
+const assessmentValidator = require("./assessment.validator");
+const assessmentConstants = require("./assessment.constants");
+const assessmentMapper = require("./assessment.mapper");
 
 /**
  * ==========================================================
- * Assessment Module Central Index Exporter
+ * Assessment Module Index Exporter
  * ==========================================================
  * Main export is Express Router so require("../modules/assessment") works directly.
- * Sub-properties (service, controller, repository, etc.) attached to exports.
+ * Matches 100% Zero-Subfolder Pure Option A Standard.
  * ==========================================================
  */
 
-module.exports = routes;
+module.exports = assessmentRoutes;
 
-module.exports.routes = routes;
-module.exports.service = service;
-module.exports.controller = controller;
-module.exports.repository = repository;
-module.exports.validator = validator;
-module.exports.mapper = mapper;
-module.exports.constants = constants;
+module.exports.routes = assessmentRoutes;
+module.exports.service = assessmentService;
+module.exports.repository = assessmentRepository;
+module.exports.controller = assessmentController;
+module.exports.validator = assessmentValidator;
+module.exports.constants = assessmentConstants;
+module.exports.mapper = assessmentMapper;

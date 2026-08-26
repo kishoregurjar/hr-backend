@@ -1,249 +1,171 @@
-const asyncHandler = require("../../utils/asyncHandler");
-const ApiResponse = require("../../utils/ApiResponse");
-const { getClientIp, getUserAgent } = require("../../utils/request");
+const { StatusCodes } = require("http-status-codes");
+const { asyncHandler } = require("../../utils/async-handler");
+const { SuccessResponse } = require("../../common/response");
 const { COOKIE_NAMES, AUTH_MESSAGES } = require("./auth.constants");
-
 const authService = require("./auth.service");
-
-const {
-  setRefreshTokenCookie,
-  clearRefreshTokenCookie,
-} = require("./utils/cookie");
-
-const {
-  toProfileResponse,
-  toUserResponse,
-} = require("./auth.mapper");
+const { setRefreshTokenCookie, clearRefreshTokenCookie } = require("./auth.utils");
+const { AuthDto } = require("./auth.dto");
 
 /**
  * =====================================================
- * Auth Controller
+ * Enterprise Auth Controller
  * =====================================================
- * Pure HTTP Request/Response handling layer for Authentication:
- * - Proxy-safe IP & User-Agent extraction
- * - Input Extraction & Service invocation
- * - Cookie Management (HTTP-only Refresh Token Cookies)
- * - ApiResponse Formatting & Error Delegation
+ * Pure HTTP Request/Response handling layer for Authentication.
+ * Placed directly at module root matching 100% Zero-Subfolder Standard.
  * =====================================================
  */
+class AuthController {
+  register = asyncHandler(async (req, res) => {
+    const payload = req.validatedData || req.body;
+    const result = await authService.register(payload);
 
-/**
- * Register Controller
- */
-const register = asyncHandler(async (req, res) => {
-  const result = await authService.register({
-    firstName: req.body.firstName,
-    lastName: req.body.lastName,
-    email: req.body.email,
-    password: req.body.password,
-    role: req.body.role,
-    ipAddress: getClientIp(req),
-    userAgent: getUserAgent(req),
-  });
+    if (result.refreshToken) {
+      setRefreshTokenCookie(res, result.refreshToken);
+    }
 
-  return res.status(201).json(
-    new ApiResponse(
-      201,
-      result.data,
-      result.message
-    )
-  );
-});
-
-/**
- * Login Controller
- */
-const login = asyncHandler(async (req, res) => {
-  const result = await authService.login({
-    email: req.body.email,
-    password: req.body.password,
-    ipAddress: getClientIp(req),
-    userAgent: getUserAgent(req),
-  });
-
-  /**
-   * Refresh Token Stored in HTTP Only Cookie
-   */
-  setRefreshTokenCookie(
-    res,
-    result.refreshToken
-  );
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
+    return SuccessResponse.send(
+      res,
       {
-        accessToken: result.accessToken,
-        user: toProfileResponse(
-          result.user
-        ),
+        message: result.message || "User registered successfully.",
+        data: {
+          accessToken: result.accessToken,
+          user: result.user,
+        },
       },
-      result.message
-    )
-  );
-});
+      StatusCodes.CREATED
+    );
+  });
 
-/**
- * Refresh Access Token Controller
- */
-const refreshToken = asyncHandler(async (req, res) => {
-  const incomingRefreshToken =
-    req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || req.body?.refreshToken;
+  login = asyncHandler(async (req, res) => {
+    const payload = req.validatedData || req.body;
+    const result = await authService.login(payload);
 
-  const result = await authService.refreshAccessToken(incomingRefreshToken);
+    if (result.refreshToken) {
+      setRefreshTokenCookie(res, result.refreshToken);
+    }
 
-  setRefreshTokenCookie(res, result.refreshToken);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
+    return SuccessResponse.send(
+      res,
       {
-        accessToken: result.accessToken,
-        user: toUserResponse(result.user),
+        message: result.message || "Login successful.",
+        data: {
+          accessToken: result.accessToken,
+          user: result.user,
+        },
       },
-      result.message
-    )
-  );
-});
-
-/**
- * Logout Current Device Controller
- */
-const logout = asyncHandler(async (req, res) => {
-  const incomingRefreshToken =
-    req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || req.body?.refreshToken;
-
-  const result = await authService.logout({
-    refreshToken: incomingRefreshToken,
-    ipAddress: getClientIp(req),
-    userAgent: getUserAgent(req),
+      StatusCodes.OK
+    );
   });
 
-  clearRefreshTokenCookie(res);
+  refreshToken = asyncHandler(async (req, res) => {
+    const incomingRefreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || req.body?.refreshToken;
+    const result = await authService.refreshAccessToken(incomingRefreshToken);
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      null,
-      result.message
-    )
-  );
-});
+    if (result.refreshToken) {
+      setRefreshTokenCookie(res, result.refreshToken);
+    }
 
-/**
- * Logout All Devices Controller
- */
-const logoutAllDevices = asyncHandler(async (req, res) => {
-  const result = await authService.logoutAllDevices({
-    userId: req.user.id,
-    ipAddress: getClientIp(req),
-    userAgent: getUserAgent(req),
-  });
-
-  clearRefreshTokenCookie(res);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      null,
-      result.message
-    )
-  );
-});
-
-/**
- * Forgot Password Controller
- */
-const forgotPassword = asyncHandler(async (req, res) => {
-  const result = await authService.forgotPassword({
-    email: req.body.email,
-    ipAddress: getClientIp(req),
-    userAgent: getUserAgent(req),
-  });
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      null,
-      result.message
-    )
-  );
-});
-
-/**
- * Reset Password Controller
- */
-const resetPassword = asyncHandler(async (req, res) => {
-  const result = await authService.resetPassword({
-    token: req.body.token,
-    newPassword: req.body.newPassword || req.body.password,
-    ipAddress: getClientIp(req),
-    userAgent: getUserAgent(req),
-  });
-
-  /**
-   * Password reset invalidates all previous sessions
-   */
-  clearRefreshTokenCookie(res);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      null,
-      result.message
-    )
-  );
-});
-
-/**
- * Change Password Controller
- */
-const changePassword = asyncHandler(async (req, res) => {
-  const result = await authService.changePassword({
-    userId: req.user.id,
-    currentPassword: req.body.currentPassword,
-    newPassword: req.body.newPassword,
-    ipAddress: getClientIp(req),
-    userAgent: getUserAgent(req),
-  });
-
-  /**
-   * Force fresh login across devices
-   */
-  clearRefreshTokenCookie(res);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      null,
-      result.message
-    )
-  );
-});
-
-/**
- * Get Current User Profile Controller
- */
-const getCurrentUser = asyncHandler(async (req, res) => {
-  return res.status(200).json(
-    new ApiResponse(
-      200,
+    return SuccessResponse.send(
+      res,
       {
-        user: toProfileResponse(req.user),
+        message: result.message || "Token refreshed successfully.",
+        data: {
+          accessToken: result.accessToken,
+          user: result.user,
+        },
       },
-      AUTH_MESSAGES.CURRENT_USER_FETCHED
-    )
-  );
-});
+      StatusCodes.OK
+    );
+  });
 
-module.exports = {
-  register,
-  login,
-  refreshToken,
-  logout,
-  logoutAllDevices,
-  forgotPassword,
-  resetPassword,
-  changePassword,
-  getCurrentUser,
-};
+  logout = asyncHandler(async (req, res) => {
+    const incomingRefreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || req.body?.refreshToken;
+    const result = await authService.logout(incomingRefreshToken);
+
+    clearRefreshTokenCookie(res);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Logged out successfully.",
+      },
+      StatusCodes.OK
+    );
+  });
+
+  logoutAllDevices = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const result = await authService.logoutAllDevices(userId);
+
+    clearRefreshTokenCookie(res);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Logged out from all devices successfully.",
+      },
+      StatusCodes.OK
+    );
+  });
+
+  forgotPassword = asyncHandler(async (req, res) => {
+    const payload = req.validatedData || req.body;
+    const result = await authService.forgotPassword(payload);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "If an account exists with that email, a password reset link has been sent.",
+      },
+      StatusCodes.OK
+    );
+  });
+
+  resetPassword = asyncHandler(async (req, res) => {
+    const payload = req.validatedData || req.body;
+    const result = await authService.resetPassword(payload);
+
+    clearRefreshTokenCookie(res);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Password reset successful.",
+      },
+      StatusCodes.OK
+    );
+  });
+
+  changePassword = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const payload = req.validatedData || req.body;
+    const result = await authService.changePassword(userId, payload);
+
+    clearRefreshTokenCookie(res);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Password changed successfully.",
+      },
+      StatusCodes.OK
+    );
+  });
+
+  getCurrentUser = asyncHandler(async (req, res) => {
+    return SuccessResponse.send(
+      res,
+      {
+        message: AUTH_MESSAGES.CURRENT_USER_FETCHED || "User profile fetched successfully.",
+        data: {
+          user: AuthDto.toResponse(req.user),
+        },
+      },
+      StatusCodes.OK
+    );
+  });
+}
+
+const authController = new AuthController();
+
+module.exports = authController;
