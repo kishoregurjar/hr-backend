@@ -1,120 +1,120 @@
 const express = require("express");
 const router = express.Router();
 
-const validateRequest = require("../../middleware/validateRequest");
-const requireAuth = require("../auth/middleware/requireAuth.middleware");
-const requireRole = require("../auth/middleware/requireRole.middleware");
+const validateRequest = require("../../middleware/validate.middleware");
+const requireAuth = require("../../middleware/requireAuth");
+const requireRole = require("../../middleware/requireRole");
 const { AUTH_ROLES } = require("../auth/auth.constants");
 
 const controller = require("./assessment.controller");
 const {
   createAssessmentSchema,
-  updateAssessmentSchema,
-  assessmentIdParamSchema,
   assessmentQuerySchema,
+  assessmentIdParamSchema,
+  updateAssessmentSchema,
+  assignAssessmentQuestionsSchema,
+  reorderAssessmentQuestionsSchema,
+  duplicateAssessmentSchema,
 } = require("./assessment.validator");
 
-/**
- * ==========================================================
- * Assessment Module Routes
- * ==========================================================
- * Base Path: /api/v1/assessments
- * Protected Routes with Authentication, RBAC & Zod Validation
- * ==========================================================
- */
+router.use(requireAuth);
 
-/**
- * Create Assessment
- * POST /api/v1/assessments
- */
+router.get(
+  "/",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(assessmentQuerySchema),
+  controller.list
+);
+
 router.post(
   "/",
-  requireAuth,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(createAssessmentSchema),
-  controller.createAssessment
+  controller.create
 );
 
-/**
- * Get All Assessments
- * GET /api/v1/assessments
- */
-router.get(
-  "/",
-  requireAuth,
-  validateRequest(assessmentQuerySchema),
-  controller.listAssessments
-);
-
-/**
- * Get Assessment By ID
- * GET /api/v1/assessments/:id
- */
-router.get(
-  "/:id",
-  requireAuth,
-  validateRequest(assessmentIdParamSchema),
-  controller.getAssessment
-);
-
-/**
- * Update Assessment
- * PATCH /api/v1/assessments/:id
- */
-router.patch(
-  "/:id",
-  requireAuth,
+router.post(
+  "/:id/questions",
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(updateAssessmentSchema),
-  controller.updateAssessment
+  validateRequest(assignAssessmentQuestionsSchema),
+  controller.assignQuestions
 );
 
-/**
- * Publish Assessment
- * PATCH /api/v1/assessments/:id/publish
- */
 router.patch(
+  "/:id/questions/reorder",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(reorderAssessmentQuestionsSchema),
+  controller.reorderQuestions
+);
+
+router.post(
   "/:id/publish",
-  requireAuth,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(assessmentIdParamSchema),
-  controller.publishAssessment
+  controller.publish
 );
 
-/**
- * Archive Assessment
- * PATCH /api/v1/assessments/:id/archive
- */
-router.patch(
+router.post(
+  "/:id/unpublish",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(assessmentIdParamSchema),
+  controller.unpublish
+);
+
+router.post(
+  "/:id/activate",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(assessmentIdParamSchema),
+  controller.activate
+);
+
+router.post(
   "/:id/archive",
-  requireAuth,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(assessmentIdParamSchema),
-  controller.archiveAssessment
+  controller.archive
 );
 
-/**
- * Duplicate Assessment
- * POST /api/v1/assessments/:id/duplicate
- */
 router.post(
   "/:id/duplicate",
-  requireAuth,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
-  controller.duplicateAssessment
+  validateRequest(duplicateAssessmentSchema),
+  controller.duplicate
 );
 
-/**
- * Soft Delete Assessment
- * DELETE /api/v1/assessments/:id
- */
-router.delete(
-  "/:id",
-  requireAuth,
+router.patch(
+  "/:id/restore",
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(assessmentIdParamSchema),
-  controller.deleteAssessment
+  controller.restore
+);
+
+router.get(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(assessmentIdParamSchema),
+  controller.getById
+);
+
+router.patch(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(updateAssessmentSchema),
+  controller.update
+);
+
+router.put(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(updateAssessmentSchema),
+  controller.update
+);
+
+router.delete(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(assessmentIdParamSchema),
+  controller.delete
 );
 
 module.exports = router;

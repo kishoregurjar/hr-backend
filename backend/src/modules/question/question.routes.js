@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 
-const validateRequest = require("../../middleware/validateRequest");
-const requireAuth = require("../auth/middleware/requireAuth.middleware");
-const requireRole = require("../auth/middleware/requireRole.middleware");
+const validateRequest = require("../../middleware/validate.middleware");
+const requireAuth = require("../../middleware/requireAuth");
+const requireRole = require("../../middleware/requireRole");
 const { AUTH_ROLES } = require("../auth/auth.constants");
 
 const controller = require("./question.controller");
@@ -14,41 +14,15 @@ const {
   questionQuerySchema,
 } = require("./question.validator");
 
-/**
- * ==========================================================
- * Question Bank Module Routes
- * ==========================================================
- * Base Path: /api/v1/questions
- * Protected Routes: Requires Authentication (HR or SUPER_ADMIN Roles for mutation)
- * ==========================================================
- */
-
 router.use(requireAuth);
 
-/**
- * List Questions (Paginated, Searchable, Filterable by type/difficulty/status/category/tag)
- * GET /api/v1/questions
- */
 router.get(
   "/",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(questionQuerySchema),
   controller.list
 );
 
-/**
- * Get Question By ID
- * GET /api/v1/questions/:id
- */
-router.get(
-  "/:id",
-  validateRequest(questionIdParamSchema),
-  controller.getById
-);
-
-/**
- * Create Question
- * POST /api/v1/questions
- */
 router.post(
   "/",
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
@@ -56,32 +30,6 @@ router.post(
   controller.create
 );
 
-/**
- * Update Question
- * PATCH /api/v1/questions/:id
- */
-router.patch(
-  "/:id",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(updateQuestionSchema),
-  controller.update
-);
-
-/**
- * Soft Delete Question
- * DELETE /api/v1/questions/:id
- */
-router.delete(
-  "/:id",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(questionIdParamSchema),
-  controller.delete
-);
-
-/**
- * Publish Question
- * POST /api/v1/questions/:id/publish
- */
 router.post(
   "/:id/publish",
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
@@ -89,15 +37,39 @@ router.post(
   controller.publish
 );
 
-/**
- * Archive Question
- * POST /api/v1/questions/:id/archive
- */
 router.post(
   "/:id/archive",
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(questionIdParamSchema),
   controller.archive
+);
+
+router.get(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(questionIdParamSchema),
+  controller.getById
+);
+
+router.patch(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(updateQuestionSchema),
+  controller.update
+);
+
+router.put(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(updateQuestionSchema),
+  controller.update
+);
+
+router.delete(
+  "/:id",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(questionIdParamSchema),
+  controller.delete
 );
 
 module.exports = router;

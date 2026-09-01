@@ -1,59 +1,54 @@
 const env = require("./env");
 
-const rawOrigins = env.cors.origin ? env.cors.origin.split(",").map((o) => o.trim().replace(/\/$/, "")) : [];
+/**
+ * ==========================================================
+ * Enterprise CORS Configuration
+ * ==========================================================
+ * Environment-aware CORS policy handling localhost, ngrok tunnels,
+ * and production client domain whitelisting.
+ * ==========================================================
+ */
 
-const defaultDevOrigins = [
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://localhost:3001",
-  "http://127.0.0.1:3001",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-];
+// Parse comma-separated CLIENT_URL values from env
+const allowedOrigins = (env.cors.origin || "")
+  .split(",")
+  .map((url) => url.trim())
+  .filter(Boolean);
 
 const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow server-to-server or non-browser tools (e.g. Postman, cURL)
-    if (!origin) {
+  origin: function (origin, callback) {
+    // 1. Allow non-browser requests (Postman, mobile apps, server-to-server)
+    if (!origin) return callback(null, true);
+
+    // 2. In development mode, allow localhost and any ngrok tunnel origins
+    if (
+      env.nodeEnv === "development" &&
+      (origin.includes("localhost") || origin.includes("ngrok") || origin.includes("127.0.0.1"))
+    ) {
       return callback(null, true);
     }
 
-    const cleanOrigin = origin.replace(/\/$/, "");
-
-    // Check configured origins
-    if (rawOrigins.includes(cleanOrigin) || rawOrigins.includes("*")) {
+    // 3. Match whitelisted production origins
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
-    // In development, allow localhost, 127.0.0.1, and dev tunnel URLs
-    if (env.nodeEnv !== "production") {
-      if (
-        defaultDevOrigins.includes(cleanOrigin) ||
-        /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(cleanOrigin) ||
-        cleanOrigin.endsWith(".ngrok-free.app") ||
-        cleanOrigin.endsWith(".ngrok.io") ||
-        cleanOrigin.endsWith(".loca.lt")
-      ) {
-        return callback(null, true);
-      }
-    }
-
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
+    return callback(new Error(`CORS Error: Origin ${origin} is not allowed by CORS policy.`));
   },
+
   credentials: true,
+
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
   allowedHeaders: [
     "Content-Type",
     "Authorization",
-    "ngrok-skip-browser-warning",
     "X-Requested-With",
     "Accept",
-    "Origin",
-    "Access-Control-Request-Method",
-    "Access-Control-Request-Headers",
+    "ngrok-skip-browser-warning",
   ],
-  exposedHeaders: ["Content-Disposition", "X-Request-Id"],
-  optionsSuccessStatus: 200,
+
+  exposedHeaders: ["Set-Cookie"],
 };
 
 module.exports = corsOptions;

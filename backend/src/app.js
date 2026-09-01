@@ -1,66 +1,113 @@
+"use strict";
+
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
+const compression = require("compression");
+const cookieParser = require("cookie-parser");
+const hpp = require("hpp");
 
 const corsOptions = require("./config/cors");
-
-const securityMiddleware = require("./middleware/security.middleware");
-const requestId = require("./middleware/requestId.middleware");
+const requestIdMiddleware = require("./middleware/requestId.middleware");
 const requestLogger = require("./middleware/requestLogger.middleware");
-const { globalRateLimiter } = require("./middleware/rateLimit.middleware");
-const notFound = require("./middleware/notFound.middleware");
-const errorHandler = require("./middleware/error.middleware");
+const notFoundMiddleware = require("./middleware/not-found.middleware");
+const errorMiddleware = require("./middleware/error.middleware");
 
+const { createRateLimiter } = require("./middleware/rate-limit.middleware");
+const { RATE_LIMIT_POLICIES } = require("./config/rate-limit");
 
 const routes = require("./routes");
 
 const app = express();
 
 /**
- * Enable Trust Proxy for Reverse Proxies (Cloudflare/Nginx)
+ * Configure Express Trust Proxy according to production reverse proxy topology
+ * Prevents forged X-Forwarded-For IP spoofing attacks.
+ * Defaults to 1 proxy hop if TRUST_PROXY is omitted.
  */
-app.set("trust proxy", true);
+const getTrustProxyConfig = () => {
+  const envVal = process.env.TRUST_PROXY;
+  if (envVal === undefined || envVal === null || envVal === "") return 1;
+  if (envVal === "true") return true;
+  if (envVal === "false") return false;
+  if (!isNaN(Number(envVal))) return Number(envVal);
+  return envVal;
+};
+
+app.set("trust proxy", getTrustProxyConfig());
 
 /**
- * CORS (Applied first so preflight OPTIONS requests are answered immediately)
+ * 1. Request ID (MUST BE FIRST FOR LOGGING & TRACING)
+ */
+app.use(requestIdMiddleware);
+
+/**
+ * 2. Request Body Parser
+ */
+app.use(
+  express.json({
+    limit: "1mb",
+  })
+);
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "1mb",
+  })
+);
+app.use(cookieParser());
+
+/**
+ * 3. CORS Policy
  */
 app.use(cors(corsOptions));
 
 /**
- * Request ID
+ * 4. Helmet Security Headers
  */
-app.use(requestId);
+app.use(
+  helmet({
+    crossOriginResourcePolicy: {
+      policy: "cross-origin",
+    },
+  })
+);
 
 /**
- * Request Logger
+ * 5. Parameter Pollution & Compression
+ */
+app.use(hpp());
+app.use(compression());
+
+/**
+ * 6. Request Logging
  */
 app.use(requestLogger);
 
 /**
- * Global Rate Limiter
+ * 7. Global Rate Limiter
  */
-
-app.use(globalRateLimiter);
+app.use(
+  createRateLimiter({
+    namespace: "global",
+    ...RATE_LIMIT_POLICIES.GLOBAL,
+    keyGenerator: (req) => req.ip,
+  })
+);
 
 /**
- * Security
- */
-securityMiddleware(app);
-
-/**
- * Routes
+ * 8. Domain API Routes (/api/v1)
  */
 app.use("/api/v1", routes);
 
 /**
- * 404 Handler
+ * 9. Catch-All Unknown Routes Handler (404)
  */
-app.use(notFound);
+app.use(notFoundMiddleware);
 
 /**
- * Global Error Handler
+ * 10. Central Error Middleware (ALWAYS LAST - Express 4-arity error handler)
  */
-app.use(errorHandler);
-
-
+app.use(errorMiddleware);
 
 module.exports = app;

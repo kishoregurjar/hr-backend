@@ -5,13 +5,14 @@ const repository = require("./tag.repository");
 const validator = require("./tag.validator");
 const dto = require("./tag.dto");
 const mapper = require("./tag.mapper");
-const constants = require("./constants");
+const constants = require("./tag.constants");
 
 /**
  * ==========================================================
  * Tag Module Central Index Exporter
  * ==========================================================
  * Main export is Express Router so require("../modules/tag") works directly.
+ * Placed directly at module root matching Option A Standard.
  * ==========================================================
  */
 

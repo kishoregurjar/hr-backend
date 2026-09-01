@@ -1,21 +1,40 @@
 const express = require("express");
-const authRoutes = require("../modules/auth/auth.routes");
-const assessmentRoutes = require("../modules/assessment/assessment.routes");
+const { StatusCodes } = require("http-status-codes");
+const { SuccessResponse } = require("../common/response");
+
+const authRoutes = require("../modules/auth");
+const assessmentRoutes = require("../modules/assessment");
 const questionRoutes = require("../modules/question");
 const categoryRoutes = require("../modules/category");
 const tagRoutes = require("../modules/tag");
+const attemptRoutes = require("../modules/attempt");
 
 const router = express.Router();
 
 /**
- * Health Check
+ * ==========================================================
+ * Centralized API Router (/api/v1)
+ * ==========================================================
+ * Connects all domain modules using clean index facades.
+ * ==========================================================
+ */
+
+/**
+ * Liveness & Health Check Endpoint
+ * GET /api/v1/health
  */
 router.get("/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Server is running successfully",
-    timestamp: new Date().toISOString(),
-  });
+  return SuccessResponse.send(
+    res,
+    {
+      message: "Server is healthy and running.",
+      data: {
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+      },
+    },
+    StatusCodes.OK
+  );
 });
 
 /**
@@ -29,7 +48,12 @@ router.use("/auth", authRoutes);
 router.use("/assessments", assessmentRoutes);
 
 /**
- * Question Module Routes (/api/v1/questions)
+ * Assessment Attempt Module Routes (/api/v1/attempts)
+ */
+router.use("/attempts", attemptRoutes);
+
+/**
+ * Question Bank Module Routes (/api/v1/questions)
  */
 router.use("/questions", questionRoutes);
 

@@ -5,13 +5,14 @@ const repository = require("./category.repository");
 const validator = require("./category.validator");
 const dto = require("./category.dto");
 const mapper = require("./category.mapper");
-const constants = require("./constants");
+const constants = require("./category.constants");
 
 /**
  * ==========================================================
  * Category Module Central Index Exporter
  * ==========================================================
  * Main export is Express Router so require("../modules/category") works directly.
+ * Placed directly at module root matching Option A Standard.
  * ==========================================================
  */
 

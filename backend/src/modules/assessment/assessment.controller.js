@@ -1,169 +1,284 @@
-const asyncHandler = require("../../utils/asyncHandler");
-const ApiResponse = require("../../utils/ApiResponse");
-
+const { StatusCodes } = require("http-status-codes");
+const { asyncHandler } = require("../../utils/async-handler");
+const { SuccessResponse } = require("../../common/response");
+const { ASSESSMENT_MESSAGES } = require("./assessment.constants");
 const assessmentService = require("./assessment.service");
 
-const {
-  ASSESSMENT_MESSAGES,
-} = require("./assessment.constants");
-
 /**
  * ==========================================================
- * Assessment Controller
+ * Enterprise Assessment Controller
  * ==========================================================
- * Express HTTP handlers for Assessment module endpoints.
- * Contains ZERO business logic (delegates completely to services).
+ * Express HTTP handlers for Assessment Builder endpoints.
+ * Placed directly at module root matching 100% Zero-Subfolder Standard.
  * ==========================================================
  */
+class AssessmentController {
+  /**
+   * Create Assessment Handler
+   * POST /api/v1/assessments
+   */
+  create = asyncHandler(async (req, res) => {
+    const data = req.validatedData || req.validatedBody || req.body;
+    const userId = req.user?.id;
 
-/**
- * Create Assessment Handler
- */
-const createAssessment = asyncHandler(async (req, res) => {
-  const result = await assessmentService.createAssessment({
-    user: req.user,
-    body: req.body,
+    const result = await assessmentService.createAssessment(data, userId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.CREATED,
+        data: result.data,
+      },
+      StatusCodes.CREATED
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.CREATE_SUCCESS;
+  /**
+   * List Assessments Handler (Paginated, Searchable, Sorted, Filtered)
+   * GET /api/v1/assessments
+   */
+  list = asyncHandler(async (req, res) => {
+    const query = req.validatedData || req.validatedQuery || req.query;
+    const user = req.user;
 
-  return res.status(201).json(
-    new ApiResponse(201, data, message)
-  );
-});
+    const result = await assessmentService.getAssessments(query, user);
 
-/**
- * Update Assessment Handler
- */
-const updateAssessment = asyncHandler(async (req, res) => {
-  const result = await assessmentService.updateAssessment({
-    assessmentId: req.params.id,
-    id: req.params.id,
-    user: req.user,
-    body: req.body,
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.LIST_FETCHED,
+        data: result.data,
+        meta: result.meta,
+      },
+      StatusCodes.OK
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.UPDATE_SUCCESS;
+  /**
+   * Get Assessment By ID Handler
+   * GET /api/v1/assessments/:id
+   */
+  getById = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
 
-  return res.status(200).json(
-    new ApiResponse(200, data, message)
-  );
-});
+    const result = await assessmentService.getAssessmentById(id, user);
 
-/**
- * Get Assessment By ID Handler
- */
-const getAssessment = asyncHandler(async (req, res) => {
-  const result = await assessmentService.getAssessmentById({
-    assessmentId: req.params.id,
-    id: req.params.id,
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.FETCHED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.ASSESSMENT_FETCHED;
+  /**
+   * Update Assessment Handler
+   * PATCH /api/v1/assessments/:id
+   */
+  update = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const data = req.validatedData || req.validatedBody || req.body;
+    const user = req.user;
 
-  return res.status(200).json(
-    new ApiResponse(200, data, message)
-  );
-});
+    const result = await assessmentService.updateAssessment(id, data, user);
 
-/**
- * List Assessments Handler
- */
-const listAssessments = asyncHandler(async (req, res) => {
-  const result = await assessmentService.listAssessments({
-    query: req.query,
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.UPDATED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.ASSESSMENTS_FETCHED;
+  /**
+   * Soft Delete Assessment Handler
+   * DELETE /api/v1/assessments/:id
+   */
+  delete = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
 
-  return res.status(200).json(
-    new ApiResponse(200, data, message)
-  );
-});
+    const result = await assessmentService.deleteAssessment(id, user);
 
-/**
- * Publish Assessment Handler
- */
-const publishAssessment = asyncHandler(async (req, res) => {
-  const result = await assessmentService.publishAssessment({
-    assessmentId: req.params.id,
-    id: req.params.id,
-    user: req.user,
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.DELETED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.PUBLISH_SUCCESS;
+  /**
+   * Restore Assessment Handler
+   * PATCH /api/v1/assessments/:id/restore
+   */
+  restore = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
 
-  return res.status(200).json(
-    new ApiResponse(200, data, message)
-  );
-});
+    const result = await assessmentService.restoreAssessment(id, user);
 
-/**
- * Archive Assessment Handler
- */
-const archiveAssessment = asyncHandler(async (req, res) => {
-  const result = await assessmentService.archiveAssessment({
-    assessmentId: req.params.id,
-    id: req.params.id,
-    user: req.user,
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.RESTORED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.ARCHIVE_SUCCESS;
+  /**
+   * Assign Questions to Assessment Handler
+   * POST /api/v1/assessments/:id/questions
+   */
+  assignQuestions = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const data = req.validatedData || req.validatedBody || req.body;
+    const user = req.user;
 
-  return res.status(200).json(
-    new ApiResponse(200, data, message)
-  );
-});
+    const result = await assessmentService.assignQuestions(id, data, user);
 
-/**
- * Duplicate Assessment Handler
- */
-const duplicateAssessment = asyncHandler(async (req, res) => {
-  const result = await assessmentService.duplicateAssessment({
-    assessmentId: req.params.id,
-    id: req.params.id,
-    user: req.user,
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Questions assigned to assessment successfully.",
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.DUPLICATE_SUCCESS;
+  /**
+   * Reorder Assessment Questions Handler
+   * PATCH /api/v1/assessments/:id/questions/reorder
+   */
+  reorderQuestions = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const data = req.validatedData || req.validatedBody || req.body;
+    const user = req.user;
 
-  return res.status(201).json(
-    new ApiResponse(201, data, message)
-  );
-});
+    const result = await assessmentService.reorderQuestions(id, data, user);
 
-/**
- * Delete Assessment Handler
- */
-const deleteAssessment = asyncHandler(async (req, res) => {
-  const result = await assessmentService.deleteAssessment({
-    assessmentId: req.params.id,
-    id: req.params.id,
-    user: req.user,
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Assessment questions reordered successfully.",
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
   });
 
-  const data = result?.data !== undefined ? result.data : result;
-  const message = result?.message || ASSESSMENT_MESSAGES.DELETE_SUCCESS;
+  /**
+   * Publish Assessment Handler
+   * POST /api/v1/assessments/:id/publish
+   */
+  publish = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
 
-  return res.status(200).json(
-    new ApiResponse(200, data, message)
-  );
-});
+    const result = await assessmentService.publishAssessment(id, user);
 
-module.exports = {
-  createAssessment,
-  updateAssessment,
-  getAssessment,
-  listAssessments,
-  publishAssessment,
-  archiveAssessment,
-  duplicateAssessment,
-  deleteAssessment,
-};
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.PUBLISHED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Unpublish Assessment Handler
+   * POST /api/v1/assessments/:id/unpublish
+   */
+  unpublish = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
+
+    const result = await assessmentService.unpublishAssessment(id, user);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.UNPUBLISHED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Activate Assessment Handler
+   * POST /api/v1/assessments/:id/activate
+   */
+  activate = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
+
+    const result = await assessmentService.activateAssessment(id, user);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.ACTIVATED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Archive Assessment Handler
+   * POST /api/v1/assessments/:id/archive
+   */
+  archive = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
+
+    const result = await assessmentService.archiveAssessment(id, user);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.ARCHIVED,
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Duplicate Assessment Handler
+   * POST /api/v1/assessments/:id/duplicate
+   */
+  duplicate = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const data = req.validatedData || req.validatedBody || req.body || {};
+    const user = req.user;
+
+    const result = await assessmentService.duplicateAssessment(id, data, user);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || ASSESSMENT_MESSAGES.DUPLICATED,
+        data: result.data,
+      },
+      StatusCodes.CREATED
+    );
+  });
+}
+
+const assessmentController = new AssessmentController();
+
+module.exports = assessmentController;

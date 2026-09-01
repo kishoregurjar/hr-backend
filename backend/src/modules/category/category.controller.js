@@ -1,7 +1,7 @@
 const { StatusCodes } = require("http-status-codes");
-const asyncHandler = require("../../common/middlewares/async-handler");
+const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
-const { CATEGORY_MESSAGES } = require("./constants/category-message.constants");
+const { CATEGORY_MESSAGES } = require("./category.constants");
 const categoryService = require("./category.service");
 
 /**
@@ -13,10 +13,6 @@ const categoryService = require("./category.service");
  * ==========================================================
  */
 class CategoryController {
-  /**
-   * Create Category Handler
-   * POST /api/v1/question-categories
-   */
   create = asyncHandler(async (req, res) => {
     const payload = req.validatedData || req.body;
     const userId = req.user.id;
@@ -33,10 +29,6 @@ class CategoryController {
     );
   });
 
-  /**
-   * List Categories Handler (Paginated, Filtered, Sorted, Searched)
-   * GET /api/v1/question-categories
-   */
   list = asyncHandler(async (req, res) => {
     const query = req.validatedData || req.query;
 
@@ -53,10 +45,6 @@ class CategoryController {
     );
   });
 
-  /**
-   * Get Category By ID Handler
-   * GET /api/v1/question-categories/:id
-   */
   getById = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
@@ -72,10 +60,6 @@ class CategoryController {
     );
   });
 
-  /**
-   * Update Category Handler
-   * PATCH /api/v1/question-categories/:id
-   */
   update = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const payload = req.validatedData || req.body;
@@ -93,10 +77,6 @@ class CategoryController {
     );
   });
 
-  /**
-   * Soft Delete Category Handler
-   * DELETE /api/v1/question-categories/:id
-   */
   delete = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
@@ -113,10 +93,6 @@ class CategoryController {
     );
   });
 
-  /**
-   * Restore Soft Deleted Category Handler
-   * PATCH /api/v1/question-categories/:id/restore
-   */
   restore = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;

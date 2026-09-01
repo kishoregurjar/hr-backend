@@ -1,19 +1,15 @@
-const exceptions = require("./exceptions");
-const prisma = require("./prisma");
+const errors = require("./errors");
 const response = require("./response");
-const utils = require("./utils");
-const middlewares = require("./middlewares");
+const transaction = require("./transaction");
 
 /**
  * ==========================================================
- * Common Infrastructure Central Index Exporter
+ * Common Utilities Exporter Facade
  * ==========================================================
  */
 
 module.exports = {
-  ...exceptions,
-  ...prisma,
+  ...errors,
   ...response,
-  ...utils,
-  ...middlewares,
+  ...transaction,
 };

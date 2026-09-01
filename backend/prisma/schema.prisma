@@ -100,13 +100,15 @@ enum QuestionStatus {
 
 enum AttachmentType {
   IMAGE
-  VIDEO
   AUDIO
-  PDF
+  VIDEO
   DOCUMENT
-  CODE
-  ZIP
-  OTHER
+}
+
+enum IdempotencyStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 //
@@ -114,525 +116,324 @@ enum AttachmentType {
 //
 
 model User {
-  id String @id @default(cuid())
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  role      Role     @default(HR)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  email         String  @unique
-  emailVerified Boolean @default(false)
-
-  password String
-
-  firstName String
-  lastName  String
-
-  role Role @default(CANDIDATE)
-
-  isActive Boolean @default(true)
-
-  tokenVersion Int @default(0)
-
-  lastLoginAt DateTime?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  refreshTokens       RefreshToken[]
-  auditLogs           AuditLog[]
-  passwordResetTokens PasswordResetToken[]
-
-  assessments          Assessment[]          @relation("UserAssessments")
-  candidateAssessments CandidateAssessment[]
-  invitationsSent      Invitation[]
-
-  questionVersions  QuestionVersion[]
-  questionAuditLogs QuestionAuditLog[]
-  questionsCreated  Question[]         @relation("QuestionCreatedBy")
-  questionsUpdated  Question[]         @relation("QuestionUpdatedBy")
+  // Navigation Properties
+  assessments       Assessment[]       @relation("CreatedAssessments")
+  candidateProfiles CandidateProfile[]
+  AuditLogs         AuditLog[]
 
   @@index([role])
-  @@index([isActive])
-}
-
-model RefreshToken {
-  id        String    @id @default(cuid())
-  token     String    @unique
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime  @default(now())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model AuditLog {
-  id String @id @default(cuid())
-
-  action AuditAction
-
-  module AuditModule
-
-  description String?
-
-  ipAddress String?
-
-  userAgent String?
-
-  createdAt DateTime @default(now())
-
-  userId String
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([action])
-  @@index([module])
-}
-
-model PasswordResetToken {
-  id        String    @id @default(cuid())
-  tokenHash String    @unique
-  userId    String
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([expiresAt])
-}
-
-model Assessment {
-  id String @id @default(cuid())
-
-  title        String
-  description  String?
-  instructions String?
-
-  durationMinutes Int
-  passingScore    Int
-  maximumScore    Int @default(100)
-
-  maxAttempts Int @default(1)
-
-  type       AssessmentType   @default(MIXED)
-  difficulty DifficultyLevel  @default(MEDIUM)
-  status     AssessmentStatus @default(DRAFT)
-
-  publishAt DateTime?
-  startsAt  DateTime?
-  endsAt    DateTime?
-
-  createdById String
-
-  createdBy User @relation("UserAssessments", fields: [createdById], references: [id], onDelete: Restrict)
-
-  games                AssessmentGame[]
-  questions            AssessmentQuestion[]
-  candidateAssessments CandidateAssessment[]
-  invitations          Invitation[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@index([createdById])
-  @@index([status])
-  @@index([type])
-  @@index([difficulty])
-}
-
-model Game {
-  id String @id @default(cuid())
-
-  name String
-
-  code String @unique
-
-  description String?
-
-  isActive Boolean @default(true)
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  assessments AssessmentGame[]
-  results     GameResult[]
-
-  @@index([isActive])
-}
-
-model Question {
-  id String @id @default(cuid())
-
-  title String
-
-  description String?
-
-  explanation String?
-
-  type QuestionType
-
-  difficulty QuestionDifficulty @default(MEDIUM)
-
-  status QuestionStatus @default(DRAFT)
-
-  marks Int @default(1)
-
-  negativeMarks Float @default(0)
-
-  estimatedTime Int?
-
-  shuffleOptions Boolean @default(true)
-
-  version Int @default(1)
-
-  isActive Boolean @default(true)
-
-  publishedAt DateTime?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  createdById String
-  updatedById String?
-
-  createdBy User  @relation("QuestionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy User? @relation("QuestionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-
-  categoryId String?
-
-  category QuestionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-
-  options QuestionOption[]
-
-  tags QuestionTag[]
-
-  attachments QuestionAttachment[]
-
-  versions QuestionVersion[]
-
-  auditLogs QuestionAuditLog[]
-
-  assessments AssessmentQuestion[]
-
-  candidateAnswers CandidateAnswer[]
-
-  @@index([type])
-  @@index([difficulty])
-  @@index([status])
-  @@index([categoryId])
-  @@index([createdById])
-  @@index([updatedById])
-  @@index([isActive])
-}
-
-model QuestionOption {
-  id String @id @default(cuid())
-
-  questionId String
-
-  optionText String
-
-  isCorrect Boolean @default(false)
-
-  sequence Int
-
-  explanation String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  @@unique([questionId, sequence])
-  @@index([questionId])
-}
-
-model QuestionCategory {
-  id String @id @default(cuid())
-
-  name String @unique
-
-  description String?
-
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  questions Question[]
-
-  @@index([isActive])
 }
 
 model Tag {
-  id String @id @default(cuid())
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  name String @unique
+  questions QuestionTag[]
+}
 
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
   description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  isActive Boolean @default(true)
+  questions QuestionCategory[]
+}
+
+model Question {
+  id             String             @id @default(cuid())
+  type           QuestionType
+  difficulty     QuestionDifficulty @default(MEDIUM)
+  status         QuestionStatus     @default(DRAFT)
+  title          String
+  content        String
+  explanation    String?
+  codeSnippet    String?
+  sampleTestCase Json?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  options           Option[]
+  assessmentLinkage AssessmentQuestion[]
+  tags              QuestionTag[]
+  categories        QuestionCategory[]
+  attachments       Attachment[]
+  candidateAnswers  CandidateAnswer[]
+  attemptQuestions  AttemptQuestion[]
+
+  @@index([type])
+  @@index([difficulty])
+  @@index([status])
+}
+
+model Option {
+  id          String   @id @default(cuid())
+  questionId  String
+  sequence    Int
+  optionText  String
+  isCorrect   Boolean  @default(false)
+  explanation String?
+  createdAt   DateTime @default(now())
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+model QuestionTag {
+  questionId String
+  tagId      String
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, tagId])
+}
+
+model QuestionCategory {
+  questionId String
+  categoryId String
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, categoryId])
+}
+
+model Attachment {
+  id         String         @id @default(cuid())
+  questionId String
+  type       AttachmentType
+  url        String
+  fileName   String?
+  fileSize   Int?
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model Assessment {
+  id              String           @id @default(cuid())
+  title           String
+  description     String?
+  type            AssessmentType   @default(TECHNICAL)
+  status          AssessmentStatus @default(DRAFT)
+  durationMinutes Int              @default(60)
+  passingScore    Int              @default(60)
+  maximumScore    Int              @default(100)
+
+  createdById String
+  createdBy   User   @relation("CreatedAssessments", fields: [createdById], references: [id])
+
+  startsAt DateTime?
+  endsAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  questionTags QuestionTag[]
+  questions   AssessmentQuestion[]
+  invitations Invitation[]
+  attempts    CandidateAttempt[]
 
-  @@index([isActive])
-}
-
-model QuestionTag {
-  id String @id @default(cuid())
-
-  questionId String
-
-  tagId String
-
-  createdAt DateTime @default(now())
-
-  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  tag Tag @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@unique([questionId, tagId])
-  @@index([questionId])
-  @@index([tagId])
-}
-
-model QuestionAttachment {
-  id String @id @default(cuid())
-
-  questionId String
-
-  type AttachmentType
-
-  fileName String
-
-  originalName String
-
-  mimeType String
-
-  fileSize Int
-
-  fileUrl String
-
-  uploadedAt DateTime @default(now())
-
-  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  @@index([questionId])
-  @@index([type])
-}
-
-model QuestionVersion {
-  id String @id @default(cuid())
-
-  questionId String
-
-  version Int @default(1)
-
-  snapshot Json
-
-  createdById String
-
-  createdAt DateTime @default(now())
-
-  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
-
-  @@unique([questionId, version])
-  @@index([questionId])
+  @@index([status])
   @@index([createdById])
 }
 
-model QuestionAuditLog {
-  id String @id @default(cuid())
-
-  questionId String
-
-  userId String
-
-  action AuditAction
-
-  oldValue Json?
-
-  newValue Json?
-
-  description String?
-
-  createdAt DateTime @default(now())
-
-  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
-
-  @@index([questionId])
-  @@index([userId])
-  @@index([action])
-}
-
-model AssessmentGame {
-  id String @id @default(cuid())
-
-  assessmentId String
-  gameId       String
-
-  sequence Int
-  weight   Int @default(1)
-
-  createdAt DateTime @default(now())
-
-  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  game       Game       @relation(fields: [gameId], references: [id], onDelete: Restrict)
-
-  @@unique([assessmentId, gameId])
-  @@index([assessmentId])
-  @@index([gameId])
-}
-
 model AssessmentQuestion {
+  assessmentId   String
+  questionId     String
+  orderIndex     Int    @default(0)
+  points         Int    @default(1)
+  negativePoints Float  @default(0.0)
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  question   Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@id([assessmentId, questionId])
+}
+
+model CandidateProfile {
+  id          String   @id @default(cuid())
+  userId      String?  @unique
+  email       String   @unique
+  firstName   String
+  lastName    String
+  phoneNumber String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User?              @relation(fields: [userId], references: [id])
+  invitations Invitation[]
+  attempts    CandidateAttempt[]
+}
+
+model Invitation {
+  id           String           @id @default(cuid())
+  token        String           @unique
+  assessmentId String
+  candidateId  String
+  status       InvitationStatus @default(PENDING)
+  expiresAt    DateTime
+  sentAt       DateTime?
+  openedAt     DateTime?
+
+  assessment Assessment       @relation(fields: [assessmentId], references: [id])
+  candidate  CandidateProfile @relation(fields: [candidateId], references: [id])
+
+  @@index([token])
+  @@index([assessmentId, candidateId])
+}
+
+model CandidateAttempt {
+  id           String                    @id @default(cuid())
+  assessmentId String
+  candidateId  String
+  status       CandidateAssessmentStatus @default(NOT_STARTED)
+  score        Float?
+  maxScore     Float?
+  percentage   Float?
+  result       ResultStatus?
+  startedAt    DateTime                  @default(now())
+  submittedAt  DateTime?
+  expiresAt    DateTime
+
+  assessment Assessment       @relation(fields: [assessmentId], references: [id])
+  candidate  CandidateProfile @relation(fields: [candidateId], references: [id])
+
+  attemptQuestions AttemptQuestion[]
+  answers          CandidateAnswer[]
+
+  @@index([assessmentId, candidateId])
+  @@index([status])
+}
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  action    AuditAction
+  module    AuditModule
+  entityId  String?
+  payload   Json?
+  ipAddress String?
+  userId    String
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([module])
+  @@index([createdAt])
+}
+
+model AttemptQuestion {
+  attemptId        String
+  questionId       String
+  sequence         Int
+  questionSnapshot Json
+
+  attempt  CandidateAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question          @relation(fields: [questionId], references: [id])
+  answers  CandidateAnswer[]
+
+  @@id([attemptId, questionId])
+  @@index([attemptId])
+}
+
+model CandidateAnswer {
+  id                String    @id @default(cuid())
+  attemptId         String
+  questionId        String
+  selectedOptionIds String[]
+  answerText        String?
+  version           Int       @default(1)
+  isCorrect         Boolean?
+  marksObtained     Float     @default(0)
+  evaluatedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  attempt         CandidateAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question        Question         @relation(fields: [questionId], references: [id])
+  attemptQuestion AttemptQuestion? @relation(fields: [attemptId, questionId], references: [attemptId, questionId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+enum OtpPurpose {
+  ASSESSMENT_VERIFICATION
+  LOGIN
+  PASSWORD_RESET
+}
+
+model CandidateOtp {
   id String @id @default(cuid())
 
-  assessmentId String
-  questionId   String
+  email String
 
-  sequence Int
-  marks    Int @default(1)
+  otpHash String
 
-  negativeMarks Float @default(0)
+  purpose OtpPurpose @default(ASSESSMENT_VERIFICATION)
+
+  attemptsCount Int @default(0)
+
+  maxAttempts Int @default(3)
+
+  expiresAt DateTime
+
+  verifiedAt DateTime?
 
   createdAt DateTime @default(now())
 
-  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  question   Question   @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  updatedAt DateTime @updatedAt
 
-  @@unique([assessmentId, questionId])
-  @@index([assessmentId])
-  @@index([questionId])
-  @@index([sequence])
+  @@index([email, purpose, createdAt])
+  @@index([expiresAt])
 }
 
-model CandidateAssessment {
+model CandidateVerificationSession {
   id String @id @default(cuid())
 
   candidateId  String
   assessmentId String
 
-  status        CandidateAssessmentStatus @default(NOT_STARTED)
-  attemptNumber Int                       @default(1)
-
-  startedAt   DateTime?
-  submittedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  candidate  User       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-
-  answers     CandidateAnswer[]
-  result      AssessmentResult?
-  gameResults GameResult[]
-
-  @@unique([candidateId, assessmentId])
-  @@index([candidateId])
-  @@index([assessmentId])
-  @@index([status])
-}
-
-model CandidateAnswer {
-  id String @id @default(cuid())
-
-  candidateAssessmentId String
-
-  questionId String
-
-  answer Json
-
-  isCorrect Boolean?
-
-  marksAwarded Int @default(0)
-
-  createdAt DateTime @default(now())
-
-  candidateAssessment CandidateAssessment @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
-  question            Question            @relation(fields: [questionId], references: [id], onDelete: Restrict)
-
-  @@unique([candidateAssessmentId, questionId])
-  @@index([candidateAssessmentId])
-  @@index([questionId])
-}
-
-model Invitation {
-  id String @id @default(cuid())
-
-  assessmentId String
-
-  invitedByUserId String
-
-  email String
-
-  token String @unique
-
-  status InvitationStatus @default(PENDING)
+  tokenHash String @unique
 
   expiresAt DateTime
+  revokedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  invitedBy  User       @relation(fields: [invitedByUserId], references: [id], onDelete: Restrict)
-
-  @@index([assessmentId])
-  @@index([invitedByUserId])
-  @@index([email])
-  @@index([status])
+  @@index([candidateId, assessmentId])
+  @@index([tokenHash])
+  @@index([expiresAt])
 }
 
-model AssessmentResult {
-  id String @id @default(cuid())
+model IdempotencyKey {
+  idempotencyKey String            @id
+  userId         String?
+  scope          String
+  requestHash    String
+  status         IdempotencyStatus
+  responseCode   Int?
+  responseBody   Json?
+  expiresAt      DateTime
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
-  candidateAssessmentId String @unique
-
-  score Int
-
-  percentage Float
-
-  status ResultStatus
-
-  feedback String?
-
-  createdAt DateTime @default(now())
-
-  candidateAssessment CandidateAssessment @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
-
+  @@index([userId, scope])
+  @@index([expiresAt])
   @@index([status])
-}
-
-model GameResult {
-  id String @id @default(cuid())
-
-  candidateAssessmentId String
-
-  gameId String
-
-  score Int
-
-  metrics Json?
-
-  createdAt DateTime @default(now())
-
-  candidateAssessment CandidateAssessment @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
-  game                Game                @relation(fields: [gameId], references: [id], onDelete: Restrict)
-
-  @@index([candidateAssessmentId])
-  @@index([gameId])
 }

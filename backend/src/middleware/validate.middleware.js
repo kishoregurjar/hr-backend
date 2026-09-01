@@ -1,61 +1,113 @@
-const ApiError = require("../utils/ApiError");
+"use strict";
+
+const { z } = require("zod");
+const { badRequest } = require("../utils/app-error");
 
 /**
  * ==========================================================
- * Zod Schema Validation Middleware Generator
+ * Enterprise Production Validation Middleware
  * ==========================================================
- * Parses req.body, req.query, req.params against Zod schema.
- * Supports both wrapped ({ body, query, params }) and direct body schemas.
+ * Intelligently validates HTTP requests against Zod schemas.
+ * Supports:
+ * 1. Wrapped Schemas: ({ body, query, params, cookies })
+ * 2. Unwrapped Schemas: Merges req.params, req.query, and req.body
+ * 3. Schema Objects: { body: schema } or { query: schema }
  * ==========================================================
  */
-const validate = (schema) => async (req, res, next) => {
+const validateRequest = (schema, targetKey) => async (req, res, next) => {
   try {
-    let targetSchema = schema;
+    let effectiveSchema = schema;
+
+    if (schema && typeof schema === "object" && typeof schema.parseAsync !== "function" && typeof schema.safeParseAsync !== "function") {
+      const shape = {};
+      if (schema.body) shape.body = schema.body;
+      if (schema.query) shape.query = schema.query;
+      if (schema.params) shape.params = schema.params;
+      if (schema.cookies) shape.cookies = schema.cookies;
+      effectiveSchema = z.object(shape);
+    } else if (typeof targetKey === "string") {
+      effectiveSchema = z.object({ [targetKey]: schema });
+    }
+
+    let targetSchema = effectiveSchema;
     while (targetSchema._def && targetSchema._def.schema) {
       targetSchema = targetSchema._def.schema;
     }
 
     const shape = targetSchema.shape || {};
-    const isWrappedSchema = Boolean(shape.body || shape.query || shape.params);
+    const isWrappedSchema = Boolean(shape.body || shape.query || shape.params || shape.cookies);
 
-    const dataToParse = isWrappedSchema
-      ? {
-          body: req.body,
-          query: req.query,
-          params: req.params,
-          cookies: req.cookies,
-        }
-      : req.body;
+    let dataToParse;
+    if (isWrappedSchema) {
+      dataToParse = {
+        body: req.body || {},
+        query: req.query || {},
+        params: req.params || {},
+        cookies: req.cookies || {},
+      };
+    } else {
+      dataToParse = {
+        ...(req.params || {}),
+        ...(req.query || {}),
+        ...(req.body || {}),
+      };
+    }
 
-    const parsed = await schema.parseAsync(dataToParse);
+    const parseMethod = typeof effectiveSchema.safeParseAsync === "function"
+      ? effectiveSchema.safeParseAsync.bind(effectiveSchema)
+      : async (val) => effectiveSchema.safeParse(val);
+
+    const result = await parseMethod(dataToParse);
+
+    if (!result.success) {
+      const details = result.error.issues.map((issue) => {
+        const path = issue.path || [];
+        let fieldPath = path.join(".");
+        if (fieldPath.startsWith("body.")) fieldPath = fieldPath.substring(5);
+        else if (fieldPath.startsWith("query.")) fieldPath = fieldPath.substring(6);
+        else if (fieldPath.startsWith("params.")) fieldPath = fieldPath.substring(7);
+        return {
+          field: fieldPath || "body",
+          message: issue.message,
+        };
+      });
+
+      return next(
+        badRequest(
+          "Request validation failed.",
+          "VALIDATION_ERROR",
+          details
+        )
+      );
+    }
+
+    const parsed = result.data;
 
     if (isWrappedSchema) {
       if (parsed.body) req.body = parsed.body;
       if (parsed.query) req.query = parsed.query;
       if (parsed.params) req.params = parsed.params;
-      req.validatedData = parsed.body || parsed.query || parsed.params || parsed;
+      req.validated = parsed;
+      req.validatedData = {
+        ...(parsed.query || {}),
+        ...(parsed.params || {}),
+        ...(parsed.body || {}),
+      };
     } else {
-      req.body = parsed;
+      if (req.method === "GET" || req.method === "DELETE") {
+        req.query = { ...(req.query || {}), ...parsed };
+      } else {
+        req.body = parsed;
+      }
+      req.validated = parsed;
       req.validatedData = parsed;
     }
 
     return next();
   } catch (error) {
-    if (
-      error.name === "ZodError" ||
-      (error.issues && Array.isArray(error.issues)) ||
-      (error.errors && Array.isArray(error.errors))
-    ) {
-      const issues = error.issues || error.errors || [];
-      const formattedErrors = issues.map((err) => ({
-        field: err.path.length > 1 ? err.path.slice(1).join(".") : err.path.join("."),
-        message: err.message,
-      }));
-      const firstErrorMessage = formattedErrors[0]?.message || "Validation Error";
-      return next(new ApiError(400, firstErrorMessage, formattedErrors));
-    }
     return next(error);
   }
 };
 
-module.exports = validate;
+module.exports = validateRequest;
+module.exports.validateRequest = validateRequest;
