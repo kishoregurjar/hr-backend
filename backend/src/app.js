@@ -21,6 +21,11 @@ const app = express();
 app.set("trust proxy", true);
 
 /**
+ * CORS (Applied first so preflight OPTIONS requests are answered immediately)
+ */
+app.use(cors(corsOptions));
+
+/**
  * Request ID
  */
 app.use(requestId);
@@ -40,11 +45,6 @@ app.use(globalRateLimiter);
  * Security
  */
 securityMiddleware(app);
-
-/**
- * CORS
- */
-app.use(cors(corsOptions));
 
 /**
  * Routes
