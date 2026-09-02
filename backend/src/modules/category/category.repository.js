@@ -4,7 +4,6 @@ const CATEGORY_DEFAULT_SELECT = Object.freeze({
   id: true,
   name: true,
   description: true,
-  isActive: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -19,20 +18,20 @@ const CATEGORY_WITH_COUNT_SELECT = Object.freeze({
 });
 
 const getClient = (tx) =>
-  tx && typeof tx === "object" && tx.questionCategory ? tx : prisma;
+  tx && typeof tx === "object" && tx.category ? tx : prisma;
 
 /**
  * ==========================================================
  * Enterprise Category Repository
  * ==========================================================
- * Pure Data Access Layer for QuestionCategory model.
+ * Pure Data Access Layer for Category model.
  * Placed directly at module root matching Option A Standard.
  * ==========================================================
  */
 class CategoryRepository {
   async findById(id, tx) {
     const db = getClient(tx);
-    return db.questionCategory.findUnique({
+    return db.category.findUnique({
       where: { id },
       select: CATEGORY_DEFAULT_SELECT,
     });
@@ -40,7 +39,7 @@ class CategoryRepository {
 
   async findByName(name, tx) {
     const db = getClient(tx);
-    return db.questionCategory.findFirst({
+    return db.category.findFirst({
       where: {
         name: {
           equals: name.trim(),
@@ -52,43 +51,42 @@ class CategoryRepository {
 
   async create(tx, data) {
     const db = getClient(tx);
-    return db.questionCategory.create({
-      data,
+    const { isActive: _isActive, ...cleanData } = data || {};
+    return db.category.create({
+      data: cleanData,
       select: CATEGORY_DEFAULT_SELECT,
     });
   }
 
   async update(tx, id, data) {
     const db = getClient(tx);
-    return db.questionCategory.update({
+    const { isActive: _isActive, ...cleanData } = data || {};
+    return db.category.update({
       where: { id },
-      data,
+      data: cleanData,
       select: CATEGORY_DEFAULT_SELECT,
     });
   }
 
   async softDelete(tx, id) {
     const db = getClient(tx);
-    return db.questionCategory.update({
+    return db.category.delete({
       where: { id },
-      data: { isActive: false },
       select: CATEGORY_DEFAULT_SELECT,
     });
   }
 
   async restore(tx, id) {
     const db = getClient(tx);
-    return db.questionCategory.update({
+    return db.category.findUnique({
       where: { id },
-      data: { isActive: true },
       select: CATEGORY_DEFAULT_SELECT,
     });
   }
 
   async listActive(tx) {
     const db = getClient(tx);
-    return db.questionCategory.findMany({
-      where: { isActive: true },
+    return db.category.findMany({
       orderBy: { name: "asc" },
       select: CATEGORY_WITH_COUNT_SELECT,
     });
@@ -107,14 +105,14 @@ class CategoryRepository {
     }
 
     const [categories, total] = await Promise.all([
-      db.questionCategory.findMany({
+      db.category.findMany({
         where,
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
         select: CATEGORY_WITH_COUNT_SELECT,
       }),
-      db.questionCategory.count({ where }),
+      db.category.count({ where }),
     ]);
 
     return { categories, total };
@@ -122,10 +120,9 @@ class CategoryRepository {
 
   async countAssociatedQuestions(id, tx) {
     const db = getClient(tx);
-    return db.question.count({
+    return db.questionCategory.count({
       where: {
         categoryId: id,
-        deletedAt: null,
       },
     });
   }

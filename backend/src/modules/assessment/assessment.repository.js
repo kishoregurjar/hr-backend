@@ -12,66 +12,67 @@ const ASSESSMENT_LIST_SELECT = Object.freeze({
   durationMinutes: true,
   passingScore: true,
   maximumScore: true,
-  maxAttempts: true,
   type: true,
-  difficulty: true,
   status: true,
-  publishAt: true,
   startsAt: true,
   endsAt: true,
   createdById: true,
   createdAt: true,
   updatedAt: true,
-  deletedAt: true,
 });
 
 const ASSESSMENT_DETAIL_SELECT = Object.freeze({
   id: true,
   title: true,
   description: true,
-  instructions: true,
   durationMinutes: true,
   passingScore: true,
   maximumScore: true,
-  maxAttempts: true,
   type: true,
-  difficulty: true,
   status: true,
-  publishAt: true,
   startsAt: true,
   endsAt: true,
   createdById: true,
   createdAt: true,
   updatedAt: true,
-  deletedAt: true,
   createdBy: {
     select: {
       id: true,
-      firstName: true,
-      lastName: true,
+      name: true,
       email: true,
     },
   },
   questions: {
     orderBy: {
-      sequence: "asc",
+      orderIndex: "asc",
     },
     select: {
-      id: true,
+      assessmentId: true,
       questionId: true,
-      sequence: true,
-      marks: true,
-      negativeMarks: true,
+      orderIndex: true,
+      points: true,
+      negativePoints: true,
       question: {
         select: {
           id: true,
           title: true,
+          content: true,
           type: true,
           difficulty: true,
           status: true,
-          isActive: true,
-          deletedAt: true,
-          marks: true,
+          explanation: true,
+          codeSnippet: true,
+          options: {
+            select: {
+              id: true,
+              optionText: true,
+              isCorrect: true,
+              sequence: true,
+            },
+            orderBy: {
+              sequence: "asc",
+            },
+          },
         },
       },
     },
@@ -98,21 +99,11 @@ class AssessmentRepository {
    */
   async findById(id, options = {}, tx) {
     const db = getClient(tx);
-    const { includeDeleted = false, detailed = true } = options;
+    const { detailed = true } = options;
 
-    const where = {
-      id,
-    };
-
-    if (!includeDeleted) {
-      where.deletedAt = null;
-    }
-
-    return db.assessment.findFirst({
-      where,
-      select: detailed
-        ? ASSESSMENT_DETAIL_SELECT
-        : ASSESSMENT_LIST_SELECT,
+    return db.assessment.findUnique({
+      where: { id },
+      select: detailed ? ASSESSMENT_DETAIL_SELECT : ASSESSMENT_LIST_SELECT,
     });
   }
 
@@ -128,7 +119,7 @@ class AssessmentRepository {
    */
   async findByTitle(title, options = {}, tx) {
     const db = getClient(tx);
-    const { excludeId = undefined, includeDeleted = false } = options;
+    const { excludeId = undefined } = options;
 
     const where = {
       title: {
@@ -136,10 +127,6 @@ class AssessmentRepository {
         mode: "insensitive",
       },
     };
-
-    if (!includeDeleted) {
-      where.deletedAt = null;
-    }
 
     if (excludeId) {
       where.id = {
@@ -158,8 +145,16 @@ class AssessmentRepository {
    */
   async create(tx, data) {
     const db = getClient(tx);
+    const {
+      instructions: _inst,
+      maxAttempts: _mA,
+      difficulty: _diff,
+      publishAt: _pA,
+      ...cleanData
+    } = data || {};
+
     return db.assessment.create({
-      data,
+      data: cleanData,
       select: ASSESSMENT_DETAIL_SELECT,
     });
   }
@@ -169,11 +164,17 @@ class AssessmentRepository {
    */
   async update(tx, id, data) {
     const db = getClient(tx);
+    const {
+      instructions: _inst,
+      maxAttempts: _mA,
+      difficulty: _diff,
+      publishAt: _pA,
+      ...cleanData
+    } = data || {};
+
     return db.assessment.update({
-      where: {
-        id,
-      },
-      data,
+      where: { id },
+      data: cleanData,
       select: ASSESSMENT_DETAIL_SELECT,
     });
   }
@@ -183,29 +184,19 @@ class AssessmentRepository {
    */
   async softDelete(tx, id) {
     const db = getClient(tx);
-    return db.assessment.update({
-      where: {
-        id,
-      },
-      data: {
-        deletedAt: new Date(),
-      },
+    return db.assessment.delete({
+      where: { id },
       select: ASSESSMENT_LIST_SELECT,
     });
   }
 
   /**
-   * Restore Soft Deleted Assessment
+   * Restore Assessment
    */
   async restore(tx, id) {
     const db = getClient(tx);
-    return db.assessment.update({
-      where: {
-        id,
-      },
-      data: {
-        deletedAt: null,
-      },
+    return db.assessment.findUnique({
+      where: { id },
       select: ASSESSMENT_DETAIL_SELECT,
     });
   }
@@ -213,15 +204,12 @@ class AssessmentRepository {
   /**
    * Publish Assessment
    */
-  async publish(tx, id, publishAt = new Date()) {
+  async publish(tx, id) {
     const db = getClient(tx);
     return db.assessment.update({
-      where: {
-        id,
-      },
+      where: { id },
       data: {
         status: "PUBLISHED",
-        publishAt,
       },
       select: ASSESSMENT_DETAIL_SELECT,
     });
@@ -233,12 +221,9 @@ class AssessmentRepository {
   async unpublish(tx, id) {
     const db = getClient(tx);
     return db.assessment.update({
-      where: {
-        id,
-      },
+      where: { id },
       data: {
         status: "DRAFT",
-        publishAt: null,
       },
       select: ASSESSMENT_DETAIL_SELECT,
     });
@@ -250,9 +235,7 @@ class AssessmentRepository {
   async activate(tx, id) {
     const db = getClient(tx);
     return db.assessment.update({
-      where: {
-        id,
-      },
+      where: { id },
       data: {
         status: "ACTIVE",
       },
@@ -266,9 +249,7 @@ class AssessmentRepository {
   async archive(tx, id) {
     const db = getClient(tx);
     return db.assessment.update({
-      where: {
-        id,
-      },
+      where: { id },
       data: {
         status: "ARCHIVED",
       },
@@ -277,226 +258,117 @@ class AssessmentRepository {
   }
 
   /**
-   * Database-Safe Conditional Lifecycle Transition
+   * List Paginated Assessments
    */
-  async transitionStatus(tx, { id, fromStatus, toStatus, data = {} }) {
-    const client = tx && typeof tx === "object" && tx.assessment ? tx : prisma;
+  async listPaginated(options = {}, tx) {
+    const db = getClient(tx);
 
-    const result = await client.assessment.updateMany({
-      where: {
-        id,
-        status: fromStatus,
-        deletedAt: null,
-      },
-      data: {
-        status: toStatus,
-        ...data,
-      },
-    });
+    const page = Math.max(1, parseInt(options.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(options.limit, 10) || 10));
+    const skip = (page - 1) * limit;
 
-    if (result.count !== 1) {
-      return null;
+    const where = {};
+
+    if (options.status && options.status !== "all") {
+      where.status = options.status;
     }
 
-    return client.assessment.findUnique({
-      where: {
-        id,
-      },
-      select: ASSESSMENT_DETAIL_SELECT,
-    });
-  }
+    if (options.type && options.type !== "all") {
+      where.type = options.type;
+    }
 
-  /**
-   * List Assessments (Paginated, filtered, sorted)
-   */
-  async list({ where = {}, skip, take, orderBy }, tx) {
-    const db = getClient(tx);
-    return db.assessment.findMany({
-      where: {
-        ...where,
-        deletedAt: null,
-      },
-      skip,
-      take,
-      orderBy,
-      select: ASSESSMENT_LIST_SELECT,
-    });
-  }
+    if (options.createdById) {
+      where.createdById = options.createdById;
+    }
 
-  /**
-   * Count Assessments
-   */
-  async count(where = {}, tx) {
-    const db = getClient(tx);
-    return db.assessment.count({
-      where: {
-        ...where,
-        deletedAt: null,
-      },
-    });
-  }
+    if (options.search && options.search.trim()) {
+      const search = options.search.trim();
+      where.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+      ];
+    }
 
-  /**
-   * List Assessments By Owner / Creator (For HR Scope)
-   */
-  async listByCreator({ createdById, where = {}, skip, take, orderBy }, tx) {
-    const db = getClient(tx);
-    return db.assessment.findMany({
-      where: {
-        ...where,
-        createdById,
-        deletedAt: null,
-      },
-      skip,
-      take,
-      orderBy,
-      select: ASSESSMENT_LIST_SELECT,
-    });
-  }
+    const sortBy = options.sortBy || "createdAt";
+    const sortOrder = options.sortOrder === "asc" ? "asc" : "desc";
 
-  /**
-   * Count Assessments By Owner / Creator
-   */
-  async countByCreator({ createdById, where = {} }, tx) {
-    const db = getClient(tx);
-    return db.assessment.count({
-      where: {
-        ...where,
-        createdById,
-        deletedAt: null,
-      },
-    });
-  }
-
-  /**
-   * Add Bulk Questions to Assessment
-   */
-  async addQuestions(tx, assessmentId, questions) {
-    const db = getClient(tx);
-    return db.assessmentQuestion.createMany({
-      data: questions.map((question) => ({
-        assessmentId,
-        questionId: question.questionId,
-        sequence: question.sequence,
-        marks: question.marks,
-        negativeMarks: question.negativeMarks,
-      })),
-      skipDuplicates: false,
-    });
-  }
-
-  /**
-   * Find Assigned Questions for an Assessment
-   */
-  async findAssignedQuestions(assessmentId, tx) {
-    const db = getClient(tx);
-    return db.assessmentQuestion.findMany({
-      where: {
-        assessmentId,
-      },
-      orderBy: {
-        sequence: "asc",
-      },
-      select: {
-        id: true,
-        assessmentId: true,
-        questionId: true,
-        sequence: true,
-        marks: true,
-        negativeMarks: true,
-        createdAt: true,
-        question: {
-          select: {
-            id: true,
-            title: true,
-            type: true,
-            difficulty: true,
-            status: true,
-            marks: true,
-          },
+    const [items, total] = await Promise.all([
+      db.assessment.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          [sortBy]: sortOrder,
         },
-      },
-    });
+        select: ASSESSMENT_LIST_SELECT,
+      }),
+      db.assessment.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
   }
 
   /**
-   * Alias for findAssignedQuestions
+   * Assign Question to Assessment
    */
-  async findAssessmentQuestions(assessmentId, tx) {
-    return this.findAssignedQuestions(assessmentId, tx);
-  }
-
-  /**
-   * Move sequences to temporary space during reorder to prevent sequence collision
-   */
-  async moveSequencesToTemporarySpace(tx, assessmentId, offset) {
+  async assignQuestion(tx, assessmentId, questionId, orderIndex = 0, points = 1, negativePoints = 0.0) {
     const db = getClient(tx);
-    return db.assessmentQuestion.updateMany({
-      where: {
-        assessmentId,
-      },
-      data: {
-        sequence: {
-          increment: offset,
-        },
-      },
-    });
-  }
-
-  /**
-   * Update single question sequence position
-   */
-  async updateQuestionSequence(tx, assessmentId, questionId, sequence) {
-    const db = getClient(tx);
-    return db.assessmentQuestion.update({
+    return db.assessmentQuestion.upsert({
       where: {
         assessmentId_questionId: {
           assessmentId,
           questionId,
         },
       },
-      data: {
-        sequence,
+      create: {
+        assessmentId,
+        questionId,
+        orderIndex,
+        points,
+        negativePoints,
+      },
+      update: {
+        orderIndex,
+        points,
+        negativePoints,
       },
     });
   }
 
   /**
-   * Duplicate Assessment
+   * Remove Question from Assessment
    */
-  async duplicate(tx, sourceAssessment, data) {
+  async removeQuestion(tx, assessmentId, questionId) {
     const db = getClient(tx);
-    return db.assessment.create({
-      data: {
-        title: data.title,
-        description: sourceAssessment.description,
-        instructions: sourceAssessment.instructions,
-        durationMinutes: sourceAssessment.durationMinutes,
-        passingScore: sourceAssessment.passingScore,
-        maximumScore: sourceAssessment.maximumScore,
-        maxAttempts: sourceAssessment.maxAttempts,
-        type: sourceAssessment.type,
-        difficulty: sourceAssessment.difficulty,
-        status: "DRAFT",
-        publishAt: null,
-        startsAt: sourceAssessment.startsAt,
-        endsAt: sourceAssessment.endsAt,
-        createdById: data.createdById,
-        deletedAt: null,
-        questions: {
-          create: (sourceAssessment.questions || []).map((item) => ({
-            questionId: item.questionId || item.question?.id,
-            sequence: item.sequence,
-            marks: item.marks,
-            negativeMarks: item.negativeMarks,
-          })),
+    return db.assessmentQuestion.delete({
+      where: {
+        assessmentId_questionId: {
+          assessmentId,
+          questionId,
         },
       },
-      select: ASSESSMENT_DETAIL_SELECT,
+    });
+  }
+
+  /**
+   * Clear All Questions from Assessment
+   */
+  async clearQuestions(tx, assessmentId) {
+    const db = getClient(tx);
+    return db.assessmentQuestion.deleteMany({
+      where: {
+        assessmentId,
+      },
     });
   }
 }
 
 module.exports = new AssessmentRepository();
-module.exports.ASSESSMENT_LIST_SELECT = ASSESSMENT_LIST_SELECT;
-module.exports.ASSESSMENT_DETAIL_SELECT = ASSESSMENT_DETAIL_SELECT;

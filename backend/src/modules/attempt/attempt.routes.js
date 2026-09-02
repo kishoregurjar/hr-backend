@@ -216,6 +216,35 @@ router.post(
 );
 
 /**
+ * Single Candidate Invitation Creation (Direct Path & Mounted Aliases)
+ * Handles:
+ * - POST /api/v1/attempts/invitations
+ * - POST /api/v1/attempts/candidates
+ * - POST /api/v1/invitations
+ * - POST /api/v1/candidates
+ */
+router.post(
+  ["/", "/invitations", "/candidates"],
+  adminRateLimiter,
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  attemptController.createInvitation
+);
+
+/**
+ * Candidate Attempts / Invitations List (Direct Path & Mounted Aliases)
+ * Handles:
+ * - GET /api/v1/attempts
+ * - GET /api/v1/invitations
+ * - GET /api/v1/candidates
+ */
+router.get(
+  ["/", "/invitations", "/candidates"],
+  adminRateLimiter,
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  attemptController.getHRAttemptResults
+);
+
+/**
  * Manual Subjective Answer Evaluation (HR / Super Admin)
  * POST /api/v1/attempts/:attemptId/evaluate-answer
  */

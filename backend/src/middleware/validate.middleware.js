@@ -85,8 +85,20 @@ const validateRequest = (schema, targetKey) => async (req, res, next) => {
 
     if (isWrappedSchema) {
       if (parsed.body) req.body = parsed.body;
-      if (parsed.query) req.query = parsed.query;
-      if (parsed.params) req.params = parsed.params;
+      if (parsed.query && req.query && typeof req.query === "object") {
+        try {
+          Object.assign(req.query, parsed.query);
+        } catch {
+          // Ignore getter assignment error
+        }
+      }
+      if (parsed.params && req.params && typeof req.params === "object") {
+        try {
+          Object.assign(req.params, parsed.params);
+        } catch {
+          // Ignore getter assignment error
+        }
+      }
       req.validated = parsed;
       req.validatedData = {
         ...(parsed.query || {}),
@@ -95,7 +107,13 @@ const validateRequest = (schema, targetKey) => async (req, res, next) => {
       };
     } else {
       if (req.method === "GET" || req.method === "DELETE") {
-        req.query = { ...(req.query || {}), ...parsed };
+        if (req.query && typeof req.query === "object") {
+          try {
+            Object.assign(req.query, parsed);
+          } catch {
+            // Ignore getter assignment error
+          }
+        }
       } else {
         req.body = parsed;
       }

@@ -846,13 +846,14 @@ class AttemptRepository {
    */
   async listByCandidate({ candidateId, assessmentId, status, skip = 0, take = 10, orderBy = { createdAt: "desc" } }, tx) {
     const db = getClient(tx);
+    const model = db.candidateAttempt || db.assessmentAttempt;
     const where = {
       candidateId,
       ...(assessmentId ? { assessmentId } : {}),
       ...(status ? { status } : {}),
     };
 
-    return db.assessmentAttempt.findMany({
+    return model.findMany({
       where,
       skip,
       take,
@@ -866,7 +867,8 @@ class AttemptRepository {
    */
   async countByCandidate({ candidateId, assessmentId, status }, tx) {
     const db = getClient(tx);
-    return db.assessmentAttempt.count({
+    const model = db.candidateAttempt || db.assessmentAttempt;
+    return model.count({
       where: {
         candidateId,
         ...(assessmentId ? { assessmentId } : {}),
@@ -935,8 +937,6 @@ class AttemptRepository {
             email: true,
             firstName: true,
             lastName: true,
-            role: true,
-            isActive: true,
           },
         },
       },
@@ -954,7 +954,7 @@ class AttemptRepository {
         assessmentId,
       },
       orderBy: {
-        createdAt: "desc",
+        expiresAt: "desc",
       },
       include: {
         assessment: {
@@ -972,8 +972,6 @@ class AttemptRepository {
             email: true,
             firstName: true,
             lastName: true,
-            role: true,
-            isActive: true,
           },
         },
       },
@@ -1038,9 +1036,15 @@ class AttemptRepository {
    */
   async updateInvitationStatus(id, status, tx) {
     const db = getClient(tx);
+    const data = { status };
+    if (status === "SENT") {
+      data.sentAt = new Date();
+    } else if (status === "OPENED") {
+      data.openedAt = new Date();
+    }
     return db.invitation.update({
       where: { id },
-      data: { status },
+      data,
     });
   }
 
@@ -1109,7 +1113,7 @@ class AttemptRepository {
         },
       },
       orderBy: {
-        createdAt: "desc",
+        expiresAt: "desc",
       },
     });
   }
@@ -1960,23 +1964,23 @@ class AttemptRepository {
    */
   async listAttemptsForHR({ where, skip, take, orderBy }, tx) {
     const client = tx || prisma;
-    return client.assessmentAttempt.findMany({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    const cleanOrderBy = orderBy?.createdAt ? { startedAt: orderBy.createdAt } : orderBy;
+    return model.findMany({
       where,
       skip,
       take,
-      orderBy,
+      orderBy: cleanOrderBy || { startedAt: "desc" },
       select: {
         id: true,
-        attemptNumber: true,
         status: true,
         startedAt: true,
         submittedAt: true,
         expiresAt: true,
         score: true,
+        maxScore: true,
         percentage: true,
-        passed: true,
-        createdAt: true,
-        updatedAt: true,
+        result: true,
         candidate: {
           select: {
             id: true,
@@ -2002,7 +2006,13 @@ class AttemptRepository {
    */
   async countAttemptsForHR({ where }, tx) {
     const client = tx || prisma;
-    return client.assessmentAttempt.count({ where });
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    const countWhere = { ...where };
+    delete countWhere.skip;
+    delete countWhere.take;
+    delete countWhere.orderBy;
+    delete countWhere.cursor;
+    return model.count({ where: countWhere });
   }
 
   /**
@@ -2010,6 +2020,7 @@ class AttemptRepository {
    */
   async getAssessmentAnalytics({ assessmentId, from, to }, tx) {
     const client = tx || prisma;
+    const model = client.candidateAttempt || client.assessmentAttempt;
     const dateFilter = {};
     if (from || to) {
       dateFilter.createdAt = {};
@@ -2019,11 +2030,11 @@ class AttemptRepository {
     const where = { assessmentId, ...dateFilter };
 
     const [totalAttempts, submittedAttempts, passedAttempts, failedAttempts, scoreAggregate] = await Promise.all([
-      client.assessmentAttempt.count({ where }),
-      client.assessmentAttempt.count({ where: { ...where, status: "SUBMITTED" } }),
-      client.assessmentAttempt.count({ where: { ...where, status: "SUBMITTED", passed: true } }),
-      client.assessmentAttempt.count({ where: { ...where, status: "SUBMITTED", passed: false } }),
-      client.assessmentAttempt.aggregate({
+      model.count({ where }),
+      model.count({ where: { ...where, status: "SUBMITTED" } }),
+      model.count({ where: { ...where, status: "SUBMITTED", passed: true } }),
+      model.count({ where: { ...where, status: "SUBMITTED", passed: false } }),
+      model.aggregate({
         where: { ...where, status: "SUBMITTED" },
         _avg: { score: true, percentage: true },
         _max: { score: true, percentage: true },
@@ -2045,7 +2056,8 @@ class AttemptRepository {
    */
   async findAttemptForHR({ attemptId }, tx) {
     const client = tx || prisma;
-    return client.assessmentAttempt.findUnique({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.findUnique({
       where: { id: attemptId },
       include: {
         assessment: true,

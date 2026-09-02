@@ -17,11 +17,18 @@ class AuthMapper {
   static toCreateEntity(data) {
     if (!data) return null;
 
+    const name =
+      [data.firstName, data.lastName]
+        .filter(Boolean)
+        .map((s) => String(s).trim())
+        .join(" ") ||
+      data.name ||
+      null;
+
     return {
       email: data.email ? data.email.toLowerCase().trim() : data.email,
       password: data.password,
-      firstName: data.firstName ? data.firstName.trim() : null,
-      lastName: data.lastName ? data.lastName.trim() : null,
+      name,
       role: data.role || "HR",
     };
   }
@@ -32,16 +39,17 @@ class AuthMapper {
   static toUserResponse(user) {
     if (!user) return null;
 
+    const nameParts = (user.name || "").split(" ");
+    const firstName = user.firstName || nameParts[0] || "";
+    const lastName = user.lastName || nameParts.slice(1).join(" ") || "";
+
     return {
       id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      fullName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      firstName,
+      lastName,
+      fullName: user.name || `${firstName} ${lastName}`.trim(),
       email: user.email,
       role: user.role,
-      isActive: user.isActive,
-      emailVerified: user.emailVerified,
-      lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

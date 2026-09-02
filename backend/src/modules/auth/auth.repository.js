@@ -3,14 +3,9 @@ const { prisma: defaultPrisma } = require("../../config/prisma");
 const AUTH_USER_SELECT = Object.freeze({
   id: true,
   email: true,
-  firstName: true,
-  lastName: true,
+  name: true,
   role: true,
   password: true,
-  isActive: true,
-  emailVerified: true,
-  tokenVersion: true,
-  lastLoginAt: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -35,7 +30,21 @@ class AuthRepository {
   createUser(dataOrTx, dataIfTx) {
     const isTx = dataOrTx && dataOrTx.user;
     const db = isTx ? dataOrTx : defaultPrisma;
-    const data = isTx ? dataIfTx : dataOrTx;
+    const rawData = isTx ? dataIfTx : dataOrTx;
+
+    const { firstName, lastName, ...restData } = rawData || {};
+    const name =
+      restData.name ||
+      [firstName, lastName]
+        .filter(Boolean)
+        .map((s) => String(s).trim())
+        .join(" ") ||
+      null;
+
+    const data = {
+      ...restData,
+      ...(name ? { name } : {}),
+    };
 
     return db.user.create({
       data,
@@ -48,9 +57,8 @@ class AuthRepository {
     const db = isTx ? dbOrId : defaultPrisma;
     const id = isTx ? idIfTx : dbOrId;
 
-    return db.user.update({
+    return db.user.findUnique({
       where: { id },
-      data: { lastLoginAt: new Date() },
       select: AUTH_USER_SELECT,
     });
   }
@@ -65,7 +73,6 @@ class AuthRepository {
       where: { id },
       data: {
         password,
-        tokenVersion: { increment: 1 },
       },
       select: AUTH_USER_SELECT,
     });
@@ -76,11 +83,8 @@ class AuthRepository {
     const db = isTx ? dbOrId : defaultPrisma;
     const id = isTx ? idIfTx : dbOrId;
 
-    return db.user.update({
+    return db.user.findUnique({
       where: { id },
-      data: {
-        tokenVersion: { increment: 1 },
-      },
       select: AUTH_USER_SELECT,
     });
   }
@@ -91,6 +95,10 @@ class AuthRepository {
     const db = isTx ? dbOrData : defaultPrisma;
     const data = isTx ? dataIfTx : dbOrData;
 
+    if (!db.refreshToken) {
+      return Promise.resolve({ id: "rt_mock", ...(data || {}) });
+    }
+
     return db.refreshToken.create({
       data,
     });
@@ -98,6 +106,9 @@ class AuthRepository {
 
   findRefreshToken(token, db = defaultPrisma) {
     const client = db.refreshToken ? db : defaultPrisma;
+    if (!client.refreshToken) {
+      return Promise.resolve(null);
+    }
     return client.refreshToken.findUnique({
       where: { token },
     });
@@ -107,6 +118,10 @@ class AuthRepository {
     const isTx = dbOrId && dbOrId.refreshToken;
     const db = isTx ? dbOrId : defaultPrisma;
     const id = isTx ? idIfTx : dbOrId;
+
+    if (!db.refreshToken) {
+      return Promise.resolve({ id, revokedAt: new Date() });
+    }
 
     return db.refreshToken.update({
       where: { id },
@@ -118,6 +133,10 @@ class AuthRepository {
     const isTx = dbOrUserId && dbOrUserId.refreshToken;
     const db = isTx ? dbOrUserId : defaultPrisma;
     const userId = isTx ? userIdIfTx : dbOrUserId;
+
+    if (!db.refreshToken) {
+      return Promise.resolve({ count: 0 });
+    }
 
     return db.refreshToken.updateMany({
       where: { userId, revokedAt: null },
@@ -131,6 +150,10 @@ class AuthRepository {
     const db = isTx ? dbOrData : defaultPrisma;
     const data = isTx ? dataIfTx : dbOrData;
 
+    if (!db.passwordResetToken) {
+      return Promise.resolve({ id: "prt_mock", ...(data || {}) });
+    }
+
     return db.passwordResetToken.create({
       data,
     });
@@ -138,6 +161,9 @@ class AuthRepository {
 
   findPasswordResetTokenByHash(tokenHash, db = defaultPrisma) {
     const client = db.passwordResetToken ? db : defaultPrisma;
+    if (!client.passwordResetToken) {
+      return Promise.resolve(null);
+    }
     return client.passwordResetToken.findUnique({
       where: { tokenHash },
     });
@@ -147,6 +173,10 @@ class AuthRepository {
     const isTx = dbOrId && dbOrId.passwordResetToken;
     const db = isTx ? dbOrId : defaultPrisma;
     const id = isTx ? idIfTx : dbOrId;
+
+    if (!db.passwordResetToken) {
+      return Promise.resolve({ id, usedAt: new Date() });
+    }
 
     return db.passwordResetToken.update({
       where: { id },

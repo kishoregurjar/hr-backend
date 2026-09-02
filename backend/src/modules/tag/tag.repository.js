@@ -3,8 +3,6 @@ const { prisma } = require("../../config/prisma");
 const TAG_DEFAULT_SELECT = Object.freeze({
   id: true,
   name: true,
-  description: true,
-  isActive: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -13,7 +11,7 @@ const TAG_WITH_COUNT_SELECT = Object.freeze({
   ...TAG_DEFAULT_SELECT,
   _count: {
     select: {
-      questionTags: true,
+      questions: true,
     },
   },
 });
@@ -52,35 +50,35 @@ class TagRepository {
 
   async create(tx, data) {
     const db = getClient(tx);
+    const { description: _desc, isActive: _active, ...cleanData } = data || {};
     return db.tag.create({
-      data,
+      data: cleanData,
       select: TAG_DEFAULT_SELECT,
     });
   }
 
   async update(tx, id, data) {
     const db = getClient(tx);
+    const { description: _desc, isActive: _active, ...cleanData } = data || {};
     return db.tag.update({
       where: { id },
-      data,
+      data: cleanData,
       select: TAG_DEFAULT_SELECT,
     });
   }
 
   async softDelete(tx, id) {
     const db = getClient(tx);
-    return db.tag.update({
+    return db.tag.delete({
       where: { id },
-      data: { isActive: false },
       select: TAG_DEFAULT_SELECT,
     });
   }
 
   async restore(tx, id) {
     const db = getClient(tx);
-    return db.tag.update({
+    return db.tag.findUnique({
       where: { id },
-      data: { isActive: true },
       select: TAG_DEFAULT_SELECT,
     });
   }
@@ -88,7 +86,6 @@ class TagRepository {
   async listActive(tx) {
     const db = getClient(tx);
     return db.tag.findMany({
-      where: { isActive: true },
       orderBy: { name: "asc" },
       select: TAG_WITH_COUNT_SELECT,
     });
@@ -100,10 +97,7 @@ class TagRepository {
 
     const where = {};
     if (search && search.trim()) {
-      where.OR = [
-        { name: { contains: search.trim(), mode: "insensitive" } },
-        { description: { contains: search.trim(), mode: "insensitive" } },
-      ];
+      where.name = { contains: search.trim(), mode: "insensitive" };
     }
 
     const [tags, total] = await Promise.all([
@@ -125,9 +119,6 @@ class TagRepository {
     return db.questionTag.count({
       where: {
         tagId: id,
-        question: {
-          deletedAt: null,
-        },
       },
     });
   }

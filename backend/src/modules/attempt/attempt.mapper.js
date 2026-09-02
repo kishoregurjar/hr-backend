@@ -295,9 +295,11 @@ const hashInvitationToken = (token) => {
 const toCreateInvitationEntity = ({
   assessmentId,
   candidateId,
-  invitedByUserId,
-  email,
+  _invitedByUserId,
+  _email,
+  token,
   tokenHash,
+  status = "PENDING",
   expiresAt,
 }) => {
   if (!assessmentId) {
@@ -306,13 +308,8 @@ const toCreateInvitationEntity = ({
   if (!candidateId) {
     throw new TypeError("candidateId is required.");
   }
-  if (!invitedByUserId) {
-    throw new TypeError("invitedByUserId is required.");
-  }
-  if (typeof email !== "string" || !email.trim()) {
-    throw new TypeError("email is required.");
-  }
-  if (typeof tokenHash !== "string" || !tokenHash.trim()) {
+  const effectiveToken = token || tokenHash;
+  if (!effectiveToken) {
     throw new TypeError("tokenHash is required.");
   }
   if (!(expiresAt instanceof Date)) {
@@ -323,12 +320,10 @@ const toCreateInvitationEntity = ({
   }
 
   return {
+    token: effectiveToken,
     assessmentId,
     candidateId,
-    invitedByUserId,
-    email: email.trim().toLowerCase(),
-    tokenHash,
-    status: "PENDING",
+    status,
     expiresAt,
   };
 };

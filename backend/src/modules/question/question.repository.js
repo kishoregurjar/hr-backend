@@ -3,23 +3,23 @@ const { prisma } = require("../../config/prisma");
 const QUESTION_DEFAULT_SELECT = Object.freeze({
   id: true,
   title: true,
-  description: true,
+  content: true,
   explanation: true,
+  codeSnippet: true,
+  sampleTestCase: true,
   type: true,
   difficulty: true,
   status: true,
-  marks: true,
-  negativeMarks: true,
-  estimatedTime: true,
-  shuffleOptions: true,
-  version: true,
-  isActive: true,
   createdAt: true,
   updatedAt: true,
-  category: {
+  categories: {
     select: {
-      id: true,
-      name: true,
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
     },
   },
   tags: {
@@ -38,6 +38,7 @@ const QUESTION_DEFAULT_SELECT = Object.freeze({
       optionText: true,
       isCorrect: true,
       sequence: true,
+      explanation: true,
     },
     orderBy: {
       sequence: "asc",
@@ -48,16 +49,30 @@ const QUESTION_DEFAULT_SELECT = Object.freeze({
 const QUESTION_LIST_SELECT = Object.freeze({
   id: true,
   title: true,
+  content: true,
   type: true,
   difficulty: true,
   status: true,
-  marks: true,
-  isActive: true,
   createdAt: true,
-  category: {
+  updatedAt: true,
+  categories: {
     select: {
-      id: true,
-      name: true,
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+  tags: {
+    select: {
+      tag: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
     },
   },
 });
@@ -69,18 +84,15 @@ const getClient = (tx) =>
  * ==========================================================
  * Enterprise Question Repository
  * ==========================================================
- * Pure Data Access Layer for Question, QuestionOption, & QuestionTag models.
+ * Pure Data Access Layer for Question, Option, & QuestionTag models.
  * Placed directly at module root matching Option A Standard.
  * ==========================================================
  */
 class QuestionRepository {
   async findById(id, tx) {
     const db = getClient(tx);
-    return db.question.findFirst({
-      where: {
-        id,
-        deletedAt: null,
-      },
+    return db.question.findUnique({
+      where: { id },
       select: QUESTION_DEFAULT_SELECT,
     });
   }
@@ -93,18 +105,14 @@ class QuestionRepository {
           equals: title.trim(),
           mode: "insensitive",
         },
-        deletedAt: null,
       },
     });
   }
 
   async validateCategoryExists(categoryId, tx) {
     const db = getClient(tx);
-    const category = await db.questionCategory.findFirst({
-      where: {
-        id: categoryId,
-        isActive: true,
-      },
+    const category = await db.category.findUnique({
+      where: { id: categoryId },
       select: { id: true },
     });
     return Boolean(category);
@@ -116,18 +124,35 @@ class QuestionRepository {
     const count = await db.tag.count({
       where: {
         id: { in: tagIds },
-        isActive: true,
       },
     });
     return count === tagIds.length;
   }
 
-  async create(tx, questionData, optionsData = [], tagIds = []) {
+  async create(tx, questionData, optionsData = [], tagIds = [], categoryIds = []) {
     const db = getClient(tx);
+
+    const {
+      description,
+      marks: _marks,
+      negativeMarks: _negMarks,
+      estimatedTime: _estTime,
+      shuffleOptions: _shuffle,
+      categoryId,
+      createdById: _cById,
+      updatedById: _uById,
+      ...restData
+    } = questionData || {};
+
+    const content = restData.content || description || restData.title || "";
+    const cleanCategoryIds = Array.isArray(categoryIds) && categoryIds.length > 0
+      ? categoryIds
+      : (categoryId ? [categoryId] : []);
 
     return db.question.create({
       data: {
-        ...questionData,
+        ...restData,
+        content,
         ...(optionsData.length > 0 && {
           options: {
             create: optionsData,
@@ -140,16 +165,23 @@ class QuestionRepository {
             })),
           },
         }),
+        ...(cleanCategoryIds.length > 0 && {
+          categories: {
+            create: cleanCategoryIds.map((catId) => ({
+              category: { connect: { id: catId } },
+            })),
+          },
+        }),
       },
       select: QUESTION_DEFAULT_SELECT,
     });
   }
 
-  async update(tx, id, questionData, optionsData = null, tagIds = null) {
+  async update(tx, id, questionData, optionsData = null, tagIds = null, categoryIds = null) {
     const db = getClient(tx);
 
     if (optionsData !== null) {
-      await db.questionOption.deleteMany({
+      await db.option.deleteMany({
         where: { questionId: id },
       });
     }
@@ -160,10 +192,36 @@ class QuestionRepository {
       });
     }
 
+    if (categoryIds !== null) {
+      await db.questionCategory.deleteMany({
+        where: { questionId: id },
+      });
+    }
+
+    const {
+      description,
+      marks: _marks,
+      negativeMarks: _negMarks,
+      estimatedTime: _estTime,
+      shuffleOptions: _shuffle,
+      categoryId,
+      createdById: _cById,
+      updatedById: _uById,
+      ...restData
+    } = questionData || {};
+
+    if (description !== undefined && !restData.content) {
+      restData.content = description || "";
+    }
+
+    const cleanCategoryIds = categoryIds !== null
+      ? categoryIds
+      : (categoryId !== undefined ? (categoryId ? [categoryId] : []) : null);
+
     return db.question.update({
       where: { id },
       data: {
-        ...questionData,
+        ...restData,
         ...(optionsData !== null && {
           options: {
             create: optionsData,
@@ -173,6 +231,13 @@ class QuestionRepository {
           tags: {
             create: tagIds.map((tagId) => ({
               tag: { connect: { id: tagId } },
+            })),
+          },
+        }),
+        ...(cleanCategoryIds !== null && {
+          categories: {
+            create: cleanCategoryIds.map((catId) => ({
+              category: { connect: { id: catId } },
             })),
           },
         }),
@@ -187,7 +252,6 @@ class QuestionRepository {
       where: { id },
       data: {
         status: "PUBLISHED",
-        publishedAt: new Date(),
       },
       select: QUESTION_DEFAULT_SELECT,
     });
@@ -206,46 +270,39 @@ class QuestionRepository {
 
   async softDelete(tx, id) {
     const db = getClient(tx);
-    return db.question.update({
+    return db.question.delete({
       where: { id },
-      data: {
-        isActive: false,
-        deletedAt: new Date(),
-      },
       select: QUESTION_DEFAULT_SELECT,
     });
   }
 
   async restore(tx, id) {
     const db = getClient(tx);
-    return db.question.update({
+    return db.question.findUnique({
       where: { id },
-      data: {
-        isActive: true,
-        deletedAt: null,
-      },
       select: QUESTION_DEFAULT_SELECT,
     });
   }
 
-  async listPaginated({ page = 1, limit = 10, search, type, difficulty, status, categoryId, tagId, sortBy = "createdAt", sortOrder = "desc", isActive = "true" }, tx) {
+  async listPaginated({ page = 1, limit = 10, search, type, difficulty, status, categoryId, tagId, sortBy = "createdAt", sortOrder = "desc" }, tx) {
     const db = getClient(tx);
     const skip = (page - 1) * limit;
 
-    const where = {
-      deletedAt: null,
-    };
+    const where = {};
 
-    if (isActive !== "all") {
-      where.isActive = isActive === "true";
+    if (type && type !== "all") where.type = type;
+    if (difficulty && difficulty !== "all") where.difficulty = difficulty;
+    if (status && status !== "all") where.status = status;
+
+    if (categoryId && categoryId !== "all") {
+      where.categories = {
+        some: {
+          categoryId,
+        },
+      };
     }
 
-    if (type) where.type = type;
-    if (difficulty) where.difficulty = difficulty;
-    if (status) where.status = status;
-    if (categoryId) where.categoryId = categoryId;
-
-    if (tagId) {
+    if (tagId && tagId !== "all") {
       where.tags = {
         some: {
           tagId,
@@ -256,9 +313,12 @@ class QuestionRepository {
     if (search && search.trim()) {
       where.OR = [
         { title: { contains: search.trim(), mode: "insensitive" } },
-        { description: { contains: search.trim(), mode: "insensitive" } },
+        { content: { contains: search.trim(), mode: "insensitive" } },
       ];
     }
+
+    const validSortFields = ["createdAt", "updatedAt", "title", "difficulty", "status"];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
 
     const [data, total] = await Promise.all([
       db.question.findMany({
@@ -266,7 +326,7 @@ class QuestionRepository {
         skip,
         take: limit,
         orderBy: {
-          [sortBy]: sortOrder,
+          [sortField]: sortOrder === "asc" ? "asc" : "desc",
         },
         select: QUESTION_LIST_SELECT,
       }),

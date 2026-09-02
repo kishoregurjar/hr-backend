@@ -65,10 +65,6 @@ class AuthService {
       throw new UnauthorizedError("Invalid email or password.", "INVALID_CREDENTIALS");
     }
 
-    if (!user.isActive) {
-      throw new UnauthorizedError("Account is inactive. Please contact support.", "ACCOUNT_INACTIVE");
-    }
-
     const isPasswordValid = await comparePassword(payload.password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedError("Invalid email or password.", "INVALID_CREDENTIALS");

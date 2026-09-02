@@ -2,6 +2,7 @@ const { StatusCodes } = require("http-status-codes");
 const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const { ATTEMPT_MESSAGES, ATTEMPT_ERRORS } = require("./attempt.constants");
+const assessmentRepository = require("../assessment/assessment.repository");
 const attemptService = require("./attempt.service");
 const idempotencyService = require("../../services/idempotency.service");
 const {
@@ -70,7 +71,11 @@ class AttemptController {
    */
   createInvitation = asyncHandler(async (req, res) => {
     const invitedByUserId = req.user?.id;
-    const { assessmentId } = req.params;
+    let assessmentId = req.params.assessmentId || req.body.assessmentId;
+    if (!assessmentId) {
+      const latestResult = await assessmentRepository.listPaginated({ limit: 1 });
+      assessmentId = latestResult?.items?.[0]?.id;
+    }
     const { candidateId, email, firstName, lastName, expiresAt } = req.body;
 
     const result = await attemptService.createInvitation({

@@ -17,12 +17,20 @@ class AssessmentDto {
       return null;
     }
 
+    const nameParts = (user.name || "").split(" ");
+    const firstName = user.firstName || nameParts[0] || "";
+    const lastName = user.lastName || nameParts.slice(1).join(" ") || "";
+
     return {
       id: user.id,
 
-      firstName: user.firstName,
+      name: user.name,
 
-      lastName: user.lastName,
+      firstName,
+
+      lastName,
+
+      fullName: user.name || `${firstName} ${lastName}`.trim(),
 
       email: user.email,
     };
@@ -39,13 +47,23 @@ class AssessmentDto {
     const question = assessmentQuestion.question;
 
     return {
-      id: assessmentQuestion.id,
+      id: assessmentQuestion.questionId || assessmentQuestion.id,
 
-      sequence: assessmentQuestion.sequence,
+      assessmentId: assessmentQuestion.assessmentId,
 
-      marks: assessmentQuestion.marks,
+      questionId: assessmentQuestion.questionId || assessmentQuestion.id,
 
-      negativeMarks: assessmentQuestion.negativeMarks,
+      orderIndex: assessmentQuestion.orderIndex !== undefined ? assessmentQuestion.orderIndex : assessmentQuestion.sequence,
+
+      sequence: assessmentQuestion.orderIndex !== undefined ? assessmentQuestion.orderIndex : assessmentQuestion.sequence,
+
+      points: assessmentQuestion.points !== undefined ? assessmentQuestion.points : assessmentQuestion.marks,
+
+      marks: assessmentQuestion.points !== undefined ? assessmentQuestion.points : assessmentQuestion.marks,
+
+      negativePoints: assessmentQuestion.negativePoints !== undefined ? assessmentQuestion.negativePoints : assessmentQuestion.negativeMarks,
+
+      negativeMarks: assessmentQuestion.negativePoints !== undefined ? assessmentQuestion.negativePoints : assessmentQuestion.negativeMarks,
 
       question: question
         ? {
@@ -53,13 +71,15 @@ class AssessmentDto {
 
             title: question.title,
 
+            content: question.content || question.description || "",
+
+            description: question.content || question.description || "",
+
             type: question.type,
 
             difficulty: question.difficulty,
 
             status: question.status,
-
-            marks: question.marks,
           }
         : null,
     };
@@ -80,23 +100,15 @@ class AssessmentDto {
 
       description: assessment.description || null,
 
-      instructions: assessment.instructions || null,
-
       durationMinutes: assessment.durationMinutes,
 
       passingScore: assessment.passingScore,
 
       maximumScore: assessment.maximumScore,
 
-      maxAttempts: assessment.maxAttempts,
-
       type: assessment.type,
 
-      difficulty: assessment.difficulty,
-
       status: assessment.status,
-
-      publishAt: assessment.publishAt || null,
 
       startsAt: assessment.startsAt || null,
 
@@ -136,15 +148,9 @@ class AssessmentDto {
 
       maximumScore: assessment.maximumScore,
 
-      maxAttempts: assessment.maxAttempts,
-
       type: assessment.type,
 
-      difficulty: assessment.difficulty,
-
       status: assessment.status,
-
-      publishAt: assessment.publishAt || null,
 
       startsAt: assessment.startsAt || null,
 
@@ -172,8 +178,6 @@ class AssessmentDto {
       status: assessment.status,
 
       type: assessment.type,
-
-      difficulty: assessment.difficulty,
     };
   }
 

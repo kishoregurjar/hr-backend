@@ -21,12 +21,8 @@ const requireAuth = async (req, res, next) => {
     const payload = verifyAccessToken(token);
 
     const user = await authRepository.findUserById(payload.sub);
-    if (!user || !user.isActive) {
-      throw new UnauthorizedError("User is inactive or no longer exists.", "USER_INVALID");
-    }
-
-    if (payload.tokenVersion !== undefined && user.tokenVersion !== payload.tokenVersion) {
-      throw new UnauthorizedError("Session has expired. Please login again.", "TOKEN_EXPIRED");
+    if (!user) {
+      throw new UnauthorizedError("User no longer exists.", "USER_INVALID");
     }
 
     req.user = user;

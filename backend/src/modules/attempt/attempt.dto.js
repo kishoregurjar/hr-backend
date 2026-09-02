@@ -643,6 +643,7 @@ const toHRAttemptListResponse = (attempt) => {
     candidate: candidate
       ? {
           id: candidate.id,
+          name: `${candidate.firstName || ""} ${candidate.lastName || ""}`.trim() || candidate.email || null,
           firstName: candidate.firstName ?? null,
           lastName: candidate.lastName ?? null,
           email: candidate.email ?? null,
@@ -697,6 +698,7 @@ const toHRAttemptDetailResponse = (attempt) => {
     candidate: candidate
       ? {
           id: candidate.id,
+          name: `${candidate.firstName || ""} ${candidate.lastName || ""}`.trim() || candidate.email || null,
           firstName: candidate.firstName ?? null,
           lastName: candidate.lastName ?? null,
           email: candidate.email ?? null,

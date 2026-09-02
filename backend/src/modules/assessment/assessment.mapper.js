@@ -50,27 +50,19 @@ class AssessmentMapper {
 
       description: this.normalizeOptionalString(data.description),
 
-      instructions: this.normalizeOptionalString(data.instructions),
+      durationMinutes: data.durationMinutes !== undefined ? data.durationMinutes : 60,
 
-      durationMinutes: data.durationMinutes,
+      passingScore: data.passingScore !== undefined ? data.passingScore : 60,
 
-      passingScore: data.passingScore,
+      maximumScore: data.maximumScore !== undefined ? data.maximumScore : 100,
 
-      maximumScore: data.maximumScore,
-
-      maxAttempts: data.maxAttempts,
-
-      type: data.type,
-
-      difficulty: data.difficulty,
+      type: data.type || "TECHNICAL",
 
       status: ASSESSMENT_STATUS.DRAFT,
 
-      publishAt: data.publishAt ?? null,
+      startsAt: data.startsAt ? new Date(data.startsAt) : null,
 
-      startsAt: data.startsAt ?? null,
-
-      endsAt: data.endsAt ?? null,
+      endsAt: data.endsAt ? new Date(data.endsAt) : null,
 
       createdById,
     };
@@ -90,10 +82,6 @@ class AssessmentMapper {
       updateData.description = this.normalizeOptionalString(data.description);
     }
 
-    if (data.instructions !== undefined) {
-      updateData.instructions = this.normalizeOptionalString(data.instructions);
-    }
-
     if (data.durationMinutes !== undefined) {
       updateData.durationMinutes = data.durationMinutes;
     }
@@ -106,28 +94,16 @@ class AssessmentMapper {
       updateData.maximumScore = data.maximumScore;
     }
 
-    if (data.maxAttempts !== undefined) {
-      updateData.maxAttempts = data.maxAttempts;
-    }
-
     if (data.type !== undefined) {
       updateData.type = data.type;
     }
 
-    if (data.difficulty !== undefined) {
-      updateData.difficulty = data.difficulty;
-    }
-
-    if (data.publishAt !== undefined) {
-      updateData.publishAt = data.publishAt;
-    }
-
     if (data.startsAt !== undefined) {
-      updateData.startsAt = data.startsAt;
+      updateData.startsAt = data.startsAt ? new Date(data.startsAt) : null;
     }
 
     if (data.endsAt !== undefined) {
-      updateData.endsAt = data.endsAt;
+      updateData.endsAt = data.endsAt ? new Date(data.endsAt) : null;
     }
 
     return updateData;
@@ -148,23 +124,15 @@ class AssessmentMapper {
 
       description: assessment.description,
 
-      instructions: assessment.instructions,
-
       durationMinutes: assessment.durationMinutes,
 
       passingScore: assessment.passingScore,
 
       maximumScore: assessment.maximumScore,
 
-      maxAttempts: assessment.maxAttempts,
-
       type: assessment.type,
 
-      difficulty: assessment.difficulty,
-
       status: assessment.status,
-
-      publishAt: assessment.publishAt,
 
       startsAt: assessment.startsAt,
 
@@ -187,21 +155,13 @@ class AssessmentMapper {
 
       description: assessment.description,
 
-      instructions: assessment.instructions,
-
       durationMinutes: assessment.durationMinutes,
 
       passingScore: assessment.passingScore,
 
       maximumScore: assessment.maximumScore,
 
-      maxAttempts: assessment.maxAttempts,
-
       type: assessment.type,
-
-      difficulty: assessment.difficulty,
-
-      publishAt: assessment.publishAt,
 
       startsAt: assessment.startsAt,
 

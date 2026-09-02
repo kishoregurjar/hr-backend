@@ -105,69 +105,31 @@ class AssessmentService {
   /**
    * List Assessments (Paginated, Searchable, Sorted, Filtered & Ownership Scoped)
    */
-  async getAssessments(query, user) {
-    const page = Math.max(1, parseInt(query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 10));
-    const { search, status, type, difficulty, sortBy, sortOrder } = query;
+  async getAssessments(query = {}, user = {}) {
+    const createdById = user.role === "HR" ? user.id : query.createdById;
 
-    const skip = (page - 1) * limit;
-
-    const where = {
-      deletedAt: null,
-    };
-
-    if (search) {
-      where.OR = [
-        {
-          title: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          description: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-      ];
-    }
-
-    if (status) where.status = status;
-    if (type) where.type = type;
-    if (difficulty) where.difficulty = difficulty;
-
-    if (user.role === "HR") {
-      where.createdById = user.id;
-    }
-
-    const orderBy = {
-      [sortBy || ASSESSMENT_DEFAULT_SORT.FIELD]:
-        sortOrder || ASSESSMENT_DEFAULT_SORT.ORDER,
-    };
-
-    const [assessments, total] = await Promise.all([
-      assessmentRepository.list({
-        where,
-        skip,
-        take: limit,
-        orderBy,
-      }),
-      assessmentRepository.count(where),
-    ]);
-
-    const totalPages = Math.ceil(total / limit) || 1;
+    const result = await assessmentRepository.listPaginated({
+      page: query.page,
+      limit: query.limit,
+      search: query.search,
+      status: query.status,
+      type: query.type,
+      difficulty: query.difficulty,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+      createdById,
+    });
 
     return {
-      message: ASSESSMENT_MESSAGES.LIST_FETCHED,
-      data: AssessmentDto.toCollection(assessments),
+      message: ASSESSMENT_MESSAGES.LIST_FETCHED || "Assessments fetched successfully.",
+      data: AssessmentDto.toCollection(result.items),
       meta: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages,
+        hasNextPage: result.page < result.totalPages,
+        hasPreviousPage: result.page > 1,
       },
     };
   }
@@ -468,13 +430,10 @@ class AssessmentService {
         id: {
           in: questionIds,
         },
-        deletedAt: null,
-        isActive: true,
       },
       select: {
         id: true,
         status: true,
-        isActive: true,
       },
     });
 

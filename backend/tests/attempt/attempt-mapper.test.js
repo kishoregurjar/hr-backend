@@ -182,11 +182,9 @@ describe("Assessment Attempt Mapper & Snapshot Transformation Suite", () => {
     });
 
     assert.deepEqual(result, {
+      token: "hashed_token_string_here",
       assessmentId: "assessment-123",
       candidateId: "candidate-456",
-      invitedByUserId: "hr-789",
-      email: "candidate@example.com",
-      tokenHash: "hashed_token_string_here",
       status: "PENDING",
       expiresAt: futureExpiry,
     });

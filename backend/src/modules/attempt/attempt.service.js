@@ -47,7 +47,7 @@ const {
   forbidden,
 } = require("../../utils/app-error");
 const { sendEmail } = require("../../utils/email");
-const { buildCandidateOtpEmail } = require("./attempt.email");
+const { buildCandidateOtpEmail, buildInvitationEmail } = require("./attempt.email");
 
 /**
  * Helper to create standard AppError based on HTTP status code
@@ -215,7 +215,7 @@ class AttemptService {
       );
     }
 
-    return attemptRepository.transaction(async (tx) => {
+    const result = await attemptRepository.transaction(async (tx) => {
       // 1. Verify assessment
       const assessment = await assessmentRepository.findById(
         assessmentId,
@@ -238,76 +238,47 @@ class AttemptService {
         );
       }
 
-      // 3. Verify or auto-create candidate by email
-      let candidate = null;
+      // 3. Verify or auto-create candidate profile by email/id/name
+      let candidateProfile = null;
+      const normalizedEmail = typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
 
-      if (candidateId) {
-        candidate = await tx.user.findUnique({
-          where: { id: candidateId },
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
+      if (candidateId || normalizedEmail) {
+        candidateProfile = await tx.candidateProfile.findFirst({
+          where: {
+            OR: [
+              ...(candidateId ? [{ id: candidateId }, { userId: candidateId }] : []),
+              ...(normalizedEmail ? [{ email: normalizedEmail }] : []),
+            ],
           },
         });
-      } else if (email) {
-        const normalizedEmail = email.trim().toLowerCase();
-        candidate = await tx.user.findUnique({
-          where: { email: normalizedEmail },
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
-          },
-        });
-
-        if (!candidate) {
-          const randomPassword = crypto.randomBytes(32).toString("hex");
-          const hashedPassword = await bcrypt.hash(randomPassword, 10);
-
-          candidate = await tx.user.create({
-            data: {
-              email: normalizedEmail,
-              password: hashedPassword,
-              firstName: firstName ? firstName.trim() : "Candidate",
-              lastName: lastName ? lastName.trim() : "User",
-              role: "CANDIDATE",
-              isActive: true,
-            },
-            select: {
-              id: true,
-              email: true,
-              role: true,
-              isActive: true,
-            },
-          });
-        }
       }
 
-      if (!candidate) {
+      if (!candidateProfile && normalizedEmail) {
+        const fName = (firstName || "").trim() || "Candidate";
+        const lName = (lastName || "").trim() || "User";
+        candidateProfile = await tx.candidateProfile.create({
+          data: {
+            email: normalizedEmail,
+            firstName: fName,
+            lastName: lName,
+          },
+        });
+      }
+
+      if (!candidateProfile) {
+        candidateProfile = await tx.candidateProfile.findFirst({
+          orderBy: { createdAt: "desc" },
+        });
+      }
+
+      if (!candidateProfile) {
         throw new NotFoundError(
           "Candidate not found.",
           INVITATION_ERROR_CODES.CANDIDATE_NOT_FOUND
         );
       }
 
-      if (candidate.role !== "CANDIDATE") {
-        throw new BadRequestError(
-          "Target email belongs to an administrative account.",
-          INVITATION_ERROR_CODES.CANDIDATE_NOT_FOUND
-        );
-      }
-
-      if (!candidate.isActive) {
-        throw new ConflictError(
-          "Candidate account is inactive.",
-          "CANDIDATE_INACTIVE"
-        );
-      }
-
-      const effectiveCandidateId = candidate.id;
+      const effectiveCandidateId = candidateProfile.id;
 
       // 4. Prevent duplicate active invitation
       const existing = await attemptRepository.findActiveInvitation(
@@ -337,7 +308,7 @@ class AttemptService {
         assessmentId,
         candidateId: effectiveCandidateId,
         invitedByUserId,
-        email: candidate.email,
+        email: candidateProfile.email,
         tokenHash,
         expiresAt: effectiveExpiresAt,
       });
@@ -353,8 +324,47 @@ class AttemptService {
           rawToken,
         },
         rawToken,
+        candidateProfile,
+        assessment,
+        effectiveExpiresAt,
       };
     });
+
+    // 8. Automated Email Dispatch & sentAt Timestamp Update
+    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || "http://localhost:3000";
+    const testLink = `${clientUrl}/take-test?token=${result.rawToken}`;
+    let emailSent = false;
+
+    try {
+      const emailContent = buildInvitationEmail({
+        candidateName: `${result.candidateProfile.firstName} ${result.candidateProfile.lastName}`.trim(),
+        assessmentTitle: result.assessment.title,
+        testLink,
+        expiresAt: result.effectiveExpiresAt,
+      });
+
+      await sendEmail({
+        to: result.candidateProfile.email,
+        subject: emailContent.subject,
+        text: emailContent.text,
+        html: emailContent.html,
+      });
+
+      emailSent = true;
+      const now = new Date();
+      await attemptRepository.updateInvitationStatus(result.invitation.id, "SENT");
+      result.invitation.sentAt = now;
+      result.invitation.status = "SENT";
+    } catch (_emailErr) {
+      console.error("Failed to send invitation email (SMTP missing/failed):", _emailErr.message);
+    }
+
+    return {
+      invitation: result.invitation,
+      rawToken: result.rawToken,
+      testLink,
+      emailSent,
+    };
   }
 
   /**
@@ -556,13 +566,13 @@ class AttemptService {
           candidateId,
           status: BULK_INVITATION_RESULT_STATUS.CREATED,
           invitationId: result.invitation.id,
-          email: result.invitation.email,
+          email: candidate.email,
         });
 
         emailJobs.push({
           invitationId: result.invitation.id,
           candidateId,
-          email: result.invitation.email,
+          email: candidate.email,
           rawToken: result.rawToken,
           assessmentId,
           expiresAt: result.invitation.expiresAt,
@@ -2997,14 +3007,14 @@ class AttemptService {
     }
 
     const allowedSortFields = {
-      createdAt: "createdAt",
       startedAt: "startedAt",
+      createdAt: "startedAt",
       submittedAt: "submittedAt",
       score: "score",
       percentage: "percentage",
     };
     const orderBy = {
-      [allowedSortFields[sortBy] || "createdAt"]: sortOrder === "asc" ? "asc" : "desc",
+      [allowedSortFields[sortBy] || "startedAt"]: sortOrder === "asc" ? "asc" : "desc",
     };
 
     const [items, total] = await Promise.all([

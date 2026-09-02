@@ -166,17 +166,52 @@ const updateAssessmentSchema = z.object({
  * 3. Assign Questions Schema
  * ==========================================================
  */
-const assignAssessmentQuestionItemSchema = z.object({
-  questionId: z.string({ required_error: "questionId is required." }).cuid("Invalid question ID format."),
-  sequence: z.coerce.number().int().min(1, "Sequence must be at least 1."),
-  marks: z.coerce.number().int().min(1, "Marks must be at least 1.").default(1),
-  negativeMarks: z.coerce.number().int().min(0, "Negative marks cannot be negative.").default(0),
-});
+const flexibleQuestionItemSchema = z.preprocess((val) => {
+  if (typeof val === "string") {
+    return { questionId: val, sequence: 1, marks: 1, negativeMarks: 0 };
+  }
+  if (val && typeof val === "object") {
+    const qId = val.questionId || val.id;
+    const seq = val.sequence || val.orderIndex || 1;
+    const pts = val.marks || val.points || 1;
+    const neg = val.negativeMarks || val.negativePoints || 0;
+    return {
+      questionId: qId,
+      sequence: seq,
+      marks: pts,
+      negativeMarks: neg,
+    };
+  }
+  return val;
+}, z.object({
+  questionId: z.string({ required_error: "questionId is required." }),
+  sequence: z.coerce.number().int().default(1),
+  marks: z.coerce.number().default(1),
+  negativeMarks: z.coerce.number().default(0),
+}));
 
 const assignAssessmentQuestionsSchema = z.object({
-  params: z.object({ id: z.string().cuid("Invalid assessment ID format.") }),
+  params: z.object({ id: z.string() }),
   body: z.object({
-    questions: z.array(assignAssessmentQuestionItemSchema).min(1, "At least one question is required."),
+    questions: z.preprocess(
+      (val) => {
+        if (!Array.isArray(val)) return val;
+        return val.map((item, index) => {
+          if (typeof item === "string") {
+            return { questionId: item, sequence: index + 1, marks: 1, negativeMarks: 0 };
+          }
+          if (item && typeof item === "object") {
+            return {
+              ...item,
+              questionId: item.questionId || item.id,
+              sequence: item.sequence || item.orderIndex || index + 1,
+            };
+          }
+          return item;
+        });
+      },
+      z.array(flexibleQuestionItemSchema).min(1, "At least one question is required.")
+    ),
   }),
 });
 
