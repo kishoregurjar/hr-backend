@@ -8,6 +8,7 @@ const questionRoutes = require("../modules/question");
 const categoryRoutes = require("../modules/category");
 const tagRoutes = require("../modules/tag");
 const attemptRoutes = require("../modules/attempt");
+const gameRoutes = require("../modules/game");
 
 const router = express.Router();
 
@@ -76,5 +77,10 @@ router.use("/question-categories", categoryRoutes);
  * Question Tag Module Routes (/api/v1/question-tags)
  */
 router.use("/question-tags", tagRoutes);
+
+/**
+ * Game Module Routes (/api/v1/games)
+ */
+router.use("/games", gameRoutes);
 
 module.exports = router;
