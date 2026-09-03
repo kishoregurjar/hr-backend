@@ -117,13 +117,24 @@ class QuestionService {
       throw new NotFoundError("Question not found.", "QUESTION_NOT_FOUND");
     }
 
-    const deletedQuestion = await runTransaction(async (tx) => {
-      return questionRepository.softDelete(tx, id);
+    const result = await runTransaction(async (tx) => {
+      const answerCount = await questionRepository.countCandidateAnswers(tx, id);
+      const attemptQuestionCount = await questionRepository.countAttemptQuestions(tx, id);
+
+      if (answerCount > 0 || attemptQuestionCount > 0) {
+        const archived = await questionRepository.archive(tx, id);
+        return { action: "ARCHIVED", question: archived };
+      }
+
+      const deleted = await questionRepository.hardDeleteCascade(tx, id);
+      return { action: "DELETED", question: deleted };
     });
 
     return {
-      message: "Question deleted successfully.",
-      data: { id: deletedQuestion.id, deletedAt: deletedQuestion.deletedAt },
+      message: result.action === "ARCHIVED"
+        ? "Question archived because it is linked to candidate test history."
+        : "Question deleted successfully.",
+      data: { id: result.question.id, action: result.action },
     };
   }
 

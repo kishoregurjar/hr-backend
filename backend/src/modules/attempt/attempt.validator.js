@@ -308,8 +308,8 @@ const currentAttemptQuerySchema = z
     token: z
       .string()
       .trim()
-      .min(68, "Token must be at least 68 characters.")
-      .max(200, "Token is too long.")
+      .min(1, "Token must be at least 1 character.")
+      .max(512, "Token is too long.")
       .regex(/^inv_[a-f0-9]+$/, "Invalid invitation token format.")
       .optional(),
   })

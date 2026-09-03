@@ -60,7 +60,7 @@ ALTER TABLE "public"."Invitation" ADD CONSTRAINT "Invitation_assessmentId_fkey" 
 ALTER TABLE "public"."Invitation" ADD CONSTRAINT "Invitation_invitedById_fkey" FOREIGN KEY ("invitedById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "public"."GameResult" ADD CONSTRAINT "GameResult_candidateAssessmentId_fkey" FOREIGN KEY ("candidateAssessmentId") REFERENCES "public"."CandidateAssessment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- ALTER TABLE "public"."GameResult" ADD CONSTRAINT "GameResult_candidateAssessmentId_fkey" FOREIGN KEY ("candidateAssessmentId") REFERENCES "public"."CandidateAssessment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."GameResult" ADD CONSTRAINT "GameResult_gameId_fkey" FOREIGN KEY ("gameId") REFERENCES "public"."Game"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

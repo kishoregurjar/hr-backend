@@ -5,14 +5,16 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "test": "node --test tests/**/*.test.js",
+    "test": "node --test tests/**/*.test.js && node scripts/clean_test_data.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "db:clean-tests": "node scripts/clean_test_data.js",
+    "worker:attempt-expiry": "node src/workers/attempt-expiry.runner.js"
   },
   "keywords": [],
   "author": "",

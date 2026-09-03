@@ -15,10 +15,14 @@ async function disconnectDatabase() {
   await prisma.$disconnect();
 }
 
-async function runTransaction(callback) {
-  return prisma.$transaction(async (tx) => {
-    return callback(tx);
-  });
+async function runTransaction(callback, options = {}) {
+  const defaultOptions = { maxWait: 30000, timeout: 30000 };
+  return prisma.$transaction(
+    async (tx) => {
+      return callback(tx);
+    },
+    { ...defaultOptions, ...options }
+  );
 }
 
 module.exports = {

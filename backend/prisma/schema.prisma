@@ -49,6 +49,7 @@ enum CandidateAssessmentStatus {
   NOT_STARTED
   IN_PROGRESS
   SUBMITTED
+  EXPIRED
 }
 
 enum ResultStatus {
@@ -307,6 +308,7 @@ model CandidateAttempt {
   startedAt    DateTime                  @default(now())
   submittedAt  DateTime?
   expiresAt    DateTime
+  expiredAt    DateTime?
 
   assessment Assessment       @relation(fields: [assessmentId], references: [id])
   candidate  CandidateProfile @relation(fields: [candidateId], references: [id])
@@ -316,6 +318,7 @@ model CandidateAttempt {
 
   @@index([assessmentId, candidateId])
   @@index([status])
+  @@index([status, expiresAt])
 }
 
 model AuditLog {

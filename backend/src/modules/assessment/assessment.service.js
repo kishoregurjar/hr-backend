@@ -444,20 +444,12 @@ class AssessmentService {
       );
     }
 
-    const unpublishedQuestions = questions.filter(
-      (question) => question.status !== QUESTION_STATUS.PUBLISHED
+    const archivedQuestions = questions.filter(
+      (question) => question.status === QUESTION_STATUS.ARCHIVED
     );
-    if (unpublishedQuestions.length > 0) {
+    if (archivedQuestions.length > 0) {
       throw new BadRequestError(
-        "Only published questions can be assigned to an assessment.",
-        ASSESSMENT_QUESTION_ERRORS.QUESTION_NOT_PUBLISHED || "ASSESSMENT_QUESTION_NOT_PUBLISHED"
-      );
-    }
-
-    const inactiveQuestions = questions.filter((question) => !question.isActive);
-    if (inactiveQuestions.length > 0) {
-      throw new BadRequestError(
-        "Inactive questions cannot be assigned.",
+        "Archived questions cannot be assigned to an assessment.",
         ASSESSMENT_QUESTION_ERRORS.QUESTION_INACTIVE || "ASSESSMENT_QUESTION_INACTIVE"
       );
     }
@@ -667,9 +659,9 @@ class AssessmentService {
         );
       }
 
-      if (question.status !== QUESTION_STATUS.PUBLISHED) {
+      if (question.status === QUESTION_STATUS.ARCHIVED) {
         throw new BadRequestError(
-          "All assigned questions must be published before assessment can be published.",
+          "Archived questions cannot be part of a published assessment.",
           ASSESSMENT_ERRORS.INVALID_QUESTIONS || "ASSESSMENT_INVALID_QUESTIONS"
         );
       }
@@ -758,6 +750,18 @@ class AssessmentService {
     }
 
     const publishedAssessment = await runTransaction(async (tx) => {
+      const draftQuestionIds = assessmentQuestions
+        .map((item) => item.question)
+        .filter((q) => q && q.status === QUESTION_STATUS.DRAFT)
+        .map((q) => q.id);
+
+      if (draftQuestionIds.length > 0) {
+        await tx.question.updateMany({
+          where: { id: { in: draftQuestionIds } },
+          data: { status: QUESTION_STATUS.PUBLISHED },
+        });
+      }
+
       return this.executeTransition({
         tx,
         assessmentId,

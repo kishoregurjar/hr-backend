@@ -12,6 +12,7 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
   status: true,
   startedAt: true,
   expiresAt: true,
+  expiredAt: true,
   submittedAt: true,
   score: true,
   maxScore: true,
@@ -125,7 +126,45 @@ class AttemptRepository {
         assessmentId,
         candidateId,
       },
-      select: ATTEMPT_BASE_SELECT,
+    });
+  }
+
+  /**
+   * Find Authoritative Attempt Lifecycle State Only
+   */
+  async findAttemptState({ attemptId }, tx) {
+    const db = getClient(tx);
+    const attemptModel = db.candidateAttempt || db.assessmentAttempt;
+    return attemptModel.findUnique({
+      where: { id: attemptId },
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        expiresAt: true,
+        submittedAt: true,
+        expiredAt: true,
+      },
+    });
+  }
+
+  /**
+   * Find Attempt By Token Hash
+   */
+  async findAttemptByTokenHash({ tokenHash }, tx) {
+    const client = getClient(tx);
+    const attemptModel = client.candidateAttempt || client.assessmentAttempt;
+    if (!attemptModel) {
+      throw new Error("AssessmentAttempt Prisma model not found");
+    }
+    return attemptModel.findFirst({
+      where: {
+        tokenHash,
+      },
+      include: {
+        assessment: true,
+        candidate: true,
+      },
     });
   }
 
@@ -153,15 +192,24 @@ class AttemptRepository {
    * Candidate identity + assessment identity are both scoped.
    * ------------------------------------------------------------
    */
-  async findCurrentAttempt({ assessmentId, candidateId }, tx) {
+  async findCurrentAttempt({ candidateAssessmentId, assessmentId, candidateId }, tx) {
     const db = getClient(tx);
     const attemptModel = db.candidateAttempt || db.assessmentAttempt;
+    const where = {};
+    if (candidateAssessmentId) {
+      where.id = candidateAssessmentId;
+    }
+    if (assessmentId) {
+      where.assessmentId = assessmentId;
+    }
+    if (candidateId) {
+      where.candidateId = candidateId;
+    }
+    if (!candidateAssessmentId) {
+      where.status = "IN_PROGRESS";
+    }
     return attemptModel.findFirst({
-      where: {
-        assessmentId,
-        candidateId,
-        status: "IN_PROGRESS",
-      },
+      where,
       include: {
         assessment: {
           select: {
@@ -1917,14 +1965,18 @@ class AttemptRepository {
   /**
    * Evaluate Attempt Answer
    */
-  async evaluateAttemptAnswer({ id, evaluationStatus, marksAwarded }, tx) {
+  async evaluateAttemptAnswer({ id, isCorrect, marksObtained, evaluationStatus, marksAwarded }, tx) {
     const client = tx || prisma;
-    return client.attemptAnswer.update({
+    const model = client.candidateAnswer || client.attemptAnswer;
+    const isCorrectVal = typeof isCorrect === "boolean" ? isCorrect : evaluationStatus === "CORRECT";
+    const marksVal = typeof marksObtained === "number" ? marksObtained : (marksAwarded || 0);
+
+    return model.update({
       where: { id },
       data: {
-        evaluationStatus,
-        isCorrect: evaluationStatus === "CORRECT",
-        marksAwarded,
+        isCorrect: isCorrectVal,
+        marksObtained: marksVal,
+        evaluatedAt: new Date(),
       },
     });
   }
@@ -2122,10 +2174,82 @@ class AttemptRepository {
   }
 
   /**
+   * ------------------------------------------------------------
+   * Find Expired IN_PROGRESS Attempts for Background Worker
+   * ------------------------------------------------------------
+   */
+  async findExpiredInProgressAttempts({ now = new Date(), limit = 100 } = {}, tx) {
+    const db = getClient(tx);
+    return db.candidateAttempt.findMany({
+      where: {
+        status: "IN_PROGRESS",
+        expiresAt: {
+          lte: now,
+        },
+      },
+      orderBy: {
+        expiresAt: "asc",
+      },
+      take: limit,
+      select: {
+        id: true,
+        candidateId: true,
+        assessmentId: true,
+        expiresAt: true,
+        status: true,
+      },
+    });
+  }
+
+  /**
+   * ------------------------------------------------------------
+   * Lock Attempt Row with FOR UPDATE for Expiry Processing
+   * ------------------------------------------------------------
+   */
+  async lockAttemptForExpiry({ attemptId }, tx) {
+    const client = tx || prisma;
+    try {
+      const rows = await client.$queryRaw`
+        SELECT *
+        FROM "CandidateAttempt"
+        WHERE "id" = ${attemptId}
+        FOR UPDATE
+      `;
+      return rows[0] || null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /**
+   * ------------------------------------------------------------
+   * Mark Attempt Expired with Final Scores
+   * ------------------------------------------------------------
+   */
+  async markAttemptExpired({ attemptId, expiredAt = new Date(), score = 0, percentage = 0, passed = false }, tx) {
+    const client = tx || prisma;
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.update({
+      where: { id: attemptId },
+      data: {
+        status: "EXPIRED",
+        submittedAt: expiredAt,
+        expiredAt: expiredAt,
+        score,
+        percentage,
+        result: typeof passed === "boolean" ? (passed ? "PASS" : "FAIL") : (passed === "PASSED" ? "PASS" : (passed === "FAILED" ? "FAIL" : passed)),
+      },
+    });
+  }
+
+  /**
    * Transaction Helper
    */
   async transaction(callback) {
-    return prisma.$transaction(async (tx) => callback(tx));
+    return prisma.$transaction(async (tx) => callback(tx), {
+      maxWait: 30000,
+      timeout: 30000,
+    });
   }
 }
 
@@ -2185,3 +2309,8 @@ module.exports.getAssessmentAnalytics = attemptRepository.getAssessmentAnalytics
 module.exports.findAttemptForHR = attemptRepository.findAttemptForHR.bind(attemptRepository);
 module.exports.findInvitationById = attemptRepository.findInvitationById.bind(attemptRepository);
 module.exports.findInvitationByCandidateAndAssessment = attemptRepository.findInvitationByCandidateAndAssessment.bind(attemptRepository);
+module.exports.findExpiredInProgressAttempts = attemptRepository.findExpiredInProgressAttempts.bind(attemptRepository);
+module.exports.lockAttemptForExpiry = attemptRepository.lockAttemptForExpiry.bind(attemptRepository);
+module.exports.markAttemptExpired = attemptRepository.markAttemptExpired.bind(attemptRepository);
+module.exports.findAttemptByTokenHash = attemptRepository.findAttemptByTokenHash.bind(attemptRepository);
+module.exports.findAttemptState = attemptRepository.findAttemptState.bind(attemptRepository);

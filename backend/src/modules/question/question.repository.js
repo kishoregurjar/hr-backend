@@ -152,10 +152,11 @@ class QuestionRepository {
     return db.question.create({
       data: {
         ...restData,
+        status: "DRAFT",
         content,
         ...(optionsData.length > 0 && {
           options: {
-            create: optionsData,
+            create: optionsData.map(({ questionId: _qId, ...opt }) => opt),
           },
         }),
         ...(tagIds.length > 0 && {
@@ -224,7 +225,7 @@ class QuestionRepository {
         ...restData,
         ...(optionsData !== null && {
           options: {
-            create: optionsData,
+            create: optionsData.map(({ questionId: _qId, ...opt }) => opt),
           },
         }),
         ...(tagIds !== null && {
@@ -268,12 +269,36 @@ class QuestionRepository {
     });
   }
 
-  async softDelete(tx, id) {
+  async countCandidateAnswers(tx, questionId) {
     const db = getClient(tx);
+    return db.candidateAnswer.count({
+      where: { questionId },
+    });
+  }
+
+  async countAttemptQuestions(tx, questionId) {
+    const db = getClient(tx);
+    return db.attemptQuestion.count({
+      where: { questionId },
+    });
+  }
+
+  async hardDeleteCascade(tx, questionId) {
+    const db = getClient(tx);
+    await db.assessmentQuestion.deleteMany({ where: { questionId } });
+    await db.questionTag.deleteMany({ where: { questionId } });
+    await db.questionCategory.deleteMany({ where: { questionId } });
+    await db.attachment.deleteMany({ where: { questionId } });
+    await db.option.deleteMany({ where: { questionId } });
+
     return db.question.delete({
-      where: { id },
+      where: { id: questionId },
       select: QUESTION_DEFAULT_SELECT,
     });
+  }
+
+  async softDelete(tx, id) {
+    return this.hardDeleteCascade(tx, id);
   }
 
   async restore(tx, id) {

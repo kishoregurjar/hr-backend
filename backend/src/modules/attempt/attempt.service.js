@@ -48,6 +48,10 @@ const {
 } = require("../../utils/app-error");
 const { sendEmail } = require("../../utils/email");
 const { buildCandidateOtpEmail, buildInvitationEmail } = require("./attempt.email");
+const {
+  hashAttemptToken,
+  validateAttemptTokenFormat,
+} = require("./attempt.security");
 
 /**
  * Helper to create standard AppError based on HTTP status code
@@ -64,6 +68,83 @@ const createServiceError = (code, message, statusCode = 400) => {
       return conflict(message, code);
     default:
       return badRequest(message, code);
+  }
+};
+
+const createAttemptSecurityError = (code, message, statusCode = 403) => {
+  return createServiceError(code, message, statusCode);
+};
+
+const resolveAttemptFromToken = async ({ token, tx }) => {
+  if (!validateAttemptTokenFormat(token)) {
+    throw createAttemptSecurityError(
+      "INVALID_ATTEMPT_TOKEN",
+      "Invalid attempt token format",
+      401
+    );
+  }
+
+  const tokenHash = hashAttemptToken(token);
+
+  const attempt = await attemptRepository.findAttemptByTokenHash({
+    tokenHash,
+    tx,
+  });
+
+  if (!attempt) {
+    throw createAttemptSecurityError(
+      "ATTEMPT_NOT_FOUND",
+      "Attempt not found",
+      404
+    );
+  }
+
+  return attempt;
+};
+
+const assertAttemptOwnership = ({ attempt, candidateId }) => {
+  if (!candidateId) {
+    throw createAttemptSecurityError(
+      "ATTEMPT_ACCESS_DENIED",
+      "Attempt access denied",
+      403
+    );
+  }
+
+  if (attempt.candidateId && attempt.candidateId !== candidateId) {
+    throw createAttemptSecurityError(
+      "ATTEMPT_ACCESS_DENIED",
+      "Attempt access denied",
+      403
+    );
+  }
+};
+
+const assertQuestionBelongsToAttempt = async ({ attemptId, questionId, tx }) => {
+  const attemptQuestion = await attemptRepository.findAttemptQuestion({
+    attemptId,
+    questionId,
+    tx,
+  });
+
+  if (!attemptQuestion) {
+    throw createAttemptSecurityError(
+      "QUESTION_NOT_IN_ATTEMPT",
+      "Question does not belong to this attempt",
+      400
+    );
+  }
+
+  return attemptQuestion;
+};
+
+const assertAttemptIdMatches = ({ resolvedAttemptId, requestedAttemptId }) => {
+  if (requestedAttemptId && resolvedAttemptId !== requestedAttemptId) {
+    throw createAttemptSecurityError(
+      "ATTEMPT_ACCESS_DENIED",
+      "Attempt access denied",
+      403
+    );
   }
 };
 
@@ -2509,16 +2590,17 @@ class AttemptService {
       return null;
     }
 
-    if (attempt.expiresAt && attempt.expiresAt <= now) {
-      const expired = await attemptRepository.expireAttemptIfActive({
-        id: attempt.id,
+    if (attempt.expiresAt && attempt.expiresAt <= now && attempt.status === "IN_PROGRESS") {
+      await this.expireAttempt({
+        attemptId: attempt.id,
         now,
       });
 
       return {
         expired: true,
         attemptId: attempt.id,
-        transitioned: typeof expired === "object" ? expired.count === 1 : false,
+        status: "EXPIRED",
+        attempt,
       };
     }
 
@@ -2732,7 +2814,7 @@ class AttemptService {
    * Submit Candidate Assessment Attempt Workflow (Verification Session Integrated)
    */
   async submitCandidateAttempt({ candidateAssessmentId, candidateSession, token, now = new Date() }) {
-    const effectiveCandidateAssessmentId = candidateSession?.candidateAssessmentId || candidateAssessmentId;
+    const effectiveCandidateAssessmentId = candidateAssessmentId || candidateSession?.candidateAssessmentId || candidateSession?.candidateAttemptId;
     const sessionId = candidateSession?.sessionId;
 
     if (!effectiveCandidateAssessmentId && !token) {
@@ -3102,8 +3184,136 @@ class AttemptService {
 
     return attempt;
   }
+
+  /**
+   * ------------------------------------------------------------
+   * Candidate Attempt Expiry & Auto-Finalization Workflow
+   * ------------------------------------------------------------
+   */
+  /**
+   * Universal Attempt Evaluator (Reuses Step 14 Evaluation Engine)
+   */
+  async evaluateAttempt({ attempt, tx, mode = "SUBMIT" }) {
+    const fullAttempt = (await attemptRepository.findAttemptById(
+      attempt.id,
+      { includeQuestions: true, includeAnswers: true },
+      tx
+    )) || attempt;
+
+    const questions = fullAttempt.attemptQuestions || fullAttempt.questions || [];
+    const evaluations = questions.map((attemptQuestion) => ({
+      attemptQuestion,
+      answerId: attemptQuestion.answers?.[0]?.id,
+      ...this.evaluateAttemptQuestion({ attemptQuestion }),
+    }));
+
+    const scoreObj = this.calculateAttemptScore(evaluations);
+    const finalScore = scoreObj.finalScore || 0;
+    const maxScore = Number(fullAttempt.maxScore || fullAttempt.assessment?.maximumScore || 100);
+    const rawPercentage = maxScore > 0 ? (finalScore / maxScore) * 100 : 0;
+    const percentage = Math.min(100, Math.max(0, rawPercentage));
+
+    const passingScore = Number(fullAttempt.assessment?.passingScore || 50);
+    const result = this.determineResult({ finalScore, passingScore });
+    const passed = result === ATTEMPT_RESULT_STATUS.PASSED;
+
+    return {
+      score: finalScore,
+      maxScore,
+      percentage: Number(percentage.toFixed(2)),
+      passed,
+      result,
+      evaluations,
+      mode,
+    };
+  }
+
+  async evaluateExpiredAttempt({ attempt, tx }) {
+    return this.evaluateAttempt({
+      attempt,
+      tx,
+      mode: "EXPIRY",
+    });
+  }
+
+  async expireAttempt({ attemptId }) {
+    return runTransaction(
+      async (tx) => {
+        const attempt = await attemptRepository.lockAttemptForExpiry(
+          { attemptId },
+          tx
+        );
+
+        if (!attempt) {
+          return {
+            processed: false,
+            reason: "NOT_FOUND",
+          };
+        }
+
+        if (attempt.status !== "IN_PROGRESS") {
+          return {
+            processed: false,
+            reason: "ALREADY_FINALIZED",
+          };
+        }
+
+        const now = new Date();
+
+        if (now < attempt.expiresAt) {
+          return {
+            processed: false,
+            reason: "NOT_EXPIRED",
+          };
+        }
+
+        const result = await this.evaluateExpiredAttempt({ attempt, tx });
+
+        // Step 33 & 36: Persist answer-level evaluations inside the same transaction BEFORE marking EXPIRED
+        if (Array.isArray(result.evaluations)) {
+          for (const ev of result.evaluations) {
+            if (ev.answerId) {
+              await attemptRepository.evaluateAttemptAnswer(
+                {
+                  id: ev.answerId,
+                  isCorrect: Boolean(ev.isCorrect),
+                  marksObtained: Number(ev.positiveMarks || ev.score || 0),
+                  evaluationStatus: ev.status || "UNANSWERED",
+                  marksAwarded: Number(ev.positiveMarks || ev.score || 0),
+                },
+                tx
+              );
+            }
+          }
+        }
+
+        await attemptRepository.markAttemptExpired(
+          {
+            attemptId: attempt.id,
+            expiredAt: now,
+            score: result.score,
+            percentage: result.percentage,
+            passed: result.passed,
+          },
+          tx
+        );
+
+        return {
+          processed: true,
+          attemptId: attempt.id,
+          status: "EXPIRED",
+          result,
+        };
+      },
+      {
+        maxWait: 5000,
+        timeout: 10000,
+      }
+    );
+  }
 }
 
 const attemptService = new AttemptService();
 module.exports = attemptService;
+module.exports.expireAttempt = attemptService.expireAttempt.bind(attemptService);
 

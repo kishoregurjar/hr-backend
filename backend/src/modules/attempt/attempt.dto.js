@@ -300,6 +300,43 @@ const normalizeSelectedOptionIds = (value) => {
 
 /**
  * ------------------------------------------------------------
+ * Candidate-Safe Attempt Question DTO
+ * ------------------------------------------------------------
+ * Strips sensitive evaluation fields:
+ * - isCorrect
+ * - correctAnswer
+ * - explanation
+ * - evaluationStatus
+ * - score
+ * - negativeMarks
+ * - internal audit fields
+ * ------------------------------------------------------------
+ */
+const toCandidateAttemptQuestionDto = (question) => {
+  if (!question) {
+    return null;
+  }
+
+  const baseQuestion = question.question || question;
+
+  return {
+    questionId: question.questionId || baseQuestion.id || question.id,
+    sequence: question.sequence ?? 1,
+    title: baseQuestion.title || question.title,
+    description: baseQuestion.description || baseQuestion.content || question.description || null,
+    type: baseQuestion.type || question.type,
+    difficulty: baseQuestion.difficulty || question.difficulty,
+    marks: serializeNumber(question.marks ?? baseQuestion.marks),
+    options: (baseQuestion.options || question.options || []).map((option) => ({
+      id: option.id,
+      text: option.optionText ?? option.text ?? null,
+      sequence: option.sequence,
+    })),
+  };
+};
+
+/**
+ * ------------------------------------------------------------
  * Helper: Candidate Answer DTO
  * ------------------------------------------------------------
  */
@@ -313,6 +350,7 @@ const toCandidateAnswer = (answer) => {
     questionId: answer.questionId,
     selectedOptionIds: normalizeSelectedOptionIds(answer.selectedOptionIds),
     answerText: answer.answerText ?? null,
+    version: answer.version ?? 1,
     updatedAt: answer.updatedAt ?? null,
   };
 };
@@ -331,19 +369,21 @@ const toCandidateAnswer = (answer) => {
  * - internal audit fields
  * ------------------------------------------------------------
  */
-const toCandidateCurrentAttemptResponse = (attempt) => {
+const toCandidateCurrentAttemptResponse = (attempt, serverTime = new Date().toISOString()) => {
   if (!attempt) {
     return null;
   }
 
   return {
     id: attempt.id,
+    attemptId: attempt.id,
     assessmentId: attempt.assessmentId,
     attemptNumber: attempt.attemptNumber,
     status: attempt.status,
     startedAt: attempt.startedAt,
     expiresAt: attempt.expiresAt,
     submittedAt: attempt.submittedAt ?? null,
+    serverTime: serverTime instanceof Date ? serverTime.toISOString() : (serverTime || new Date().toISOString()),
     assessment: attempt.assessment
       ? {
           id: attempt.assessment.id,
@@ -356,7 +396,7 @@ const toCandidateCurrentAttemptResponse = (attempt) => {
           difficulty: attempt.assessment.difficulty,
         }
       : null,
-    questions: (attempt.questions || []).map((attemptQuestion) => ({
+    questions: (attempt.questions || attempt.attemptQuestions || []).map((attemptQuestion) => ({
       id: attemptQuestion.id,
       questionId: attemptQuestion.questionId,
       sequence: attemptQuestion.sequence,
@@ -371,13 +411,14 @@ const toCandidateCurrentAttemptResponse = (attempt) => {
             difficulty: attemptQuestion.question.difficulty,
             options: (attemptQuestion.question.options || []).map((option) => ({
               id: option.id,
-              text: option.text,
+              text: option.optionText ?? option.text ?? null,
               sequence: option.sequence,
             })),
           }
         : null,
-      answer: toCandidateAnswer(attemptQuestion.answers?.[0]),
+      answer: toCandidateAnswer(attemptQuestion.answers?.[0] || attemptQuestion.answer),
     })),
+    answers: (attempt.answers || []).map(toCandidateAnswer),
   };
 };
 
@@ -750,4 +791,5 @@ module.exports = {
   toHRAttemptListResponse,
   toAssessmentAnalyticsResponse,
   toHRAttemptDetailResponse,
+  toCandidateAttemptQuestionDto,
 };

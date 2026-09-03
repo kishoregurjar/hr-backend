@@ -25,7 +25,7 @@ class QuestionMapper {
       explanation: data.explanation ? data.explanation.trim() : null,
       type: data.type,
       difficulty: data.difficulty,
-      status: data.status || "DRAFT",
+      status: "DRAFT",
       marks: data.marks !== undefined ? data.marks : 1,
       negativeMarks: data.negativeMarks !== undefined ? data.negativeMarks : 0,
       estimatedTime: data.estimatedTime || null,

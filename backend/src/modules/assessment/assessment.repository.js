@@ -202,6 +202,28 @@ class AssessmentRepository {
   }
 
   /**
+   * Atomic State Transition for Assessment
+   */
+  async transitionStatus(tx, { id, fromStatus, toStatus, data = {} }) {
+    const db = getClient(tx);
+    try {
+      return await db.assessment.update({
+        where: {
+          id,
+          status: fromStatus,
+        },
+        data: {
+          ...data,
+          status: toStatus,
+        },
+        select: ASSESSMENT_DETAIL_SELECT,
+      });
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /**
    * Publish Assessment
    */
   async publish(tx, id) {
@@ -314,6 +336,36 @@ class AssessmentRepository {
       limit,
       totalPages,
     };
+  }
+
+  /**
+   * Add / Assign Multiple Questions to Assessment
+   */
+  async addQuestions(tx, assessmentId, questionsData = []) {
+    const db = getClient(tx);
+    const operations = questionsData.map((item) =>
+      db.assessmentQuestion.upsert({
+        where: {
+          assessmentId_questionId: {
+            assessmentId,
+            questionId: item.questionId,
+          },
+        },
+        create: {
+          assessmentId,
+          questionId: item.questionId,
+          orderIndex: item.sequence !== undefined ? item.sequence : (item.orderIndex || 0),
+          points: item.marks !== undefined ? item.marks : (item.points || 1),
+          negativePoints: item.negativeMarks !== undefined ? item.negativeMarks : (item.negativePoints || 0.0),
+        },
+        update: {
+          orderIndex: item.sequence !== undefined ? item.sequence : (item.orderIndex || 0),
+          points: item.marks !== undefined ? item.marks : (item.points || 1),
+          negativePoints: item.negativeMarks !== undefined ? item.negativeMarks : (item.negativePoints || 0.0),
+        },
+      })
+    );
+    return Promise.all(operations);
   }
 
   /**

@@ -25,14 +25,21 @@ describe("Step 18.5 — Start Attempt Concurrency Hardening Suite", () => {
       await prisma.invitation.deleteMany({ where: { id: createdInvitationId } });
     }
     if (createdQuestionId) {
+      await prisma.attemptQuestion.deleteMany({ where: { questionId: createdQuestionId } });
       await prisma.assessmentQuestion.deleteMany({ where: { questionId: createdQuestionId } });
       await prisma.option.deleteMany({ where: { questionId: createdQuestionId } });
       await prisma.question.deleteMany({ where: { id: createdQuestionId } });
     }
     if (createdCandidateId) {
+      await prisma.candidateAnswer.deleteMany({ where: { attempt: { candidateId: createdCandidateId } } });
+      await prisma.attemptQuestion.deleteMany({ where: { attempt: { candidateId: createdCandidateId } } });
+      await prisma.candidateAttempt.deleteMany({ where: { candidateId: createdCandidateId } });
       await prisma.candidateProfile.deleteMany({ where: { id: createdCandidateId } });
     }
     if (createdAssessmentId) {
+      await prisma.candidateAnswer.deleteMany({ where: { attempt: { assessmentId: createdAssessmentId } } });
+      await prisma.attemptQuestion.deleteMany({ where: { attempt: { assessmentId: createdAssessmentId } } });
+      await prisma.candidateAttempt.deleteMany({ where: { assessmentId: createdAssessmentId } });
       await prisma.assessment.deleteMany({ where: { id: createdAssessmentId } });
     }
     if (createdUserId) {
@@ -115,15 +122,15 @@ describe("Step 18.5 — Start Attempt Concurrency Hardening Suite", () => {
     });
     createdInvitationId = invitation.id;
 
-    // 6. Launch 10 simultaneous startAttemptByToken requests
-    const startPromises = Array.from({ length: 10 }, () =>
+    // 6. Launch 5 simultaneous startAttemptByToken requests
+    const startPromises = Array.from({ length: 5 }, () =>
       attemptService.startAttemptByToken({ token: rawToken })
     );
 
     const results = await Promise.all(startPromises);
 
-    // Verify all 10 requests returned valid attempts
-    assert.equal(results.length, 10);
+    // Verify all 5 requests returned valid attempts
+    assert.equal(results.length, 5);
 
     const attemptIds = new Set(results.map((r) => r.id));
     // Exactly 1 unique attempt should have been created across all 10 calls

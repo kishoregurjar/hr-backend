@@ -106,4 +106,5 @@ const requireCandidateVerification = async (req, res, next) => {
 module.exports = {
   extractBearerToken,
   requireCandidateVerification,
+  requireCandidateAttemptSession: requireCandidateVerification,
 };
