@@ -112,13 +112,67 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
     createdOptionId = question.options.find((o) => o.isCorrect).id;
   };
 
+  const createUniqueContext = async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: `lc-user-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`,
+        password: "Password123!",
+        name: "Lifecycle Tester",
+        role: "HR",
+      },
+    });
+    createdUserIds.push(user.id);
+
+    const candidate = await prisma.candidateProfile.create({
+      data: {
+        email: `cand-lc-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`,
+        firstName: "Isolated",
+        lastName: "Candidate",
+      },
+    });
+    createdCandidateIds.push(candidate.id);
+
+    const assessment = await prisma.assessment.create({
+      data: {
+        title: `Isolated Assessment ${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        durationMinutes: 30,
+        passingScore: 50,
+        maximumScore: 10,
+        createdById: user.id,
+      },
+    });
+    createdAssessmentIds.push(assessment.id);
+
+    const question = await prisma.question.create({
+      data: {
+        title: `Isolated Question ${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        content: "What is Node.js Event Loop?",
+        type: "SINGLE_CHOICE",
+        difficulty: "MEDIUM",
+        status: "PUBLISHED",
+        options: {
+          create: [
+            { optionText: "Single-threaded event loop", isCorrect: true, sequence: 1 },
+            { optionText: "Multi-threaded process pool", isCorrect: false, sequence: 2 },
+          ],
+        },
+      },
+      include: { options: true },
+    });
+    createdQuestionIds.push(question.id);
+    const optionId = question.options.find((o) => o.isCorrect).id;
+
+    return { candId: candidate.id, assessmentId: assessment.id, questionId: question.id, optionId };
+  };
+
   it("Test 1: IN_PROGRESS -> current returns attempt", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const attempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "IN_PROGRESS",
         startedAt: new Date(),
         expiresAt: new Date(Date.now() + 30 * 60 * 1000),
@@ -128,7 +182,7 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
     const result = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: attempt.id,
-      candidateSession: { candidateAssessmentId: attempt.id, candidateId: createdCandidateId, assessmentId: createdAssessmentId },
+      candidateSession: { candidateAssessmentId: attempt.id, candidateId: candId, assessmentId },
     });
 
     assert.ok(result);
@@ -139,13 +193,27 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 2: browser reconnect -> returns same attempt ID", async () => {
     await setupFixtures();
-    const activeId = createdAttemptIds[0];
+    const { candId, assessmentId } = await createUniqueContext();
+
+    const activeAttempt = await prisma.candidateAttempt.create({
+      data: {
+        assessmentId,
+        candidateId: candId,
+        status: "IN_PROGRESS",
+        startedAt: new Date(),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      },
+    });
+    createdAttemptIds.push(activeAttempt.id);
+    const activeId = activeAttempt.id;
 
     const result1 = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: activeId,
+      candidateSession: { candidateAssessmentId: activeId, candidateId: candId, assessmentId },
     });
     const result2 = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: activeId,
+      candidateSession: { candidateAssessmentId: activeId, candidateId: candId, assessmentId },
     });
 
     assert.strictEqual(result1.attempt.id, activeId);
@@ -154,22 +222,34 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 3 & 4: saved answers -> current returns saved answers and correct version", async () => {
     await setupFixtures();
-    const activeId = createdAttemptIds[0];
+    const { candId, assessmentId, questionId, optionId } = await createUniqueContext();
+
+    const activeAttempt = await prisma.candidateAttempt.create({
+      data: {
+        assessmentId,
+        candidateId: candId,
+        status: "IN_PROGRESS",
+        startedAt: new Date(),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      },
+    });
+    createdAttemptIds.push(activeAttempt.id);
+    const activeId = activeAttempt.id;
 
     await prisma.attemptQuestion.create({
       data: {
         attemptId: activeId,
-        questionId: createdQuestionId,
+        questionId,
         sequence: 1,
-        questionSnapshot: { id: createdQuestionId, title: "Loop question" },
+        questionSnapshot: { id: questionId, title: "Loop question" },
       },
     });
 
     await prisma.candidateAnswer.create({
       data: {
         attemptId: activeId,
-        questionId: createdQuestionId,
-        selectedOptionIds: [createdOptionId],
+        questionId,
+        selectedOptionIds: [optionId],
         answerText: "Event loop text",
         version: 3,
       },
@@ -177,11 +257,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
     const result = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: activeId,
+      candidateSession: { candidateAssessmentId: activeId, candidateId: candId, assessmentId },
     });
 
     assert.ok(result.attempt);
     assert.ok(Array.isArray(result.attempt.answers));
-    const saved = result.attempt.answers.find((a) => a.questionId === createdQuestionId);
+    const saved = result.attempt.answers.find((a) => a.questionId === questionId);
     assert.ok(saved);
     assert.strictEqual(saved.version, 3);
     assert.strictEqual(saved.answerText, "Event loop text");
@@ -189,11 +270,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 5: expired attempt -> current finalizes and returns EXPIRED", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const expiredAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "IN_PROGRESS",
         startedAt: new Date(Date.now() - 40 * 60 * 1000),
         expiresAt: new Date(Date.now() - 10 * 60 * 1000),
@@ -203,6 +285,7 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
     const result = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: expiredAttempt.id,
+      candidateSession: { candidateAssessmentId: expiredAttempt.id, candidateId: candId, assessmentId },
       now: new Date(),
     });
 
@@ -216,11 +299,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 6: submitted attempt -> current never returns IN_PROGRESS", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const submittedAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "SUBMITTED",
         startedAt: new Date(Date.now() - 20 * 60 * 1000),
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
@@ -231,6 +315,7 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
     const result = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: submittedAttempt.id,
+      candidateSession: { candidateAssessmentId: submittedAttempt.id, candidateId: candId, assessmentId },
     });
 
     assert.ok(result);
@@ -241,11 +326,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 7: cancelled / terminal attempt -> candidate cannot resume", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const terminalAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "EXPIRED",
         startedAt: new Date(Date.now() - 10 * 60 * 1000),
         expiresAt: new Date(Date.now() - 1 * 60 * 1000),
@@ -255,6 +341,7 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
     const result = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: terminalAttempt.id,
+      candidateSession: { candidateAssessmentId: terminalAttempt.id, candidateId: candId, assessmentId },
     });
 
     assert.ok(result);
@@ -263,11 +350,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 8 (Race): GET current + expiry worker results in single finalization", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const raceAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "IN_PROGRESS",
         startedAt: new Date(Date.now() - 50 * 60 * 1000),
         expiresAt: new Date(Date.now() - 5 * 60 * 1000),
@@ -276,7 +364,10 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
     createdAttemptIds.push(raceAttempt.id);
 
     await Promise.all([
-      attemptService.getCurrentCandidateAttempt({ candidateAssessmentId: raceAttempt.id }),
+      attemptService.getCurrentCandidateAttempt({
+        candidateAssessmentId: raceAttempt.id,
+        candidateSession: { candidateAssessmentId: raceAttempt.id, candidateId: candId, assessmentId },
+      }),
       processExpiredAttempts(),
     ]);
 
@@ -286,11 +377,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 9 (Race): GET current + submit results in single authoritative final state", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const raceAttempt2 = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "IN_PROGRESS",
         startedAt: new Date(Date.now() - 10 * 60 * 1000),
         expiresAt: new Date(Date.now() + 20 * 60 * 1000),
@@ -299,7 +391,10 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
     createdAttemptIds.push(raceAttempt2.id);
 
     const [currentRes, submitRes] = await Promise.allSettled([
-      attemptService.getCurrentCandidateAttempt({ candidateAssessmentId: raceAttempt2.id }),
+      attemptService.getCurrentCandidateAttempt({
+        candidateAssessmentId: raceAttempt2.id,
+        candidateSession: { candidateAssessmentId: raceAttempt2.id, candidateId: candId, assessmentId },
+      }),
       attemptService.submitCandidateAttempt({ candidateAssessmentId: raceAttempt2.id }),
     ]);
 
@@ -310,12 +405,13 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 10 & 43 (Critical Timer Test): reconnect never extends expiresAt", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const fixedExpiresAt = new Date(Date.now() + 20 * 60 * 1000);
     const timerAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "IN_PROGRESS",
         startedAt: new Date(),
         expiresAt: fixedExpiresAt,
@@ -323,8 +419,14 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
     });
     createdAttemptIds.push(timerAttempt.id);
 
-    const r1 = await attemptService.getCurrentCandidateAttempt({ candidateAssessmentId: timerAttempt.id });
-    const r2 = await attemptService.getCurrentCandidateAttempt({ candidateAssessmentId: timerAttempt.id });
+    const r1 = await attemptService.getCurrentCandidateAttempt({
+      candidateAssessmentId: timerAttempt.id,
+      candidateSession: { candidateAssessmentId: timerAttempt.id, candidateId: candId, assessmentId },
+    });
+    const r2 = await attemptService.getCurrentCandidateAttempt({
+      candidateAssessmentId: timerAttempt.id,
+      candidateSession: { candidateAssessmentId: timerAttempt.id, candidateId: candId, assessmentId },
+    });
 
     assert.ok(r1.attempt);
     assert.ok(r2.attempt);
@@ -334,11 +436,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 44 (Critical Stale-Session Test): save-answer after submit rejects with ATTEMPT_NOT_ACTIVE", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const submittedAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "SUBMITTED",
         startedAt: new Date(Date.now() - 20 * 60 * 1000),
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
@@ -353,8 +456,8 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
           candidateAssessmentId: submittedAttempt.id,
           candidateSession: {
             candidateAssessmentId: submittedAttempt.id,
-            candidateId: createdCandidateId,
-            assessmentId: createdAssessmentId,
+            candidateId: candId,
+            assessmentId,
           },
           questionId: createdQuestionId,
           selectedOptionIds: [createdOptionId],
@@ -368,11 +471,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 45 (Critical Stale Save Expiry Test): save-answer on expired attempt rejects even before worker runs", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const pastAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "IN_PROGRESS",
         startedAt: new Date(Date.now() - 40 * 60 * 1000),
         expiresAt: new Date(Date.now() - 5 * 60 * 1000),
@@ -386,8 +490,8 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
           candidateAssessmentId: pastAttempt.id,
           candidateSession: {
             candidateAssessmentId: pastAttempt.id,
-            candidateId: createdCandidateId,
-            assessmentId: createdAssessmentId,
+            candidateId: candId,
+            assessmentId,
           },
           questionId: createdQuestionId,
           selectedOptionIds: [createdOptionId],
@@ -401,11 +505,12 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
   it("Test 46 (Worker Delay Test): GET current finalizes worker-delayed attempt to EXPIRED", async () => {
     await setupFixtures();
+    const { candId, assessmentId } = await createUniqueContext();
 
     const delayedAttempt = await prisma.candidateAttempt.create({
       data: {
-        assessmentId: createdAssessmentId,
-        candidateId: createdCandidateId,
+        assessmentId,
+        candidateId: candId,
         status: "IN_PROGRESS",
         startedAt: new Date(Date.now() - 60 * 60 * 1000),
         expiresAt: new Date(Date.now() - 60 * 1000),
@@ -415,6 +520,7 @@ describe("Step 18.7 — Candidate Attempt Lifecycle Recovery & Stale Session Pro
 
     const result = await attemptService.getCurrentCandidateAttempt({
       candidateAssessmentId: delayedAttempt.id,
+      candidateSession: { candidateAssessmentId: delayedAttempt.id, candidateId: candId, assessmentId },
       now: new Date(),
     });
 

@@ -459,6 +459,46 @@ const createVerificationSessionExpiryDate = (now = new Date()) => {
   return new Date(now.getTime() + VERIFICATION_SESSION_CONFIG.DEFAULT_TTL_MINUTES * 60 * 1000);
 };
 
+const ATTEMPT_AUDIT_EVENTS = Object.freeze({
+  ATTEMPT_STARTED: "ATTEMPT_STARTED",
+  ATTEMPT_RESUMED: "ATTEMPT_RESUMED",
+
+  ANSWER_CREATED: "ANSWER_CREATED",
+  ANSWER_UPDATED: "ANSWER_UPDATED",
+  ANSWER_VERSION_CONFLICT: "ANSWER_VERSION_CONFLICT",
+
+  ATTEMPT_SUBMITTED: "ATTEMPT_SUBMITTED",
+  ATTEMPT_ALREADY_SUBMITTED: "ATTEMPT_ALREADY_SUBMITTED",
+
+  ATTEMPT_EXPIRED: "ATTEMPT_EXPIRED",
+  ATTEMPT_CANCELLED: "ATTEMPT_CANCELLED",
+
+  INVALID_TOKEN: "INVALID_TOKEN",
+  ACCESS_DENIED: "ACCESS_DENIED",
+
+  QUESTION_TAMPERING: "QUESTION_TAMPERING",
+
+  ATTEMPT_START_CONFLICT: "ATTEMPT_START_CONFLICT",
+  ATTEMPT_SUBMIT_CONFLICT: "ATTEMPT_SUBMIT_CONFLICT",
+});
+
+const ATTEMPT_METRICS = Object.freeze({
+  STARTED_TOTAL: "hirequest_attempt_started_total",
+  START_FAILED_TOTAL: "hirequest_attempt_start_failed_total",
+  ANSWER_CREATED_TOTAL: "hirequest_attempt_answer_created_total",
+  ANSWER_UPDATED_TOTAL: "hirequest_attempt_answer_updated_total",
+  ANSWER_VERSION_CONFLICT_TOTAL: "hirequest_attempt_answer_version_conflict_total",
+  SUBMITTED_TOTAL: "hirequest_attempt_submitted_total",
+  ALREADY_SUBMITTED_TOTAL: "hirequest_attempt_already_submitted_total",
+  EXPIRED_TOTAL: "hirequest_attempt_expired_total",
+  EVALUATION_FAILED_TOTAL: "hirequest_attempt_evaluation_failed_total",
+  SECURITY_EVENT_TOTAL: "hirequest_attempt_security_event_total",
+  REQUEST_LATENCY: "hirequest_attempt_request_latency_ms",
+  EVALUATION_LATENCY: "hirequest_attempt_evaluation_latency_ms",
+  EXPIRY_WORKER_LATENCY: "hirequest_attempt_expiry_worker_latency_ms",
+  EXPIRY_BACKLOG: "hirequest_attempt_expiry_backlog",
+});
+
 module.exports = {
   ATTEMPT_STATUS,
   ATTEMPT_LIMITS,
@@ -510,4 +550,6 @@ module.exports = {
   ATTEMPT_TOKEN_MAX_LENGTH,
   ATTEMPT_TOKEN_HASH_ALGORITHM,
   ATTEMPT_SECURITY_ERRORS,
+  ATTEMPT_AUDIT_EVENTS,
+  ATTEMPT_METRICS,
 };
