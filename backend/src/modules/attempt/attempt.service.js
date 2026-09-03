@@ -2,6 +2,9 @@ const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const { runTransaction } = require("../../config/prisma");
 const attemptRepository = require("./attempt.repository");
+const attemptAuditService = require("./attempt.audit.service");
+const attemptMetrics = require("./attempt.metrics");
+const attemptFailureService = require("./attempt.failure.service");
 const attemptMapper = require("./attempt.mapper");
 const attemptDto = require("./attempt.dto");
 const {
@@ -1142,6 +1145,20 @@ class AttemptService {
 
       await attemptRepository.createAttemptQuestions(attemptQuestionData, tx);
 
+      // Record Attempt Audit Event in same transaction
+      await attemptAuditService.recordAttemptAudit({
+        event: "ATTEMPT_STARTED",
+        attemptId: attempt.id,
+        candidateId: attempt.candidateId,
+        assessmentId: attempt.assessmentId,
+        metadata: {
+          attemptNumber: attempt.attemptNumber,
+        },
+        tx,
+      });
+
+      attemptMetrics.recordAttemptStarted();
+
       // 14. Atomically consume invitation
       const opened = await attemptRepository.markInvitationOpenedIfUsable(
         invitation.id,
@@ -1169,6 +1186,8 @@ class AttemptService {
           ATTEMPT_ERRORS.NOT_FOUND
         );
       }
+
+      attemptFailureService.beforeStartCommit();
 
       return createdAttempt;
     });
@@ -2553,7 +2572,7 @@ class AttemptService {
    * Get Current Active Candidate Assessment Attempt
    */
   async getCurrentCandidateAttempt({ candidateAssessmentId, candidateSession, token, now = new Date() }) {
-    const effectiveCandidateAssessmentId = candidateSession?.candidateAssessmentId || candidateAssessmentId;
+    const effectiveCandidateAssessmentId = candidateAssessmentId || candidateSession?.candidateAssessmentId;
     const effectiveCandidateId = candidateSession?.candidateId;
     const effectiveAssessmentId = candidateSession?.assessmentId;
 
@@ -2596,17 +2615,36 @@ class AttemptService {
         now,
       });
 
+      const sanitizedAttempt = attemptDto.toCandidateCurrentAttemptResponse({ ...attempt, status: "EXPIRED" }, now);
       return {
+        success: true,
+        data: sanitizedAttempt,
         expired: true,
         attemptId: attempt.id,
         status: "EXPIRED",
-        attempt,
+        attempt: sanitizedAttempt,
       };
     }
 
+    if (attempt && attempt.status === "IN_PROGRESS") {
+      await attemptAuditService.recordAttemptAudit({
+        event: "ATTEMPT_RESUMED",
+        attemptId: attempt.id,
+        candidateId: attempt.candidateId,
+        assessmentId: attempt.assessmentId,
+        metadata: {
+          attemptNumber: attempt.attemptNumber,
+        },
+      }).catch(() => {});
+    }
+
+    const sanitizedAttempt = attemptDto.toCandidateCurrentAttemptResponse(attempt, now);
     return {
+      success: true,
+      data: sanitizedAttempt,
       expired: false,
-      attempt,
+      status: attempt.status,
+      attempt: sanitizedAttempt,
     };
   }
 
@@ -2624,7 +2662,7 @@ class AttemptService {
     version: expectedVersion,
     now = new Date(),
   }) {
-    const effectiveCandidateAssessmentId = candidateSession?.candidateAssessmentId || candidateAssessmentId;
+    const effectiveCandidateAssessmentId = candidateAssessmentId || candidateSession?.candidateAssessmentId;
     const effectiveCandidateId = candidateSession?.candidateId;
     const effectiveAssessmentId = candidateSession?.assessmentId;
 
@@ -2694,6 +2732,17 @@ class AttemptService {
     });
 
     if (!attemptQuestion) {
+      attemptMetrics.recordSecurityEvent("QUESTION_TAMPERING");
+      await attemptAuditService.recordSecurityEvent({
+        event: "QUESTION_TAMPERING",
+        attemptId: attempt.id,
+        candidateId: attempt.candidateId,
+        assessmentId: attempt.assessmentId,
+        questionId,
+        metadata: {
+          reason: "QUESTION_NOT_IN_ATTEMPT",
+        },
+      });
       throw new NotFoundError(
         "Attempt question was not found for this candidate attempt.",
         "ATTEMPT_QUESTION_NOT_FOUND"
@@ -2748,6 +2797,17 @@ class AttemptService {
           selectedOptionIds: payloadOptionIds,
           answerText: payloadText,
         });
+        attemptMetrics.recordAnswerCreated();
+        await attemptAuditService.recordAttemptAudit({
+          event: "ANSWER_CREATED",
+          attemptId: attempt.id,
+          candidateId: attempt.candidateId,
+          assessmentId: attempt.assessmentId,
+          questionId: targetQuestionId,
+          metadata: {
+            version: 1,
+          },
+        }).catch(() => {});
         return {
           attemptId: attempt.id,
           questionId: targetQuestionId,
@@ -2775,6 +2835,18 @@ class AttemptService {
     }
 
     if (expectedVersion !== undefined && expectedVersion !== null && answer.version !== expectedVersion) {
+      attemptMetrics.recordAnswerVersionConflict();
+      await attemptAuditService.recordSecurityEvent({
+        event: "ANSWER_VERSION_CONFLICT",
+        attemptId: attempt.id,
+        candidateId: attempt.candidateId,
+        assessmentId: attempt.assessmentId,
+        questionId: targetQuestionId,
+        metadata: {
+          expectedVersion,
+          actualVersion: answer.version,
+        },
+      });
       throw new ConflictError(
         "This answer is outdated. Please refresh the current answer before saving again.",
         "ANSWER_VERSION_CONFLICT",
@@ -2791,6 +2863,17 @@ class AttemptService {
 
     if (updatedCount !== 1) {
       const latest = await attemptRepository.findAttemptAnswerById({ answerId: answer.id });
+      await attemptAuditService.recordSecurityEvent({
+        event: "ANSWER_VERSION_CONFLICT",
+        attemptId: attempt.id,
+        candidateId: attempt.candidateId,
+        assessmentId: attempt.assessmentId,
+        questionId: targetQuestionId,
+        metadata: {
+          expectedVersion,
+          actualVersion: latest?.version || answer.version,
+        },
+      });
       throw new ConflictError(
         "This answer was modified by another request.",
         "ANSWER_VERSION_CONFLICT",
@@ -2799,6 +2882,22 @@ class AttemptService {
     }
 
     const updatedAnswer = await attemptRepository.findAttemptAnswerById({ answerId: answer.id });
+
+    attemptMetrics.recordAnswerUpdated();
+
+    await attemptAuditService.recordAttemptAudit({
+      event: "ANSWER_UPDATED",
+      attemptId: attempt.id,
+      candidateId: attempt.candidateId,
+      assessmentId: attempt.assessmentId,
+      questionId: targetQuestionId,
+      metadata: {
+        previousVersion: expectedVersion !== undefined ? expectedVersion : answer.version,
+        newVersion: updatedAnswer?.version || answer.version + 1,
+      },
+    }).catch(() => {});
+
+    attemptFailureService.beforeAnswerCommit();
 
     return {
       attemptId: attempt.id,
@@ -2851,7 +2950,19 @@ class AttemptService {
         );
       }
 
+      attemptFailureService.beforeSubmit();
+
       if (lockedAttempt.status === "SUBMITTED") {
+        attemptMetrics.recordAlreadySubmitted();
+        await attemptAuditService.recordSecurityEvent({
+          event: "ATTEMPT_ALREADY_SUBMITTED",
+          attemptId: lockedAttempt.id,
+          candidateId: lockedAttempt.candidateId,
+          assessmentId: lockedAttempt.assessmentId,
+          metadata: {
+            reason: "REPEATED_SUBMIT",
+          },
+        });
         return {
           alreadySubmitted: true,
           attemptId: lockedAttempt.id,
@@ -2890,6 +3001,8 @@ class AttemptService {
       let incorrectCount = 0;
       let unansweredCount = 0;
 
+      attemptFailureService.beforeSubmitEvaluation();
+
       const evaluations = attempt.questions.map((attemptQuestion) => {
         const evalResult = this.evaluateAttemptQuestion({ attemptQuestion });
         if (evalResult.status === ATTEMPT_EVALUATION_STATUS.CORRECT) {
@@ -2927,6 +3040,9 @@ class AttemptService {
         );
       }
 
+      attemptFailureService.afterSubmitEvaluation();
+      attemptFailureService.beforeSubmitCommit();
+
       const submitted = await attemptRepository.submitAttempt(
         {
           attemptId: attempt.id,
@@ -2945,9 +3061,24 @@ class AttemptService {
         );
       }
 
+      attemptMetrics.recordAttemptSubmitted();
+
+      await attemptAuditService.recordAttemptAudit({
+        event: "ATTEMPT_SUBMITTED",
+        attemptId: attempt.id,
+        candidateId: attempt.candidateId,
+        assessmentId: attempt.assessmentId,
+        metadata: {
+          attemptNumber: attempt.attemptNumber,
+        },
+        tx,
+      });
+
       if (sessionId) {
         await attemptRepository.revokeVerificationSession({ id: sessionId, revokedAt: now }, tx);
       }
+
+      attemptFailureService.afterSubmit();
 
       return {
         alreadySubmitted: false,
@@ -3267,6 +3398,8 @@ class AttemptService {
           };
         }
 
+        attemptFailureService.beforeExpiryEvaluation();
+
         const result = await this.evaluateExpiredAttempt({ attempt, tx });
 
         // Step 33 & 36: Persist answer-level evaluations inside the same transaction BEFORE marking EXPIRED
@@ -3277,7 +3410,7 @@ class AttemptService {
                 {
                   id: ev.answerId,
                   isCorrect: Boolean(ev.isCorrect),
-                  marksObtained: Number(ev.positiveMarks || ev.score || 0),
+                  marksAwarded: Number(ev.positiveMarks || ev.score || 0),
                   evaluationStatus: ev.status || "UNANSWERED",
                   marksAwarded: Number(ev.positiveMarks || ev.score || 0),
                 },
@@ -3286,6 +3419,9 @@ class AttemptService {
             }
           }
         }
+
+        attemptFailureService.afterExpiryEvaluation();
+        attemptFailureService.beforeExpiryCommit();
 
         await attemptRepository.markAttemptExpired(
           {
@@ -3297,6 +3433,21 @@ class AttemptService {
           },
           tx
         );
+
+        attemptMetrics.recordAttemptExpired();
+
+        await attemptAuditService.recordAttemptAudit({
+          event: "ATTEMPT_EXPIRED",
+          attemptId: attempt.id,
+          candidateId: attempt.candidateId,
+          assessmentId: attempt.assessmentId,
+          metadata: {
+            reason: "TIME_LIMIT_REACHED",
+          },
+          tx,
+        });
+
+        attemptFailureService.afterExpiry();
 
         return {
           processed: true,

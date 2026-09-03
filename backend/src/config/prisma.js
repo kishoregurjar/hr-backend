@@ -1,11 +1,42 @@
+"use strict";
+
 const { PrismaClient } = require("@prisma/client");
+const { getDatabaseConfig } = require("./database.config");
+
+const databaseConfig = getDatabaseConfig();
 
 const prisma = new PrismaClient({
   log:
     process.env.NODE_ENV === "development"
-      ? ["query", "info", "warn", "error"]
+      ? [
+          {
+            emit: "event",
+            level: "query",
+          },
+          "warn",
+          "error",
+        ]
       : ["warn", "error"],
+
+  errorFormat:
+    process.env.NODE_ENV === "production" ? "minimal" : "pretty",
 });
+
+if (process.env.NODE_ENV === "development") {
+  prisma.$on("query", (event) => {
+    const threshold = Number(process.env.DATABASE_SLOW_QUERY_MS || 500);
+
+    if (Number.isFinite(threshold) && event.duration >= threshold) {
+      console.warn(
+        JSON.stringify({
+          event: "database.slow_query",
+          durationMs: event.duration,
+          target: event.target,
+        })
+      );
+    }
+  });
+}
 
 async function connectDatabase() {
   await prisma.$connect();
@@ -16,17 +47,23 @@ async function disconnectDatabase() {
 }
 
 async function runTransaction(callback, options = {}) {
-  const defaultOptions = { maxWait: 30000, timeout: 30000 };
+  const timeout = options.timeout ?? databaseConfig.transactionTimeoutMs;
+  const maxWait = options.maxWait ?? databaseConfig.transactionMaxWaitMs;
+
   return prisma.$transaction(
     async (tx) => {
       return callback(tx);
     },
-    { ...defaultOptions, ...options }
+    {
+      timeout,
+      maxWait,
+    }
   );
 }
 
 module.exports = {
   prisma,
+  databaseConfig,
   connectDatabase,
   disconnectDatabase,
   runTransaction,

@@ -272,6 +272,20 @@ router.post(
   attemptController.startAttempt
 );
 
+const attemptAuditController = require("./attempt.audit.controller");
+
+/**
+ * Get Attempt Audit Logs (HR / Super Admin Only)
+ * GET /api/v1/attempts/:attemptId/audit-logs
+ */
+router.get(
+  "/:attemptId/audit-logs",
+  adminRateLimiter,
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  validateRequest(attemptIdParamSchema, "params"),
+  attemptAuditController.getAttemptAuditLogs
+);
+
 /**
  * Get Detailed Attempt for HR Review (HR / Super Admin)
  * GET /api/v1/attempts/:attemptId

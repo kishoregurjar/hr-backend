@@ -112,6 +112,29 @@ enum IdempotencyStatus {
   FAILED
 }
 
+enum AttemptAuditEvent {
+  ATTEMPT_STARTED
+  ATTEMPT_RESUMED
+
+  ANSWER_CREATED
+  ANSWER_UPDATED
+  ANSWER_VERSION_CONFLICT
+
+  ATTEMPT_SUBMITTED
+  ATTEMPT_ALREADY_SUBMITTED
+
+  ATTEMPT_EXPIRED
+  ATTEMPT_CANCELLED
+
+  INVALID_TOKEN
+  ACCESS_DENIED
+
+  QUESTION_TAMPERING
+
+  ATTEMPT_START_CONFLICT
+  ATTEMPT_SUBMIT_CONFLICT
+}
+
 //
 // MODELS
 //
@@ -172,6 +195,7 @@ model Question {
   attachments       Attachment[]
   candidateAnswers  CandidateAnswer[]
   attemptQuestions  AttemptQuestion[]
+  attemptAuditLogs  AttemptAuditLog[]
 
   @@index([type])
   @@index([difficulty])
@@ -242,9 +266,10 @@ model Assessment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  questions   AssessmentQuestion[]
-  invitations Invitation[]
-  attempts    CandidateAttempt[]
+  questions        AssessmentQuestion[]
+  invitations      Invitation[]
+  attempts         CandidateAttempt[]
+  attemptAuditLogs AttemptAuditLog[]
 
   @@index([status])
   @@index([createdById])
@@ -274,9 +299,10 @@ model CandidateProfile {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user        User?              @relation(fields: [userId], references: [id])
-  invitations Invitation[]
-  attempts    CandidateAttempt[]
+  user             User?              @relation(fields: [userId], references: [id])
+  invitations      Invitation[]
+  attempts         CandidateAttempt[]
+  attemptAuditLogs AttemptAuditLog[]
 }
 
 model Invitation {
@@ -315,10 +341,35 @@ model CandidateAttempt {
 
   attemptQuestions AttemptQuestion[]
   answers          CandidateAnswer[]
+  auditLogs        AttemptAuditLog[]
 
   @@index([assessmentId, candidateId])
   @@index([status])
   @@index([status, expiresAt])
+}
+
+model AttemptAuditLog {
+  id           String            @id @default(cuid())
+  event        AttemptAuditEvent
+  attemptId    String?
+  candidateId  String?
+  assessmentId String?
+  questionId   String?
+  metadata     Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime          @default(now())
+
+  attempt    CandidateAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  candidate  CandidateProfile? @relation(fields: [candidateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  assessment Assessment?       @relation(fields: [assessmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  question   Question?         @relation(fields: [questionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([attemptId, createdAt])
+  @@index([candidateId, createdAt])
+  @@index([assessmentId, createdAt])
+  @@index([event, createdAt])
+  @@index([questionId, createdAt])
 }
 
 model AuditLog {

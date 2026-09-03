@@ -198,14 +198,9 @@ class AttemptRepository {
     const where = {};
     if (candidateAssessmentId) {
       where.id = candidateAssessmentId;
-    }
-    if (assessmentId) {
-      where.assessmentId = assessmentId;
-    }
-    if (candidateId) {
-      where.candidateId = candidateId;
-    }
-    if (!candidateAssessmentId) {
+    } else {
+      if (assessmentId) where.assessmentId = assessmentId;
+      if (candidateId) where.candidateId = candidateId;
       where.status = "IN_PROGRESS";
     }
     return attemptModel.findFirst({
@@ -255,9 +250,20 @@ class AttemptRepository {
                 questionId: true,
                 selectedOptionIds: true,
                 answerText: true,
+                version: true,
                 updatedAt: true,
               },
             },
+          },
+        },
+        answers: {
+          select: {
+            id: true,
+            questionId: true,
+            selectedOptionIds: true,
+            answerText: true,
+            version: true,
+            updatedAt: true,
           },
         },
       },
@@ -2243,12 +2249,22 @@ class AttemptRepository {
   }
 
   /**
-   * Transaction Helper
+   * Count In-Progress Expired Attempts Backlog
    */
-  async transaction(callback) {
-    return prisma.$transaction(async (tx) => callback(tx), {
-      maxWait: 30000,
-      timeout: 30000,
+  async countExpiredAttempts({ now = new Date() } = {}, tx) {
+    const db = getClient(tx);
+    const attemptModel = db.candidateAttempt || db.assessmentAttempt;
+    if (!attemptModel) {
+      throw new Error("CandidateAttempt Prisma model not found");
+    }
+
+    return attemptModel.count({
+      where: {
+        status: "IN_PROGRESS",
+        expiresAt: {
+          lte: now,
+        },
+      },
     });
   }
 }
@@ -2296,6 +2312,7 @@ module.exports.findAttemptAnswer = attemptRepository.findAttemptAnswer.bind(atte
 module.exports.findAttemptAnswerById = attemptRepository.findAttemptAnswerById.bind(attemptRepository);
 module.exports.createAttemptAnswer = attemptRepository.createAttemptAnswer.bind(attemptRepository);
 module.exports.updateAnswerWithVersion = attemptRepository.updateAnswerWithVersion.bind(attemptRepository);
+module.exports.countExpiredAttempts = attemptRepository.countExpiredAttempts.bind(attemptRepository);
 
 module.exports.findAnswerForEvaluation = attemptRepository.findAnswerForEvaluation.bind(attemptRepository);
 module.exports.findAttemptQuestionByAnswer = attemptRepository.findAttemptQuestionByAnswer.bind(attemptRepository);
