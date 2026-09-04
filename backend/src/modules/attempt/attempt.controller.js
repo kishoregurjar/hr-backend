@@ -399,6 +399,33 @@ class AttemptController {
   });
 
   /**
+   * Verify Candidate Invitation Token (Public)
+   * GET /api/v1/attempts/verify/:token
+   * GET /api/v1/invitations/verify/:token
+   */
+  verifyInvitation = asyncHandler(async (req, res) => {
+    const rawToken = req.params.token || req.body?.token || req.query?.token;
+    const invitation = await attemptService.findInvitationByRawToken(rawToken);
+
+    return res.status(200).json({
+      success: true,
+      message: "Invitation verified successfully.",
+      data: {
+        id: invitation.id,
+        token: rawToken,
+        status: invitation.status,
+        expiresAt: invitation.expiresAt,
+        isExpired: invitation.expiresAt <= new Date(),
+        assessmentId: invitation.assessmentId,
+        candidateId: invitation.candidateId,
+        assessment: invitation.assessment,
+        candidate: invitation.candidate,
+      },
+      meta: null,
+    });
+  });
+
+  /**
    * Evaluate Candidate Subjective Answer Handler (HR / Super Admin)
    * POST /api/v1/attempts/:attemptId/evaluate-answer
    */

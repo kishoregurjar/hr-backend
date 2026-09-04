@@ -67,6 +67,15 @@ router.post(
   attemptController.verifyCandidateOtp
 );
 
+/**
+ * Verify Candidate Invitation By Token
+ * GET /api/v1/attempts/verify/:token
+ * POST /api/v1/attempts/verify
+ * Public endpoint — Candidate entry verification
+ */
+router.get("/verify/:token", attemptController.verifyInvitation);
+router.post("/verify", attemptController.verifyInvitation);
+
 const { requireCandidateVerification } = require("./attempt.session.middleware");
 
 /**
