@@ -1,3 +1,5 @@
+"use strict";
+
 const pinoHttp = require("pino-http");
 const logger = require("../config/logger");
 
@@ -6,29 +8,32 @@ const requestLogger = pinoHttp({
 
   customLogLevel(req, res, error) {
     if (error || res.statusCode >= 500) return "error";
-
     if (res.statusCode >= 400) return "warn";
-
     return "info";
   },
 
   customSuccessMessage(req, res) {
-    return `${req.method} ${req.url} completed with ${res.statusCode}`;
+    return `${req.method} ${req.url} -> ${res.statusCode}`;
   },
 
   customErrorMessage(req, res) {
-    return `${req.method} ${req.url} failed with ${res.statusCode}`;
+    return `${req.method} ${req.url} -> ${res.statusCode}`;
   },
 
   serializers: {
     req(req) {
       return {
-        id: req.requestId,
+        id: req.requestId || undefined,
         method: req.method,
         url: req.url,
       };
-    }
-  }
+    },
+    res(res) {
+      return {
+        statusCode: res.statusCode,
+      };
+    },
+  },
 });
 
 module.exports = requestLogger;
