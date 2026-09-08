@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
+    "build": "npx prisma generate && npx prisma migrate deploy",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "node --test tests/**/*.test.js && node scripts/clean_test_data.js",
