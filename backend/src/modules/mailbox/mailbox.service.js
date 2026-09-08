@@ -116,6 +116,20 @@ async function getMailboxStatus(userId) {
   };
 }
 
+function parseSender(senderStr) {
+  if (!senderStr) return { email: null, name: null };
+  const match = senderStr.match(/(?:([^<]+)<)?([^>]+)>/);
+  if (match) {
+    const name = match[1] ? match[1].trim().replace(/^"|"$/g, "") : "";
+    const email = match[2] ? match[2].trim().toLowerCase() : "";
+    return { email, name };
+  }
+  if (senderStr.includes("@")) {
+    return { email: senderStr.trim().toLowerCase(), name: "" };
+  }
+  return { email: null, name: null };
+}
+
 async function syncMailboxForUser(userId) {
   const mailbox = await repository.findMailboxByUserId(userId);
   if (!mailbox || !mailbox.refreshToken) {
@@ -145,13 +159,13 @@ async function syncMailboxForUser(userId) {
 
     for (const msg of messages) {
       try {
-        // Quick DB check: skip if this email was already processed
+        // Quick DB check: skip only if this email was already processed AND has a valid resumeProcessingId
         const existingEvent = await resumeRepository.findInboundEmailEvent(
           "google_mailbox",
           msg.id
         );
 
-        if (existingEvent && existingEvent.status === "COMPLETED") {
+        if (existingEvent && existingEvent.status === "COMPLETED" && existingEvent.resumeProcessingId) {
           continue;
         }
 
@@ -208,6 +222,18 @@ async function syncMailboxForUser(userId) {
 
                 processedCount++;
                 messageProcessed = true;
+
+                const extractedData = resumeResult?.extractedData || {};
+                const parsedSender = parseSender(sender);
+                const candidateEmail = extractedData.email || parsedSender.email;
+                const candidateName = extractedData.name || parsedSender.name || "";
+
+                if (candidateEmail) {
+                  await resumeRepository.ensureCandidateProfile(
+                    { id: null, email: candidateEmail, name: candidateName },
+                    extractedData
+                  );
+                }
 
                 if (emailEvent?.id) {
                   await resumeRepository.markInboundEmailEventCompleted(
