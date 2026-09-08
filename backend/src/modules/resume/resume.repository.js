@@ -71,7 +71,7 @@ async function findCandidateByEmail(email, db = prisma) {
   });
 }
 
-async function ensureCandidateProfile(user, extractedData = {}, db = prisma) {
+async function ensureCandidateProfile(user, extractedData = {}, companyId = null, db = prisma) {
   if (!user || !user.email) return null;
 
   const email = user.email.trim().toLowerCase();
@@ -80,17 +80,20 @@ async function ensureCandidateProfile(user, extractedData = {}, db = prisma) {
   const firstName = parts[0] || email.split("@")[0];
   const lastName = parts.slice(1).join(" ") || "";
   const phoneNumber = extractedData?.phone || null;
+  const effectiveCompanyId = companyId || user.companyId || extractedData?.companyId || null;
 
   return db.candidateProfile.upsert({
     where: { email },
     update: {
-      userId: user.id,
+      userId: user.id || undefined,
       firstName: firstName || email.split("@")[0],
       lastName,
       ...(phoneNumber && { phoneNumber }),
+      ...(effectiveCompanyId && { companyId: effectiveCompanyId }),
     },
     create: {
-      userId: user.id,
+      userId: user.id || null,
+      companyId: effectiveCompanyId,
       email,
       firstName: firstName || email.split("@")[0],
       lastName,

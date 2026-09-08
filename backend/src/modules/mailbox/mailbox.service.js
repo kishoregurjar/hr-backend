@@ -4,6 +4,7 @@ const { google } = require("googleapis");
 const repository = require("./mailbox.repository");
 const resumeService = require("../resume/resume.service");
 const resumeRepository = require("../resume/resume.repository");
+const { prisma } = require("../../config/prisma");
 
 function createOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -139,6 +140,12 @@ async function syncMailboxForUser(userId) {
     throw error;
   }
 
+  const companyMember = await prisma.companyMember.findFirst({
+    where: { userId },
+    select: { companyId: true },
+  });
+  const userCompanyId = companyMember?.companyId || null;
+
   const oauth2Client = createOAuth2Client();
   oauth2Client.setCredentials({
     refresh_token: mailbox.refreshToken,
@@ -231,7 +238,8 @@ async function syncMailboxForUser(userId) {
                 if (candidateEmail) {
                   await resumeRepository.ensureCandidateProfile(
                     { id: null, email: candidateEmail, name: candidateName },
-                    extractedData
+                    extractedData,
+                    userCompanyId
                   );
                 }
 

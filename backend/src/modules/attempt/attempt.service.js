@@ -3296,7 +3296,7 @@ class AttemptService {
   /**
    * Dedicated HR Candidates List Workflow (Paginated)
    */
-  async getCandidates({ query = {}, user }) {
+  async getCandidates({ query = {}, user, companyId = null }) {
     if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
       throw new ForbiddenError(
         "You do not have permission to access candidates list.",
@@ -3308,6 +3308,9 @@ class AttemptService {
     const skip = (page - 1) * limit;
 
     const where = {};
+    if (companyId) {
+      where.companyId = companyId;
+    }
     if (search) {
       where.OR = [
         { firstName: { contains: search, mode: "insensitive" } },
