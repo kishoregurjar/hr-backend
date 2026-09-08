@@ -183,12 +183,26 @@ async function createInboundEmailEventSafely(
   db = prisma
 ) {
   try {
+    const existing = await findInboundEmailEvent(
+      data.provider,
+      data.providerMessageId,
+      db
+    );
+
+    if (existing) {
+      return existing;
+    }
+
     return await db.inboundEmailEvent.create({
       data,
     });
   } catch (error) {
     if (error?.code === "P2002") {
-      return null;
+      return await findInboundEmailEvent(
+        data.provider,
+        data.providerMessageId,
+        db
+      );
     }
 
     throw error;

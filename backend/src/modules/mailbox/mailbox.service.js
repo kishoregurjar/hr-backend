@@ -3,6 +3,7 @@
 const { google } = require("googleapis");
 const repository = require("./mailbox.repository");
 const resumeService = require("../resume/resume.service");
+const resumeRepository = require("../resume/resume.repository");
 
 function createOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -131,6 +132,8 @@ async function syncMailboxForUser(userId) {
 
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
+  console.info(`[MailboxSync] Starting Gmail sync for user: ${userId} (Mailbox: ${mailbox.email})`);
+
   let processedCount = 0;
 
   try {
@@ -141,51 +144,113 @@ async function syncMailboxForUser(userId) {
     });
 
     const messages = res.data.messages || [];
+    console.info(`[MailboxSync] Found ${messages.length} message(s) with resume attachments.`);
 
     for (const msg of messages) {
-      const fullMsg = await gmail.users.messages.get({
-        userId: "me",
-        id: msg.id,
-      });
+      try {
+        // Quick DB check: skip if this email was already processed
+        const existingEvent = await resumeRepository.findInboundEmailEvent(
+          "google_mailbox",
+          msg.id
+        );
 
-      const parts = fullMsg.data.payload.parts || [];
-      for (const part of parts) {
-        if (part.filename && part.body && part.body.attachmentId) {
-          const ext = part.filename.toLowerCase();
-          if (ext.endsWith(".pdf") || ext.endsWith(".docx")) {
-            try {
-              const attachment = await gmail.users.messages.attachments.get({
-                userId: "me",
-                messageId: msg.id,
-                id: part.body.attachmentId,
-              });
+        if (existingEvent && existingEvent.status === "COMPLETED") {
+          console.info(`[MailboxSync] Skipping already synced message: ${msg.id}`);
+          continue;
+        }
 
-              const buffer = Buffer.from(attachment.data.data, "base64");
+        const fullMsg = await gmail.users.messages.get({
+          userId: "me",
+          id: msg.id,
+        });
 
-              const inferredMime = ext.endsWith(".pdf")
-                ? "application/pdf"
-                : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        const payload = fullMsg.data.payload || {};
+        const headers = payload.headers || [];
+        const subject =
+          headers.find((h) => h.name.toLowerCase() === "subject")?.value || "(No Subject)";
+        const sender =
+          headers.find((h) => h.name.toLowerCase() === "from")?.value || "(Unknown Sender)";
 
-              await resumeService.processResume({
-                file: {
-                  buffer,
-                  originalname: part.filename,
-                  mimetype: part.mimeType || inferredMime,
-                  size: buffer.length,
-                },
-                source: "INBOUND_EMAIL",
-                uploadedByUserId: userId,
-              });
+        console.info(`[MailboxSync] Processing Email -> Subject: "${subject}", From: "${sender}", MsgID: ${msg.id}`);
 
-              processedCount++;
-            } catch (attachmentError) {
-              console.warn(
-                `[MailboxSync] Skipping attachment ${part.filename}:`,
-                attachmentError.message
-              );
+        const emailEvent = await resumeRepository.createInboundEmailEventSafely({
+          provider: "google_mailbox",
+          providerMessageId: msg.id,
+          recipientEmail: mailbox.email,
+          senderEmail: sender,
+          subject,
+        });
+
+        const parts = payload.parts || [];
+        let messageProcessed = false;
+
+        for (const part of parts) {
+          if (part.filename && part.body && part.body.attachmentId) {
+            const ext = part.filename.toLowerCase();
+            if (ext.endsWith(".pdf") || ext.endsWith(".docx")) {
+              try {
+                console.info(`[MailboxSync] Downloading attachment: "${part.filename}"...`);
+
+                const attachment = await gmail.users.messages.attachments.get({
+                  userId: "me",
+                  messageId: msg.id,
+                  id: part.body.attachmentId,
+                });
+
+                const buffer = Buffer.from(attachment.data.data, "base64");
+                console.info(`[MailboxSync] Attachment loaded (${(buffer.length / (1024 * 1024)).toFixed(2)} MB). Processing resume parsing...`);
+
+                const inferredMime = ext.endsWith(".pdf")
+                  ? "application/pdf"
+                  : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+                const resumeResult = await resumeService.processResume({
+                  file: {
+                    buffer,
+                    originalname: part.filename,
+                    mimetype: part.mimeType || inferredMime,
+                    size: buffer.length,
+                  },
+                  source: "INBOUND_EMAIL",
+                  uploadedByUserId: userId,
+                });
+
+                processedCount++;
+                messageProcessed = true;
+
+                console.info(`[MailboxSync] Successfully parsed & saved resume -> File: "${part.filename}"`);
+
+                if (emailEvent?.id) {
+                  await resumeRepository.markInboundEmailEventCompleted(
+                    emailEvent.id,
+                    resumeResult?.id || null
+                  );
+                }
+              } catch (attachmentError) {
+                console.warn(
+                  `[MailboxSync] Skipping attachment "${part.filename}":`,
+                  attachmentError.message
+                );
+              }
             }
           }
         }
+
+        if (
+          !messageProcessed &&
+          emailEvent?.id &&
+          emailEvent.status !== "COMPLETED"
+        ) {
+          await resumeRepository.markInboundEmailEventCompleted(
+            emailEvent.id,
+            null
+          );
+        }
+      } catch (msgError) {
+        console.warn(
+          `[MailboxSync] Error processing message ${msg.id}:`,
+          msgError.message
+        );
       }
     }
 
@@ -193,6 +258,8 @@ async function syncMailboxForUser(userId) {
       lastSyncedAt: new Date(),
       lastError: null,
     });
+
+    console.info(`[MailboxSync] Sync completed for ${mailbox.email}. Total new resumes ingested: ${processedCount}`);
 
     return {
       success: true,
