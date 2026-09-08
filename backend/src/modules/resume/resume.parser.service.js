@@ -206,17 +206,19 @@ async function extractDocxText(buffer) {
 function detectFileType({ mimetype, originalname }) {
   const extension = path.extname(originalname || "").toLowerCase();
 
-  if (
-    mimetype === SUPPORTED_RESUME_TYPES.PDF.mimeType &&
-    extension === ".pdf"
-  ) {
+  if (extension === ".pdf") {
     return "PDF";
   }
 
-  if (
-    mimetype === SUPPORTED_RESUME_TYPES.DOCX.mimeType &&
-    extension === ".docx"
-  ) {
+  if (extension === ".docx") {
+    return "DOCX";
+  }
+
+  if (mimetype === SUPPORTED_RESUME_TYPES.PDF.mimeType) {
+    return "PDF";
+  }
+
+  if (mimetype === SUPPORTED_RESUME_TYPES.DOCX.mimeType) {
     return "DOCX";
   }
 

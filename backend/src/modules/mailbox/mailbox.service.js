@@ -153,26 +153,37 @@ async function syncMailboxForUser(userId) {
         if (part.filename && part.body && part.body.attachmentId) {
           const ext = part.filename.toLowerCase();
           if (ext.endsWith(".pdf") || ext.endsWith(".docx")) {
-            const attachment = await gmail.users.messages.attachments.get({
-              userId: "me",
-              messageId: msg.id,
-              id: part.body.attachmentId,
-            });
+            try {
+              const attachment = await gmail.users.messages.attachments.get({
+                userId: "me",
+                messageId: msg.id,
+                id: part.body.attachmentId,
+              });
 
-            const buffer = Buffer.from(attachment.data.data, "base64");
+              const buffer = Buffer.from(attachment.data.data, "base64");
 
-            await resumeService.processResume({
-              file: {
-                buffer,
-                originalname: part.filename,
-                mimetype: part.mimeType || "application/pdf",
-                size: buffer.length,
-              },
-              source: "INBOUND_EMAIL",
-              uploadedByUserId: userId,
-            });
+              const inferredMime = ext.endsWith(".pdf")
+                ? "application/pdf"
+                : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-            processedCount++;
+              await resumeService.processResume({
+                file: {
+                  buffer,
+                  originalname: part.filename,
+                  mimetype: part.mimeType || inferredMime,
+                  size: buffer.length,
+                },
+                source: "INBOUND_EMAIL",
+                uploadedByUserId: userId,
+              });
+
+              processedCount++;
+            } catch (attachmentError) {
+              console.warn(
+                `[MailboxSync] Skipping attachment ${part.filename}:`,
+                attachmentError.message
+              );
+            }
           }
         }
       }
