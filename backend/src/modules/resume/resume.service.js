@@ -206,8 +206,8 @@ function buildStorageKey({ fileHash, fileType }) {
   return `resumes/${fileHash.slice(0, 2)}/${fileHash}.${extension}`;
 }
 
-async function createCandidateIfRequired({ extractedData, tx }) {
-  const email = normalizeEmail(extractedData?.email);
+async function createCandidateIfRequired({ extractedData, fallbackEmail, tx }) {
+  const email = normalizeEmail(extractedData?.email || fallbackEmail);
 
   if (!email) {
     throw createApplicationError(
@@ -228,6 +228,8 @@ async function createCandidateIfRequired({ extractedData, tx }) {
       );
     }
 
+    await repository.ensureCandidateProfile(existingCandidate, extractedData, tx);
+
     return {
       candidate: existingCandidate,
       created: false,
@@ -238,12 +240,16 @@ async function createCandidateIfRequired({ extractedData, tx }) {
   const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
   const candidateData = buildCandidateCreateData({
-    extractedData,
+    extractedData: {
+      ...extractedData,
+      email,
+    },
     passwordHash,
   });
 
   try {
     const candidate = await repository.createCandidate(candidateData, tx);
+    await repository.ensureCandidateProfile(candidate, extractedData, tx);
 
     return {
       candidate,
@@ -257,6 +263,7 @@ async function createCandidateIfRequired({ extractedData, tx }) {
       );
 
       if (concurrentCandidate) {
+        await repository.ensureCandidateProfile(concurrentCandidate, extractedData, tx);
         return {
           candidate: concurrentCandidate,
           created: false,
@@ -533,6 +540,7 @@ async function processResume({
     const result = await prisma.$transaction(async (tx) => {
       const candidateResult = await createCandidateIfRequired({
         extractedData,
+        fallbackEmail: inboundEmail,
         tx,
       });
 

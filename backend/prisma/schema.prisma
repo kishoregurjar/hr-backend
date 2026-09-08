@@ -453,23 +453,6 @@ model AttemptAuditLog {
   @@index([questionId, createdAt])
 }
 
-model AuditLog {
-  id        String      @id @default(cuid())
-  action    AuditAction
-  module    AuditModule
-  entityId  String?
-  payload   Json?
-  ipAddress String?
-  userId    String
-  createdAt DateTime    @default(now())
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-  @@index([module])
-  @@index([createdAt])
-}
-
 model AttemptQuestion {
   attemptId        String
   questionId       String

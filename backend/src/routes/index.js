@@ -14,7 +14,7 @@ const mailboxRoutes = require("../modules/mailbox");
 const companyRoutes = require("../modules/company");
 const companyInvitationRoutes = require("../modules/company/company.invitation.routes");
 const companyLogoRoutes = require("../modules/company/company.logo.routes");
-
+const dashboardRoutes = require("../modules/dashboard");
 
 const router = express.Router();
 
@@ -43,6 +43,11 @@ router.get("/health", (req, res) => {
     StatusCodes.OK
   );
 });
+
+/**
+ * Dashboard Overview Module Routes (/api/v1/dashboard)
+ */
+router.use("/dashboard", dashboardRoutes);
 
 /**
  * Auth Module Routes (/api/v1/auth)

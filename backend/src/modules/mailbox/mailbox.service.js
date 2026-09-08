@@ -132,8 +132,6 @@ async function syncMailboxForUser(userId) {
 
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-  console.info(`[MailboxSync] Starting Gmail sync for user: ${userId} (Mailbox: ${mailbox.email})`);
-
   let processedCount = 0;
 
   try {
@@ -144,7 +142,6 @@ async function syncMailboxForUser(userId) {
     });
 
     const messages = res.data.messages || [];
-    console.info(`[MailboxSync] Found ${messages.length} message(s) with resume attachments.`);
 
     for (const msg of messages) {
       try {
@@ -155,7 +152,6 @@ async function syncMailboxForUser(userId) {
         );
 
         if (existingEvent && existingEvent.status === "COMPLETED") {
-          console.info(`[MailboxSync] Skipping already synced message: ${msg.id}`);
           continue;
         }
 
@@ -167,11 +163,9 @@ async function syncMailboxForUser(userId) {
         const payload = fullMsg.data.payload || {};
         const headers = payload.headers || [];
         const subject =
-          headers.find((h) => h.name.toLowerCase() === "subject")?.value || "(No Subject)";
+          headers.find((h) => h.name.toLowerCase() === "subject")?.value || "";
         const sender =
-          headers.find((h) => h.name.toLowerCase() === "from")?.value || "(Unknown Sender)";
-
-        console.info(`[MailboxSync] Processing Email -> Subject: "${subject}", From: "${sender}", MsgID: ${msg.id}`);
+          headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
 
         const emailEvent = await resumeRepository.createInboundEmailEventSafely({
           provider: "google_mailbox",
@@ -189,8 +183,6 @@ async function syncMailboxForUser(userId) {
             const ext = part.filename.toLowerCase();
             if (ext.endsWith(".pdf") || ext.endsWith(".docx")) {
               try {
-                console.info(`[MailboxSync] Downloading attachment: "${part.filename}"...`);
-
                 const attachment = await gmail.users.messages.attachments.get({
                   userId: "me",
                   messageId: msg.id,
@@ -198,7 +190,6 @@ async function syncMailboxForUser(userId) {
                 });
 
                 const buffer = Buffer.from(attachment.data.data, "base64");
-                console.info(`[MailboxSync] Attachment loaded (${(buffer.length / (1024 * 1024)).toFixed(2)} MB). Processing resume parsing...`);
 
                 const inferredMime = ext.endsWith(".pdf")
                   ? "application/pdf"
@@ -217,8 +208,6 @@ async function syncMailboxForUser(userId) {
 
                 processedCount++;
                 messageProcessed = true;
-
-                console.info(`[MailboxSync] Successfully parsed & saved resume -> File: "${part.filename}"`);
 
                 if (emailEvent?.id) {
                   await resumeRepository.markInboundEmailEventCompleted(

@@ -71,10 +71,42 @@ async function findCandidateByEmail(email, db = prisma) {
   });
 }
 
+async function ensureCandidateProfile(user, extractedData = {}, db = prisma) {
+  if (!user || !user.email) return null;
+
+  const email = user.email.trim().toLowerCase();
+  const rawName = extractedData?.name || user.name || "";
+  const parts = rawName.trim().split(" ");
+  const firstName = parts[0] || email.split("@")[0];
+  const lastName = parts.slice(1).join(" ") || "";
+  const phoneNumber = extractedData?.phone || null;
+
+  return db.candidateProfile.upsert({
+    where: { email },
+    update: {
+      userId: user.id,
+      firstName: firstName || email.split("@")[0],
+      lastName,
+      ...(phoneNumber && { phoneNumber }),
+    },
+    create: {
+      userId: user.id,
+      email,
+      firstName: firstName || email.split("@")[0],
+      lastName,
+      phoneNumber,
+    },
+  });
+}
+
 async function createCandidate(data, db = prisma) {
-  return db.user.create({
+  const user = await db.user.create({
     data,
   });
+
+  await ensureCandidateProfile(user, {}, db);
+
+  return user;
 }
 
 async function updateCandidate(id, data, db = prisma) {
@@ -222,6 +254,7 @@ function createResumeRepository(options = {}) {
     findCandidateByEmail: (email, tx) => findCandidateByEmail(email, tx || db),
     createCandidate: (data, tx) => createCandidate(data, tx || db),
     updateCandidate: (id, data, tx) => updateCandidate(id, data, tx || db),
+    ensureCandidateProfile: (user, extractedData, tx) => ensureCandidateProfile(user, extractedData, tx || db),
     findJobApplication: (jobId, candidateId, tx) => findJobApplication(jobId, candidateId, tx || db),
     createJobApplication: (data, tx) => createJobApplication(data, tx || db),
     findJobApplicationById: (id, tx) => findJobApplicationById(id, tx || db),
@@ -244,6 +277,7 @@ module.exports = {
   findCandidateByEmail,
   createCandidate,
   updateCandidate,
+  ensureCandidateProfile,
   findJobApplication,
   createJobApplication,
   findJobApplicationById,
