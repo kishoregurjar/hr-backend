@@ -18,6 +18,19 @@ enum Role {
   CANDIDATE
 }
 
+enum CompanyRole {
+  OWNER
+  ADMIN
+  RECRUITER
+}
+
+enum CompanyInvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
 enum AssessmentStatus {
   DRAFT
   PUBLISHED
@@ -135,6 +148,68 @@ enum AttemptAuditEvent {
   ATTEMPT_SUBMIT_CONFLICT
 }
 
+enum JobStatus {
+  DRAFT
+  OPEN
+  PAUSED
+  CLOSED
+  ARCHIVED
+}
+
+enum JobApplicationStatus {
+  APPLIED
+  UNDER_REVIEW
+  SHORTLISTED
+  INTERVIEW
+  REJECTED
+  HIRED
+  WITHDRAWN
+}
+
+enum JobApplicationSource {
+  DIRECT_UPLOAD
+  INBOUND_EMAIL
+  MANUAL_ENTRY
+}
+
+enum ResumeProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  REVIEW_REQUIRED
+  FAILED
+}
+
+enum ResumeProcessingSource {
+  DIRECT_UPLOAD
+  INBOUND_EMAIL
+}
+
+enum ResumeFileType {
+  PDF
+  DOCX
+}
+
+enum InboundEmailEventStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
 //
 // MODELS
 //
@@ -151,7 +226,13 @@ model User {
   // Navigation Properties
   assessments       Assessment[]       @relation("CreatedAssessments")
   candidateProfiles CandidateProfile[]
-  AuditLogs         AuditLog[]
+  auditLogs         AuditLog[]
+
+  jobsCreated      Job[]              @relation("UserCreatedJobs")
+  jobApplications  JobApplication[]   @relation("UserJobApplications")
+  resumeProcessing ResumeProcessing[] @relation("UserResumeProcessing")
+  companyMembers   CompanyMember[]
+  mailbox          UserMailbox?
 
   @@index([role])
 }
@@ -491,3 +572,284 @@ model IdempotencyKey {
   @@index([expiresAt])
   @@index([status])
 }
+
+model Job {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  code        String    @unique
+  status      JobStatus @default(DRAFT)
+
+  inboundEmail String? @unique
+
+  companyId   String?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy User     @relation("UserCreatedJobs", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  applications JobApplication[]
+
+  @@index([createdById])
+  @@index([companyId])
+  @@index([status])
+  @@index([status, createdAt])
+  @@index([deletedAt])
+}
+
+model JobApplication {
+  id String @id @default(cuid())
+
+  jobId       String
+  candidateId String
+
+  candidateEmail String
+  candidateName  String?
+
+  resumeProcessingId String? @unique
+
+  source JobApplicationSource @default(DIRECT_UPLOAD)
+  status JobApplicationStatus @default(APPLIED)
+
+  coverLetter String?
+
+  appliedAt DateTime @default(now())
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  candidate User @relation("UserJobApplications", fields: [candidateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  resumeProcessing ResumeProcessing? @relation(fields: [resumeProcessingId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([jobId, candidateId])
+  @@index([jobId, status])
+  @@index([candidateId, createdAt])
+  @@index([candidateEmail])
+  @@index([status, appliedAt])
+  @@index([resumeProcessingId])
+  @@index([deletedAt])
+}
+
+model ResumeProcessing {
+  id String @id @default(cuid())
+
+  candidateId String?
+
+  source ResumeProcessingSource
+  status ResumeProcessingStatus @default(PENDING)
+
+  fileType ResumeFileType
+  fileName String
+  mimeType String
+  fileSize Int
+
+  fileHash String @unique
+
+  storageKey String
+
+  parserVersion String
+
+  extractedData Json?
+
+  confidenceScore Float?
+
+  errorCode    String?
+  errorMessage String?
+
+  processedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  candidate User? @relation("UserResumeProcessing", fields: [candidateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  applications JobApplication[]
+
+  @@index([candidateId, createdAt])
+  @@index([status, createdAt])
+  @@index([source, createdAt])
+  @@index([processedAt])
+}
+
+model InboundEmailEvent {
+  id String @id @default(cuid())
+
+  provider          String
+  providerMessageId String
+
+  recipientEmail String?
+  senderEmail    String?
+  subject        String?
+
+  status InboundEmailEventStatus @default(PROCESSING)
+
+  resumeProcessingId String?
+
+  receivedAt  DateTime  @default(now())
+  completedAt DateTime?
+
+  errorCode    String?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerMessageId])
+  @@index([status, createdAt])
+  @@index([provider, createdAt])
+  @@index([resumeProcessingId])
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  logoPath    String?
+  website     String?
+  industry    String?
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  country     String?
+  description String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     CompanyMember[]
+  jobs        Job[]
+  invitations CompanyInvitation[]
+  auditLogs   AuditLog[]
+
+  @@index([createdAt])
+}
+
+model CompanyMember {
+  id        String      @id @default(cuid())
+  companyId String
+  userId    String
+  role      CompanyRole @default(RECRUITER)
+
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([companyId, userId])
+  @@index([userId])
+  @@index([role])
+}
+
+model UserMailbox {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  provider       String    @default("GOOGLE")
+  email          String
+  refreshToken   String
+  accessToken    String?
+  tokenExpiresAt DateTime?
+  isSyncActive   Boolean   @default(true)
+  lastSyncedAt   DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@index([provider, isSyncActive])
+  @@index([lastSyncedAt])
+}
+
+model CompanyInvitation {
+  id        String                  @id @default(cuid())
+  companyId String
+  email     String
+  role      CompanyRole
+  tokenHash String                  @unique
+  status    CompanyInvitationStatus @default(PENDING)
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  emailDelivery EmailDelivery?
+
+  @@index([companyId])
+  @@index([companyId, email, status])
+  @@index([email])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model OutboxEvent {
+  id          String            @id @default(cuid())
+  eventType   String
+  aggregateId String?
+  payload     Json
+  status      OutboxEventStatus @default(PENDING)
+  attempts    Int               @default(0)
+  availableAt DateTime          @default(now())
+  lockedAt    DateTime?
+  processedAt DateTime?
+  lastError   String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([status, availableAt])
+  @@index([eventType, aggregateId])
+  @@index([createdAt])
+}
+
+model EmailDelivery {
+  id             String              @id @default(cuid())
+  invitationId   String              @unique
+  recipientEmail String
+  status         EmailDeliveryStatus @default(PENDING)
+  attempts       Int                 @default(0)
+  sentAt         DateTime?
+  lastError      String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  invitation CompanyInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([status, updatedAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyId   String?
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actor   User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+
+

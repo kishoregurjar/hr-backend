@@ -9,12 +9,13 @@ const { ForbiddenError, UnauthorizedError } = require("../common/errors");
  * ==========================================================
  */
 const requireRole = (...allowedRoles) => {
+  const roles = allowedRoles.flat();
   return (req, res, next) => {
     if (!req.user) {
       return next(new UnauthorizedError("Authentication required.", "UNAUTHORIZED"));
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!roles.includes(req.user.role)) {
       return next(new ForbiddenError("You do not have permission to access this resource.", "FORBIDDEN"));
     }
 

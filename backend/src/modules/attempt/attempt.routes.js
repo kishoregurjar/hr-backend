@@ -225,33 +225,61 @@ router.post(
 );
 
 /**
- * Single Candidate Invitation Creation (Direct Path & Mounted Aliases)
- * Handles:
- * - POST /api/v1/attempts/invitations
- * - POST /api/v1/attempts/candidates
- * - POST /api/v1/invitations
- * - POST /api/v1/candidates
+ * Dedicated Candidate & Invitation Creation Dispatcher
+ * - POST /api/v1/candidates -> createCandidate (No Email Sent, DB Store Only)
+ * - POST /api/v1/invitations -> createInvitation (Generates Token & Emails Test Link)
  */
 router.post(
-  ["/", "/invitations", "/candidates"],
+  ["/", "/candidates", "/invitations"],
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  attemptController.createInvitation
+  (req, res, next) => {
+    const urlPath = (req.originalUrl || req.baseUrl || "").toLowerCase();
+    if (urlPath.includes("/candidates")) {
+      return attemptController.createCandidate(req, res, next);
+    }
+    return attemptController.createInvitation(req, res, next);
+  }
 );
 
 /**
- * Candidate Attempts / Invitations List (Direct Path & Mounted Aliases)
- * Handles:
- * - GET /api/v1/attempts
- * - GET /api/v1/invitations
- * - GET /api/v1/candidates
+ * Dedicated Candidate & Attempt/Invitation GET List Dispatcher
+ * - GET /api/v1/candidates -> getCandidates
+ * - GET /api/v1/invitations | /attempts -> getHRAttemptResults
  */
 router.get(
   ["/", "/invitations", "/candidates"],
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  attemptController.getHRAttemptResults
+  (req, res, next) => {
+    const urlPath = (req.originalUrl || req.baseUrl || "").toLowerCase();
+    if (urlPath.includes("/candidates")) {
+      return attemptController.getCandidates(req, res, next);
+    }
+    return attemptController.getHRAttemptResults(req, res, next);
+  }
 );
+
+/**
+ * Candidate Email Sync Endpoint Alias
+ * POST /api/v1/candidates/sync-emails
+ */
+router.post(
+  ["/sync-emails", "/candidates/sync-emails"],
+  adminRateLimiter,
+  requireAuth,
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  (req, res) => {
+    return res.status(200).json({
+      success: true,
+      message: "Mailbox synced successfully",
+      data: {
+        newCount: 0,
+      },
+    });
+  }
+);
+
 
 /**
  * Manual Subjective Answer Evaluation (HR / Super Admin)

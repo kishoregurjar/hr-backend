@@ -1,0 +1,84 @@
+"use strict";
+
+const COMPANY_CONSTANTS = Object.freeze({
+  LOGO: Object.freeze({
+    MAX_SIZE_BYTES: 2 * 1024 * 1024, // 2 MB
+
+    ALLOWED_MIME_TYPES: Object.freeze([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]),
+
+    ALLOWED_EXTENSIONS: Object.freeze([
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+    ]),
+  }),
+
+  NAME: Object.freeze({
+    MIN_LENGTH: 2,
+    MAX_LENGTH: 100,
+  }),
+
+  SLUG: Object.freeze({
+    MIN_LENGTH: 2,
+    MAX_LENGTH: 100,
+  }),
+
+  WEBSITE: Object.freeze({
+    MAX_LENGTH: 2048,
+  }),
+
+  DESCRIPTION: Object.freeze({
+    MAX_LENGTH: 2000,
+  }),
+
+  PHONE: Object.freeze({
+    MAX_LENGTH: 30,
+  }),
+
+  ADDRESS: Object.freeze({
+    MAX_LENGTH: 500,
+  }),
+
+  CITY: Object.freeze({
+    MAX_LENGTH: 100,
+  }),
+
+  COUNTRY: Object.freeze({
+    MAX_LENGTH: 100,
+  }),
+
+  INDUSTRY: Object.freeze({
+    MAX_LENGTH: 100,
+  }),
+
+  ERROR_CODES: Object.freeze({
+    COMPANY_NOT_FOUND: "COMPANY_NOT_FOUND",
+    COMPANY_ALREADY_EXISTS: "COMPANY_ALREADY_EXISTS",
+    COMPANY_ACCESS_DENIED: "COMPANY_ACCESS_DENIED",
+
+    COMPANY_MEMBER_NOT_FOUND: "COMPANY_MEMBER_NOT_FOUND",
+    COMPANY_MEMBER_ALREADY_EXISTS: "COMPANY_MEMBER_ALREADY_EXISTS",
+    COMPANY_OWNER_REQUIRED: "COMPANY_OWNER_REQUIRED",
+
+    INVALID_LOGO_TYPE: "INVALID_LOGO_TYPE",
+    LOGO_TOO_LARGE: "LOGO_TOO_LARGE",
+    LOGO_UPLOAD_FAILED: "LOGO_UPLOAD_FAILED",
+
+    OWNERSHIP_TRANSFER_FAILED: "OWNERSHIP_TRANSFER_FAILED",
+    OWNERSHIP_TARGET_INVALID: "OWNERSHIP_TARGET_INVALID",
+
+    COMPANY_HAS_JOBS: "COMPANY_HAS_JOBS",
+    COMPANY_DELETE_FAILED: "COMPANY_DELETE_FAILED",
+    COMPANY_DELETE_CONFIRMATION_INVALID:
+      "COMPANY_DELETE_CONFIRMATION_INVALID",
+  }),
+});
+
+module.exports = {
+  COMPANY_CONSTANTS,
+};

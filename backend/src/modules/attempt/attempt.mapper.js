@@ -151,7 +151,10 @@ const toAttemptQuestionEntity = (assessmentQuestion, attemptId, index = 0) => {
     content: questionObj.content || "",
     type: questionObj.type || "SINGLE_CHOICE",
     options: Array.isArray(questionObj.options)
-      ? questionObj.options.map((o) => ({ id: o.id, optionText: o.optionText, sequence: o.sequence }))
+      ? questionObj.options.map((o) => {
+          const val = o.optionText ?? o.text ?? o.content ?? "";
+          return { id: o.id, optionText: val, text: val, content: val, label: val, sequence: o.sequence };
+        })
       : [],
   };
 

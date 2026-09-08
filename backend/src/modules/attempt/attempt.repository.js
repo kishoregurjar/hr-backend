@@ -2074,6 +2074,99 @@ class AttemptRepository {
   }
 
   /**
+   * List Candidates for HR Dashboard (Paginated Dedicated Endpoint with User Fallback)
+   */
+  async listCandidatesForHR({ where, skip, take, orderBy }, tx) {
+    const client = tx || prisma;
+    const profiles = await client.candidateProfile.findMany({
+      where,
+      skip,
+      take,
+      orderBy: orderBy || { createdAt: "desc" },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phoneNumber: true,
+        createdAt: true,
+        updatedAt: true,
+        invitations: {
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            expiresAt: true,
+            sentAt: true,
+            assessment: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+        },
+        attempts: {
+          take: 1,
+          orderBy: { startedAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            score: true,
+            maxScore: true,
+            percentage: true,
+            result: true,
+          },
+        },
+      },
+    });
+
+    if (profiles && profiles.length > 0) {
+      return profiles;
+    }
+
+    // Fallback: If CandidateProfile is empty, fetch from User table (role: CANDIDATE)
+    const candidateUsers = await client.user.findMany({
+      where: {
+        role: "CANDIDATE",
+      },
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return candidateUsers.map((u) => ({
+      id: u.id,
+      email: u.email,
+      firstName: u.name ? u.name.split(" ")[0] : "Candidate",
+      lastName: u.name && u.name.split(" ").length > 1 ? u.name.split(" ").slice(1).join(" ") : "User",
+      phoneNumber: null,
+      createdAt: u.createdAt,
+      updatedAt: u.updatedAt,
+      invitations: [],
+      attempts: [],
+    }));
+  }
+
+  /**
+   * Count Candidates for HR Dashboard
+   */
+  async countCandidatesForHR({ where }, tx) {
+    const client = tx || prisma;
+    const countWhere = { ...where };
+    delete countWhere.skip;
+    delete countWhere.take;
+    return client.candidateProfile.count({ where: countWhere });
+  }
+
+  /**
    * Aggregate Assessment Analytics (DB-side Aggregations)
    */
   async getAssessmentAnalytics({ assessmentId, from, to }, tx) {
@@ -2322,6 +2415,8 @@ module.exports.updateAttemptEvaluation = attemptRepository.updateAttemptEvaluati
 
 module.exports.listAttemptsForHR = attemptRepository.listAttemptsForHR.bind(attemptRepository);
 module.exports.countAttemptsForHR = attemptRepository.countAttemptsForHR.bind(attemptRepository);
+module.exports.listCandidatesForHR = attemptRepository.listCandidatesForHR.bind(attemptRepository);
+module.exports.countCandidatesForHR = attemptRepository.countCandidatesForHR.bind(attemptRepository);
 module.exports.getAssessmentAnalytics = attemptRepository.getAssessmentAnalytics.bind(attemptRepository);
 module.exports.findAttemptForHR = attemptRepository.findAttemptForHR.bind(attemptRepository);
 module.exports.findInvitationById = attemptRepository.findInvitationById.bind(attemptRepository);

@@ -1,0 +1,27 @@
+"use strict";
+
+const COMPANY_OUTBOX_CONSTANTS = Object.freeze({
+  EVENT_TYPES: Object.freeze({
+    COMPANY_INVITATION_EMAIL: "COMPANY_INVITATION_EMAIL",
+  }),
+
+  PROCESSING: Object.freeze({
+    BATCH_SIZE: 20,
+    POLL_INTERVAL_MS: 2000,
+    STALE_LOCK_MINUTES: 10,
+  }),
+
+  RETRY: Object.freeze({
+    MAX_ATTEMPTS: 10,
+    BASE_DELAY_SECONDS: 30,
+    MAX_DELAY_SECONDS: 3600,
+  }),
+
+  ERROR_CODES: Object.freeze({
+    OUTBOX_PROCESSING_FAILED: "OUTBOX_PROCESSING_FAILED",
+  }),
+});
+
+module.exports = {
+  COMPANY_OUTBOX_CONSTANTS,
+};

@@ -1,0 +1,195 @@
+"use strict";
+
+const MAX_RESUME_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_RESUME_SIZE_BYTES = MAX_RESUME_SIZE;
+const MAX_RESUME_FILE_SIZE = MAX_RESUME_SIZE;
+const PARSER_VERSION = "1.0.0";
+
+const ALLOWED_RESUME_EXTENSIONS = Object.freeze([
+  ".pdf",
+  ".docx",
+]);
+
+const ALLOWED_RESUME_MIME_TYPES = Object.freeze([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
+const RESUME_FILE_FIELD_NAME = "resume";
+
+const RESUME_FILE_TYPES = Object.freeze({
+  PDF: "PDF",
+  DOCX: "DOCX",
+});
+
+const RESUME_PROCESSING_SOURCE = Object.freeze({
+  DIRECT_UPLOAD: "DIRECT_UPLOAD",
+  INBOUND_EMAIL: "INBOUND_EMAIL",
+});
+
+const INBOUND_EMAIL_PROVIDERS = Object.freeze({
+  SENDGRID: "sendgrid",
+  MAILGUN: "mailgun",
+  SES: "ses",
+});
+
+const MAX_INBOUND_ATTACHMENTS = 5;
+
+const MAX_INBOUND_EMAIL_SIZE = 15 * 1024 * 1024;
+
+const INBOUND_SIGNATURE_MAX_AGE_SECONDS = 10 * 60;
+
+const RESUME_ERROR_CODES = Object.freeze({
+  FILE_REQUIRED: "RESUME_FILE_REQUIRED",
+  FILE_EMPTY: "RESUME_FILE_EMPTY",
+  FILE_TOO_LARGE: "RESUME_FILE_TOO_LARGE",
+  UNSUPPORTED_FILE_TYPE: "UNSUPPORTED_FILE_TYPE",
+  INVALID_FILE_SIGNATURE: "INVALID_FILE_SIGNATURE",
+  CANDIDATE_EMAIL_NOT_FOUND: "CANDIDATE_EMAIL_NOT_FOUND",
+  CANDIDATE_EMAIL_CONFLICT: "CANDIDATE_EMAIL_CONFLICT",
+  JOB_NOT_FOUND: "JOB_NOT_FOUND",
+  JOB_APPLICATION_ALREADY_EXISTS: "JOB_APPLICATION_ALREADY_EXISTS",
+  RESUME_STORAGE_UNAVAILABLE: "RESUME_STORAGE_UNAVAILABLE",
+  RESUME_PROCESSING_FAILED: "RESUME_PROCESSING_FAILED",
+  RESUME_REVIEW_REQUIRED: "RESUME_REVIEW_REQUIRED",
+
+  INVALID_FILE: "RESUME_INVALID_FILE",
+  INVALID_MAGIC_BYTES: "RESUME_INVALID_MAGIC_BYTES",
+  DUPLICATE_FILE: "RESUME_DUPLICATE_FILE",
+  PARSE_FAILED: "RESUME_PARSE_FAILED",
+  REVIEW_REQUIRED: "RESUME_REVIEW_REQUIRED",
+  CANDIDATE_NOT_FOUND: "CANDIDATE_NOT_FOUND",
+  CANDIDATE_CONFLICT: "CANDIDATE_CONFLICT",
+  JOB_NOT_ACTIVE: "JOB_NOT_ACTIVE",
+  APPLICATION_EXISTS: "APPLICATION_EXISTS",
+  STORAGE_FAILED: "RESUME_STORAGE_FAILED",
+
+  INBOUND_INVALID_PROVIDER: "INBOUND_INVALID_PROVIDER",
+  INBOUND_SIGNATURE_INVALID: "INBOUND_SIGNATURE_INVALID",
+  INBOUND_SIGNATURE_EXPIRED: "INBOUND_SIGNATURE_EXPIRED",
+  INBOUND_MESSAGE_ID_REQUIRED: "INBOUND_MESSAGE_ID_REQUIRED",
+  INBOUND_PAYLOAD_INVALID: "INBOUND_PAYLOAD_INVALID",
+  INBOUND_ATTACHMENT_LIMIT: "INBOUND_ATTACHMENT_LIMIT",
+  INBOUND_ATTACHMENT_TOO_LARGE: "INBOUND_ATTACHMENT_TOO_LARGE",
+  INBOUND_ATTACHMENT_TYPE: "INBOUND_ATTACHMENT_TYPE",
+  INBOUND_EVENT_PROCESSING: "INBOUND_EVENT_PROCESSING",
+  INBOUND_EVENT_FAILED: "INBOUND_EVENT_FAILED",
+});
+
+const RESUME_UPLOAD_LIMITS = Object.freeze({
+  files: 1,
+  fileSize: MAX_RESUME_FILE_SIZE,
+});
+
+const SUPPORTED_RESUME_TYPES = Object.freeze({
+  PDF: Object.freeze({
+    mimeType: "application/pdf",
+    extensions: Object.freeze([".pdf"]),
+  }),
+
+  DOCX: Object.freeze({
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    extensions: Object.freeze([".docx"]),
+  }),
+});
+
+const ALLOWED_MIME_TYPES = ALLOWED_RESUME_MIME_TYPES;
+const ALLOWED_EXTENSIONS = ALLOWED_RESUME_EXTENSIONS;
+
+const RESUME_STATUS = Object.freeze({
+  RECEIVED: "RECEIVED",
+  PROCESSING: "PROCESSING",
+  PARSED: "PARSED",
+  REVIEW_REQUIRED: "REVIEW_REQUIRED",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+});
+
+const RESUME_SOURCE = Object.freeze({
+  UPLOAD: "UPLOAD",
+  INBOUND_EMAIL: "INBOUND_EMAIL",
+});
+
+const ERROR_CODES = RESUME_ERROR_CODES;
+
+const REGEX = Object.freeze({
+  EMAIL: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+  PHONE: /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,5}[\s.-]?\d{4}\b/g,
+  YEARS_EXPERIENCE: /(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)(?:\s+of)?\s*(?:professional\s+)?experience/gi,
+  EXPERIENCE_SECTION: /\b(?:professional\s+experience|work\s+experience|experience|employment\s+history)\b/i,
+  SKILLS_SECTION: /\b(?:technical\s+skills|skills|technologies|tech\s+stack|technical\s+expertise)\b/i,
+});
+
+const SKILL_DICTIONARY = Object.freeze([
+  "Node.js",
+  "Express.js",
+  "TypeScript",
+  "JavaScript",
+  "React",
+  "React.js",
+  "Next.js",
+  "Angular",
+  "Vue.js",
+  "Python",
+  "Java",
+  "C++",
+  "C#",
+  "Go",
+  "Rust",
+  "PHP",
+  "Laravel",
+  "PostgreSQL",
+  "MySQL",
+  "MongoDB",
+  "Redis",
+  "SQL",
+  "Prisma",
+  "Sequelize",
+  "Mongoose",
+  "Docker",
+  "Kubernetes",
+  "AWS",
+  "Azure",
+  "GCP",
+  "Git",
+  "GitHub",
+  "GitLab",
+  "REST",
+  "REST API",
+  "GraphQL",
+  "Kafka",
+  "RabbitMQ",
+  "HTML",
+  "CSS",
+  "Tailwind CSS",
+  "Jest",
+  "Mocha",
+  "Playwright",
+]);
+
+module.exports = {
+  MAX_RESUME_SIZE,
+  MAX_RESUME_SIZE_BYTES,
+  MAX_RESUME_FILE_SIZE,
+  ALLOWED_RESUME_EXTENSIONS,
+  ALLOWED_RESUME_MIME_TYPES,
+  RESUME_FILE_FIELD_NAME,
+  PARSER_VERSION,
+  RESUME_FILE_TYPES,
+  RESUME_PROCESSING_SOURCE,
+  INBOUND_EMAIL_PROVIDERS,
+  MAX_INBOUND_ATTACHMENTS,
+  MAX_INBOUND_EMAIL_SIZE,
+  INBOUND_SIGNATURE_MAX_AGE_SECONDS,
+  RESUME_ERROR_CODES,
+  RESUME_UPLOAD_LIMITS,
+  SUPPORTED_RESUME_TYPES,
+  ALLOWED_MIME_TYPES,
+  ALLOWED_EXTENSIONS,
+  RESUME_STATUS,
+  RESUME_SOURCE,
+  ERROR_CODES,
+  REGEX,
+  SKILL_DICTIONARY,
+};

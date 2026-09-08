@@ -33,7 +33,15 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    return callback(new Error(`CORS Error: Origin ${origin} is not allowed by CORS policy.`));
+    /*
+     * Silently reject disallowed origins.
+     *
+     * Do NOT pass an Error — that would trigger
+     * Express error middleware and return HTTP 500.
+     * callback(null, false) causes the browser to
+     * receive a clean CORS block with no server error.
+     */
+    return callback(null, false);
   },
 
   credentials: true,
@@ -46,9 +54,11 @@ const corsOptions = {
     "X-Requested-With",
     "Accept",
     "ngrok-skip-browser-warning",
+    "X-Company-Id",
+    "X-Request-Id",
   ],
 
-  exposedHeaders: ["Set-Cookie"],
+  exposedHeaders: ["Set-Cookie", "X-Request-Id"],
 };
 
 module.exports = corsOptions;

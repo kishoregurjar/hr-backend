@@ -66,7 +66,31 @@ class AttemptController {
   });
 
   /**
-   * Create Candidate Invitation Handler
+   * Create Candidate Only Handler (No Invitation / No Email Sent)
+   * POST /api/v1/candidates
+   */
+  createCandidate = asyncHandler(async (req, res) => {
+    const { email, firstName, lastName, phoneNumber } = req.body || {};
+
+    const candidate = await attemptService.createCandidate({
+      email,
+      firstName,
+      lastName,
+      phoneNumber,
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Candidate created successfully.",
+        data: candidate,
+      },
+      StatusCodes.CREATED
+    );
+  });
+
+  /**
+   * Single Candidate Invitation Creation Handler
    * POST /api/v1/assessments/:assessmentId/invitations
    */
   createInvitation = asyncHandler(async (req, res) => {
@@ -467,6 +491,27 @@ class AttemptController {
       {
         message: "Assessment results retrieved successfully.",
         data: result.items.map(toHRAttemptListResponse),
+        meta: result.pagination,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Get HR Candidates List Handler
+   * GET /api/v1/candidates
+   */
+  getCandidates = asyncHandler(async (req, res) => {
+    const result = await attemptService.getCandidates({
+      query: req.query,
+      user: req.user,
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Candidates list retrieved successfully.",
+        data: result.items,
         meta: result.pagination,
       },
       StatusCodes.OK
