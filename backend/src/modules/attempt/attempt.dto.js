@@ -61,9 +61,13 @@ const toAssessmentSummary = (assessment) => {
  */
 const toCandidateOptionResponse = (option) => {
   if (!option) return null;
+  const optionTextValue = option.optionText ?? option.text ?? option.content ?? null;
   return {
     id: option.id,
-    text: option.optionText ?? option.text ?? null,
+    text: optionTextValue,
+    optionText: optionTextValue,
+    content: optionTextValue,
+    label: optionTextValue,
     sequence: option.sequence ?? null,
   };
 };
@@ -317,21 +321,47 @@ const toCandidateAttemptQuestionDto = (question) => {
     return null;
   }
 
-  const baseQuestion = question.question || question;
+  const snapshot = typeof question.questionSnapshot === "string"
+    ? (() => { try { return JSON.parse(question.questionSnapshot); } catch (e) { return {}; } })()
+    : (question.questionSnapshot || {});
+
+  const baseQuestion = question.question || (Object.keys(snapshot).length > 0 ? snapshot : null) || question;
+  const rawOptions = (baseQuestion.options && baseQuestion.options.length > 0)
+    ? baseQuestion.options
+    : (snapshot.options || question.options || []);
+
+  const formattedOptions = rawOptions.map((option) => {
+    const val = option.optionText ?? option.text ?? option.content ?? option.label ?? null;
+    return {
+      id: option.id,
+      text: val,
+      optionText: val,
+      content: val,
+      label: val,
+      sequence: option.sequence ?? null,
+    };
+  });
+
+  const questionPayload = {
+    id: baseQuestion.id || question.questionId || question.id,
+    title: baseQuestion.title || question.title || snapshot.title || "",
+    description: baseQuestion.description || baseQuestion.content || question.description || snapshot.description || snapshot.content || null,
+    type: baseQuestion.type || question.type || snapshot.type || "SINGLE_CHOICE",
+    difficulty: baseQuestion.difficulty || question.difficulty || snapshot.difficulty || "MEDIUM",
+    options: formattedOptions,
+  };
 
   return {
+    id: question.id || `${question.attemptId}_${question.questionId}`,
     questionId: question.questionId || baseQuestion.id || question.id,
     sequence: question.sequence ?? 1,
-    title: baseQuestion.title || question.title,
-    description: baseQuestion.description || baseQuestion.content || question.description || null,
-    type: baseQuestion.type || question.type,
-    difficulty: baseQuestion.difficulty || question.difficulty,
+    title: questionPayload.title,
+    description: questionPayload.description,
+    type: questionPayload.type,
+    difficulty: questionPayload.difficulty,
     marks: serializeNumber(question.marks ?? baseQuestion.marks),
-    options: (baseQuestion.options || question.options || []).map((option) => ({
-      id: option.id,
-      text: option.optionText ?? option.text ?? null,
-      sequence: option.sequence,
-    })),
+    options: formattedOptions,
+    question: questionPayload,
   };
 };
 
@@ -396,28 +426,48 @@ const toCandidateCurrentAttemptResponse = (attempt, serverTime = new Date().toIS
           difficulty: attempt.assessment.difficulty,
         }
       : null,
-    questions: (attempt.questions || attempt.attemptQuestions || []).map((attemptQuestion) => ({
-      id: attemptQuestion.id,
-      questionId: attemptQuestion.questionId,
-      sequence: attemptQuestion.sequence,
-      marks: serializeNumber(attemptQuestion.marks),
-      negativeMarks: serializeNumber(attemptQuestion.negativeMarks),
-      question: attemptQuestion.question
-        ? {
-            id: attemptQuestion.question.id,
-            title: attemptQuestion.question.title,
-            description: attemptQuestion.question.description ?? null,
-            type: attemptQuestion.question.type,
-            difficulty: attemptQuestion.question.difficulty,
-            options: (attemptQuestion.question.options || []).map((option) => ({
-              id: option.id,
-              text: option.optionText ?? option.text ?? null,
-              sequence: option.sequence,
-            })),
-          }
-        : null,
-      answer: toCandidateAnswer(attemptQuestion.answers?.[0] || attemptQuestion.answer),
-    })),
+    questions: (attempt.questions || attempt.attemptQuestions || []).map((attemptQuestion) => {
+      const snapshot = typeof attemptQuestion.questionSnapshot === "string"
+        ? (() => { try { return JSON.parse(attemptQuestion.questionSnapshot); } catch (e) { return {}; } })()
+        : (attemptQuestion.questionSnapshot || {});
+
+      const baseQuestion = attemptQuestion.question || (Object.keys(snapshot).length > 0 ? snapshot : null) || attemptQuestion;
+      const rawOptions = (baseQuestion.options && baseQuestion.options.length > 0)
+        ? baseQuestion.options
+        : (snapshot.options || attemptQuestion.options || []);
+
+      const formattedOptions = rawOptions.map((option) => {
+        const val = option.optionText ?? option.text ?? option.content ?? option.label ?? null;
+        return {
+          id: option.id,
+          text: val,
+          optionText: val,
+          content: val,
+          label: val,
+          sequence: option.sequence ?? null,
+        };
+      });
+
+      const questionObj = {
+        id: baseQuestion.id || attemptQuestion.questionId,
+        title: baseQuestion.title || snapshot.title || "",
+        description: baseQuestion.description || baseQuestion.content || snapshot.description || snapshot.content || null,
+        type: baseQuestion.type || snapshot.type || "SINGLE_CHOICE",
+        difficulty: baseQuestion.difficulty || snapshot.difficulty || "MEDIUM",
+        options: formattedOptions,
+      };
+
+      return {
+        id: attemptQuestion.id || `${attemptQuestion.attemptId}_${attemptQuestion.questionId}`,
+        questionId: attemptQuestion.questionId,
+        sequence: attemptQuestion.sequence,
+        marks: serializeNumber(attemptQuestion.marks ?? baseQuestion.marks),
+        negativeMarks: serializeNumber(attemptQuestion.negativeMarks),
+        options: formattedOptions,
+        question: questionObj,
+        answer: toCandidateAnswer(attemptQuestion.answers?.[0] || attemptQuestion.answer),
+      };
+    }),
     answers: (attempt.answers || []).map(toCandidateAnswer),
   };
 };

@@ -1,23 +1,62 @@
-"use strict";
-
+const multer = require("multer");
 const { AppError } = require("../utils/app-error");
 const { handlePrismaError } = require("../utils/prisma-error");
 
+function normalizeMulterError(error) {
+  if (!(error instanceof multer.MulterError) && error?.name !== "MulterError") {
+    return null;
+  }
+
+  if (error.code === "LIMIT_FILE_SIZE") {
+    return {
+      code: "RESUME_FILE_TOO_LARGE",
+      statusCode: 413,
+      message: "Resume file exceeds the maximum allowed size",
+    };
+  }
+
+  if (error.code === "LIMIT_UNEXPECTED_FILE") {
+    return {
+      code: "UNEXPECTED_FILE_FIELD",
+      statusCode: 400,
+      message: "Unexpected file field",
+    };
+  }
+
+  return {
+    code: "RESUME_UPLOAD_FAILED",
+    statusCode: 400,
+    message: "Resume upload failed",
+  };
+}
+
 const logError = (error, req) => {
+  const statusCode = error?.statusCode || 500;
+  const isServerError = statusCode >= 500;
+
   console.error({
     requestId: req?.id || null,
     method: req?.method || null,
     path: req?.originalUrl || req?.url || null,
-    statusCode: error?.statusCode || 500,
+    statusCode,
     code: error?.code || "INTERNAL_SERVER_ERROR",
     message: error?.message || "An unexpected server error occurred.",
-    stack: error?.stack || null,
+    ...(isServerError && { stack: error?.stack || null }),
   });
 };
 
 const normalizeError = (error) => {
   if (error instanceof AppError || error?.name === "AppError") {
     return error;
+  }
+
+  const multerErr = normalizeMulterError(error);
+  if (multerErr) {
+    return new AppError(multerErr.message, {
+      statusCode: multerErr.statusCode,
+      code: multerErr.code,
+      isOperational: true,
+    });
   }
 
   const prismaError = handlePrismaError(error);

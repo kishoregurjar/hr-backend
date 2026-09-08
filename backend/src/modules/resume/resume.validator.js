@@ -8,27 +8,51 @@ const {
   MAX_RESUME_SIZE_BYTES,
 } = require("./resume.constants");
 
+const jobIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100);
+
+const subjectCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100);
+
+const inboundEmailSchema = z
+  .string()
+  .trim()
+  .email()
+  .max(320)
+  .transform((value) => value.toLowerCase());
+
+const directUploadQuerySchema = z
+  .object({
+    jobId: jobIdSchema.optional(),
+  })
+  .strict();
+
+const inboundResumeSchema = z
+  .object({
+    inboundEmail: inboundEmailSchema,
+    subjectCode: subjectCodeSchema.optional(),
+  })
+  .strict();
+
+function validateDirectUploadQuery(query) {
+  return directUploadQuerySchema.parse(query || {});
+}
+
+function validateInboundResumePayload(payload) {
+  return inboundResumeSchema.parse(payload || {});
+}
+
 const uploadResumeSchema = z
   .object({
-    jobId: z
-      .string()
-      .trim()
-      .min(1)
-      .max(128)
-      .optional(),
-
-    candidateId: z
-      .string()
-      .trim()
-      .min(1)
-      .max(128)
-      .optional(),
+    jobId: jobIdSchema.optional(),
   })
-  .strict()
-  .refine((value) => !value.jobId || /^[a-zA-Z0-9_-]+$/.test(value.jobId), {
-    message: "Invalid jobId.",
-    path: ["jobId"],
-  });
+  .strict();
 
 const manualReviewOverrideSchema = z
   .object({
@@ -125,6 +149,13 @@ function validateResumeFile(file) {
 }
 
 module.exports = {
+  jobIdSchema,
+  subjectCodeSchema,
+  inboundEmailSchema,
+  directUploadQuerySchema,
+  inboundResumeSchema,
+  validateDirectUploadQuery,
+  validateInboundResumePayload,
   uploadResumeSchema,
   manualReviewOverrideSchema,
   validateResumeFile,

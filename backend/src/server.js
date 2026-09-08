@@ -5,11 +5,14 @@ const env = require("./config/env");
 const logger = require("./config/logger");
 const { disconnectDatabase } = require("./config/prisma");
 const { connectRedis, disconnectRedis } = require("./config/redis");
+const { startMailboxSyncJob } = require("./jobs/mailbox-sync.job");
 
 let server;
 
 const startServer = async () => {
   await connectRedis();
+
+  startMailboxSyncJob();
 
   server = app.listen(env.port, () => {
     logger.info(

@@ -5,8 +5,10 @@ const resumeConstants = require("./resume.constants");
 const resumeValidator = require("./resume.validator");
 const resumeParserService = require("./resume.parser.service");
 const emailExtractorService = require("./email.extractor.service");
-const { createResumeRepository } = require("./resume.repository");
-const { createResumeService } = require("./resume.service");
+const resumeMapper = require("./resume.mapper");
+const resumeDto = require("./resume.dto");
+const resumeRepository = require("./resume.repository");
+const resumeService = require("./resume.service");
 const { createResumeController } = require("./resume.controller");
 
 module.exports = {
@@ -15,7 +17,9 @@ module.exports = {
   resumeValidator,
   resumeParserService,
   emailExtractorService,
-  createResumeRepository,
-  createResumeService,
+  resumeMapper,
+  resumeDto,
+  resumeRepository,
+  resumeService,
   createResumeController,
 };

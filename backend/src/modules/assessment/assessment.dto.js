@@ -46,6 +46,21 @@ class AssessmentDto {
 
     const question = assessmentQuestion.question;
 
+    const options = Array.isArray(question?.options)
+      ? question.options.map((option) => {
+          const val = option.optionText ?? option.text ?? option.content ?? option.label ?? "";
+          return {
+            id: option.id,
+            text: val,
+            optionText: val,
+            content: val,
+            label: val,
+            isCorrect: Boolean(option.isCorrect),
+            sequence: option.sequence ?? null,
+          };
+        })
+      : [];
+
     return {
       id: assessmentQuestion.questionId || assessmentQuestion.id,
 
@@ -65,6 +80,8 @@ class AssessmentDto {
 
       negativeMarks: assessmentQuestion.negativePoints !== undefined ? assessmentQuestion.negativePoints : assessmentQuestion.negativeMarks,
 
+      options,
+
       question: question
         ? {
             id: question.id,
@@ -80,6 +97,8 @@ class AssessmentDto {
             difficulty: question.difficulty,
 
             status: question.status,
+
+            options,
           }
         : null,
     };

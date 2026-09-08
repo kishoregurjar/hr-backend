@@ -267,7 +267,45 @@ class AttemptService {
   }
 
   /**
-   * Create Candidate Invitation
+   * Dedicated Candidate Creation Workflow (No Invitation / No Email Sent)
+   */
+  async createCandidate({ email, firstName, lastName, phoneNumber }) {
+    if (typeof email !== "string" || !email.trim()) {
+      throw new BadRequestError(
+        "Candidate email is required.",
+        "EMAIL_REQUIRED"
+      );
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    return runTransaction(async (tx) => {
+      let candidateProfile = await tx.candidateProfile.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+      if (candidateProfile) {
+        return candidateProfile;
+      }
+
+      const fName = (firstName || "").trim() || "Candidate";
+      const lName = (lastName || "").trim() || "User";
+
+      candidateProfile = await tx.candidateProfile.create({
+        data: {
+          email: normalizedEmail,
+          firstName: fName,
+          lastName: lName,
+          phoneNumber: phoneNumber ? phoneNumber.trim() : null,
+        },
+      });
+
+      return candidateProfile;
+    });
+  }
+
+  /**
+   * Single Candidate Invitation Creation Engine
    */
   async createInvitation({
     assessmentId,
@@ -299,7 +337,7 @@ class AttemptService {
       );
     }
 
-    const result = await attemptRepository.transaction(async (tx) => {
+    const result = await runTransaction(async (tx) => {
       // 1. Verify assessment
       const assessment = await assessmentRepository.findById(
         assessmentId,
@@ -320,6 +358,15 @@ class AttemptService {
           "Archived assessments cannot receive invitations.",
           INVITATION_ERROR_CODES.ASSESSMENT_NOT_AVAILABLE
         );
+      }
+
+      // 2b. Auto-publish DRAFT assessment when invitation is dispatched
+      if (assessment.status === "DRAFT") {
+        await tx.assessment.update({
+          where: { id: assessmentId },
+          data: { status: "PUBLISHED" },
+        });
+        assessment.status = "PUBLISHED";
       }
 
       // 3. Verify or auto-create candidate profile by email/id/name
@@ -598,7 +645,7 @@ class AttemptService {
       }
 
       try {
-        const result = await attemptRepository.transaction(async (tx) => {
+        const result = await runTransaction(async (tx) => {
           const existing = await attemptRepository.findActiveInvitation(
             { assessmentId, candidateId },
             tx
@@ -3237,6 +3284,68 @@ class AttemptService {
 
     return {
       items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * Dedicated HR Candidates List Workflow (Paginated)
+   */
+  async getCandidates({ query = {}, user }) {
+    if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
+      throw new ForbiddenError(
+        "You do not have permission to access candidates list.",
+        "ACCESS_DENIED"
+      );
+    }
+
+    const { page = 1, limit = 20, search } = query;
+    const skip = (page - 1) * limit;
+
+    const where = {};
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: "insensitive" } },
+        { lastName: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      attemptRepository.listCandidatesForHR({ where, skip, take: limit }),
+      attemptRepository.countCandidatesForHR({ where }),
+    ]);
+
+    const formattedItems = items.map((item) => {
+      const latestInvitation = item.invitations?.[0];
+      const latestAttempt = item.attempts?.[0];
+
+      const status = latestAttempt?.status || latestInvitation?.status || "NEW";
+
+      return {
+        id: item.id,
+        name: `${item.firstName || ""} ${item.lastName || ""}`.trim() || item.email,
+        firstName: item.firstName,
+        lastName: item.lastName,
+        email: item.email,
+        phoneNumber: item.phoneNumber || null,
+        status,
+        source: latestInvitation ? "ASSESSMENT_INVITATION" : "DIRECT_ENTRY",
+        invitation: latestInvitation || null,
+        attempt: latestAttempt || null,
+        addedDate: item.createdAt,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      };
+    });
+
+    return {
+      items: formattedItems,
       pagination: {
         page,
         limit,

@@ -539,6 +539,15 @@ class AssessmentService {
       );
     }
 
+    // Auto-normalize requested sequences if sent with 0-index or sequence gaps
+    const sortedCheck = [...requestedSequences].sort((a, b) => a - b);
+    const isDiscontinuous = sortedCheck.some((seq, idx) => seq !== idx + 1);
+    if (isDiscontinuous) {
+      requestedQuestions.forEach((item, idx) => {
+        item.sequence = idx + 1;
+      });
+    }
+
     const existingAssignments = await assessmentRepository.findAssessmentQuestions(assessmentId);
 
     if (existingAssignments.length === 0) {
@@ -681,7 +690,16 @@ class AssessmentService {
       }
     }
 
-    const sequences = assessmentQuestions
+    // Auto-normalize question sequence numbers (1..N) to heal any existing gaps or starting offsets
+    const sortedAssessmentQuestions = [...assessmentQuestions].sort(
+      (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)
+    );
+
+    sortedAssessmentQuestions.forEach((item, index) => {
+      item.sequence = index + 1;
+    });
+
+    const sequences = sortedAssessmentQuestions
       .map((item) => item.sequence)
       .sort((a, b) => a - b);
 
@@ -750,6 +768,21 @@ class AssessmentService {
     }
 
     const publishedAssessment = await runTransaction(async (tx) => {
+      // Auto-normalize and persist continuous sequence numbers (1..N) in DB
+      for (let i = 0; i < sortedAssessmentQuestions.length; i += 1) {
+        await tx.assessmentQuestion.update({
+          where: {
+            assessmentId_questionId: {
+              assessmentId,
+              questionId: sortedAssessmentQuestions[i].questionId,
+            },
+          },
+          data: {
+            sequence: sortedAssessmentQuestions[i].sequence,
+          },
+        });
+      }
+
       const draftQuestionIds = assessmentQuestions
         .map((item) => item.question)
         .filter((q) => q && q.status === QUESTION_STATUS.DRAFT)
@@ -916,7 +949,16 @@ class AssessmentService {
       }
     }
 
-    const sequences = assessmentQuestions
+    // Auto-normalize question sequence numbers (1..N) to heal any existing gaps or starting offsets
+    const sortedAssessmentQuestions = [...assessmentQuestions].sort(
+      (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)
+    );
+
+    sortedAssessmentQuestions.forEach((item, index) => {
+      item.sequence = index + 1;
+    });
+
+    const sequences = sortedAssessmentQuestions
       .map((item) => item.sequence)
       .sort((a, b) => a - b);
 
