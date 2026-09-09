@@ -51,6 +51,7 @@ class AuthController {
         data: {
           accessToken: result.accessToken,
           user: result.user,
+          companies: result.companies || [],
         },
       },
       StatusCodes.OK
@@ -159,6 +160,46 @@ class AuthController {
         message: AUTH_MESSAGES.CURRENT_USER_FETCHED || "User profile fetched successfully.",
         data: {
           user: AuthDto.toResponse(req.user),
+        },
+      },
+      StatusCodes.OK
+    );
+  });
+
+  getUserCompanies = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const companies = await authService.getUserCompanies(userId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "User companies retrieved successfully.",
+        data: {
+          companies,
+        },
+      },
+      StatusCodes.OK
+    );
+  });
+
+  activateOwner = asyncHandler(async (req, res) => {
+    const { activateOwnerSchema } = require("../super-admin/super-admin.owner-activation.validator");
+    const ownerActivationService = require("../super-admin/super-admin.owner-activation.service");
+
+    const data = activateOwnerSchema.parse(req.body);
+    const user = await ownerActivationService.consumeActivation(data.token, data.password);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Owner account activated successfully.",
+        data: {
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            status: user.status,
+          },
         },
       },
       StatusCodes.OK

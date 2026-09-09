@@ -91,9 +91,20 @@ const updateCompanyMemberRoleSchema = z.object({
 
 const updateMemberRoleSchema = updateCompanyMemberRoleSchema;
 
-const transferCompanyOwnershipSchema = z.object({
+const memberIdParamSchema = z.object({
   memberId: z.string().trim().min(1),
 });
+
+const transferOwnershipSchema = z.object({
+  targetMemberId: z.string().trim().min(1).optional(),
+  memberId: z.string().trim().min(1).optional(),
+}).transform((data) => ({
+  targetMemberId: data.targetMemberId || data.memberId,
+})).refine((data) => Boolean(data.targetMemberId), {
+  message: "targetMemberId is required",
+});
+
+const transferCompanyOwnershipSchema = transferOwnershipSchema;
 
 const deleteCompanySchema = z.object({
   confirmation: z
@@ -108,8 +119,10 @@ module.exports = {
   updateCompanySchema,
   inviteCompanyMemberSchema,
   updateCompanyMemberRoleSchema,
-  transferCompanyOwnershipSchema,
   updateMemberRoleSchema,
+  memberIdParamSchema,
+  transferOwnershipSchema,
+  transferCompanyOwnershipSchema,
   deleteCompanySchema,
 };
 

@@ -5,24 +5,30 @@ const { AppError, tooManyRequests } = require("../utils/app-error");
 const { consumeRateLimit } = require("../utils/rate-limiter");
 const { buildRateLimitKey, normalizeEmail } = require("../utils/rate-limit-key");
 
+const crypto = require("node:crypto");
+
 const createRateLimiter =
-  ({ namespace, windowSeconds, maxRequests, keyGenerator, failOpen = true }) =>
+  ({ namespace, keyPrefix, windowSeconds, maxRequests, limit, keyGenerator, message, failOpen = true }) =>
   async (req, res, next) => {
+    const effectiveNamespace = keyPrefix || namespace || "default";
+    const effectiveLimit = limit || maxRequests || 100;
+    const effectiveMessage = message || "Too many requests. Please try again later.";
+
     try {
       const identifier = keyGenerator(req);
 
       const key = buildRateLimitKey({
-        namespace,
+        namespace: effectiveNamespace,
         identifier,
       });
 
       const result = await consumeRateLimit({
         key,
         windowSeconds,
-        maxRequests,
+        maxRequests: effectiveLimit,
       });
 
-      res.setHeader("X-RateLimit-Limit", String(maxRequests));
+      res.setHeader("X-RateLimit-Limit", String(effectiveLimit));
 
       res.setHeader("X-RateLimit-Remaining", String(result.remaining));
 
@@ -31,7 +37,7 @@ const createRateLimiter =
 
         return next(
           tooManyRequests(
-            "Too many requests. Please try again later.",
+            effectiveMessage,
             "RATE_LIMIT_EXCEEDED"
           )
         );
@@ -41,7 +47,7 @@ const createRateLimiter =
     } catch (error) {
       console.error({
         type: "RATE_LIMITER_FAILURE",
-        namespace,
+        namespace: effectiveNamespace,
         message: error.message,
       });
 
@@ -115,6 +121,41 @@ const adminApiLimiter = createRateLimiter({
   },
 });
 
+const ownerActivationRateLimit = createRateLimiter({
+  keyPrefix: "owner-activation",
+  limit: 10,
+  windowSeconds: 15 * 60,
+  keyGenerator: (req) => req.ip,
+  message: "Too many activation attempts. Please try again later.",
+});
+
+const ownerActivationTokenLimit = createRateLimiter({
+  keyPrefix: "owner-activation-token",
+  limit: 5,
+  windowSeconds: 15 * 60,
+  keyGenerator: (req) => {
+    const token = typeof req.body?.token === "string" ? req.body.token : "missing";
+    return crypto.createHash("sha256").update(token).digest("hex");
+  },
+  message: "Too many attempts for this activation link.",
+});
+
+const ownerActivationResendCompanyLimit = createRateLimiter({
+  keyPrefix: "owner-activation-resend-company",
+  limit: 5,
+  windowSeconds: 60 * 60,
+  keyGenerator: (req) => req.params?.companyId || "unknown-company",
+  message: "Activation resend limit reached for this company.",
+});
+
+const ownerActivationResendAdminLimit = createRateLimiter({
+  keyPrefix: "owner-activation-resend-admin",
+  limit: 20,
+  windowSeconds: 60 * 60,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: "Too many activation resend requests.",
+});
+
 module.exports = {
   createRateLimiter,
   otpSendLimiter,
@@ -123,4 +164,8 @@ module.exports = {
   saveAnswerLimiter,
   submitAttemptLimiter,
   adminApiLimiter,
+  ownerActivationRateLimit,
+  ownerActivationTokenLimit,
+  ownerActivationResendCompanyLimit,
+  ownerActivationResendAdminLimit,
 };

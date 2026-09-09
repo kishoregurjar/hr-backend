@@ -5,6 +5,7 @@ const AUTH_USER_SELECT = Object.freeze({
   email: true,
   name: true,
   role: true,
+  status: true,
   password: true,
   createdAt: true,
   updatedAt: true,

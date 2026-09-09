@@ -3,7 +3,7 @@
 const { COMPANY_OUTBOX_CONSTANTS } = require("./company.outbox.constants");
 
 const calculateRetryDelay = (attempts) => {
-  const { BASE_DELAY_SECONDS, MAX_DELAY_SECONDS } =
+  const { BASE_DELAY_SECONDS, MAX_DELAY_SECONDS, JITTER_RATIO } =
     COMPANY_OUTBOX_CONSTANTS.RETRY;
 
   const exponentialDelay =
@@ -11,7 +11,7 @@ const calculateRetryDelay = (attempts) => {
 
   const cappedDelay = Math.min(exponentialDelay, MAX_DELAY_SECONDS);
 
-  const jitter = Math.floor(Math.random() * 10);
+  const jitter = Math.floor(cappedDelay * JITTER_RATIO * Math.random());
 
   return cappedDelay + jitter;
 };

@@ -50,6 +50,7 @@ class AuthMapper {
       fullName: user.name || `${firstName} ${lastName}`.trim(),
       email: user.email,
       role: user.role,
+      status: user.status,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

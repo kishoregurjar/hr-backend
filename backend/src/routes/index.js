@@ -15,6 +15,7 @@ const companyRoutes = require("../modules/company");
 const companyInvitationRoutes = require("../modules/company/company.invitation.routes");
 const companyLogoRoutes = require("../modules/company/company.logo.routes");
 const dashboardRoutes = require("../modules/dashboard");
+const superAdminRoutes = require("../modules/super-admin");
 
 const router = express.Router();
 
@@ -112,5 +113,9 @@ router.use("/companies", companyRoutes);
 router.use("/companies", companyInvitationRoutes);
 router.use("/companies", companyLogoRoutes);
 
+/**
+ * Super Admin Management Routes (/api/v1/super-admin)
+ */
+router.use("/super-admin", superAdminRoutes);
 
 module.exports = router;

@@ -171,11 +171,65 @@ const findInvitationIdsByCompany = async (companyId, tx = prisma) => {
   return invitations.map((invitation) => invitation.id);
 };
 
+const findPendingInvitation = async (companyId, email, tx = prisma) => {
+  return tx.companyInvitation.findFirst({
+    where: {
+      companyId,
+      email,
+      status: "PENDING",
+      expiresAt: {
+        gt: new Date(),
+      },
+    },
+    select: {
+      id: true,
+      companyId: true,
+      email: true,
+      role: true,
+      status: true,
+      expiresAt: true,
+    },
+  });
+};
+
+const findCompanyMemberByEmail = async (companyId, email, tx = prisma) => {
+  return tx.companyMember.findFirst({
+    where: {
+      companyId,
+      user: {
+        email: email.toLowerCase().trim(),
+      },
+    },
+    select: {
+      id: true,
+      userId: true,
+      role: true,
+    },
+  });
+};
+
+const findUserByEmail = async (email, tx = prisma) => {
+  return tx.user.findUnique({
+    where: {
+      email: email.toLowerCase().trim(),
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      status: true,
+    },
+  });
+};
+
 module.exports = {
   createInvitation,
   findInvitationById,
   findInvitationByTokenHash,
   findPendingInvitationByEmail,
+  findPendingInvitation,
+  findCompanyMemberByEmail,
+  findUserByEmail,
   findInvitationsByCompany,
   countInvitationsByCompany,
   countPendingInvitations,

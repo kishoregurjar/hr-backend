@@ -18,10 +18,34 @@ enum Role {
   CANDIDATE
 }
 
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum CompanyOwnerActivationStatus {
+  PENDING
+  CONSUMED
+  EXPIRED
+  REVOKED
+}
+
+enum EmailDeliveryType {
+  COMPANY_INVITATION
+  COMPANY_OWNER_ACTIVATION
+}
+
 enum CompanyRole {
   OWNER
   ADMIN
   RECRUITER
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
 }
 
 enum CompanyInvitationStatus {
@@ -215,13 +239,14 @@ enum EmailDeliveryStatus {
 //
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String?
   name      String?
-  role      Role     @default(HR)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role      Role       @default(HR)
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   // Navigation Properties
   assessments       Assessment[]       @relation("CreatedAssessments")
@@ -233,8 +258,10 @@ model User {
   resumeProcessing ResumeProcessing[] @relation("UserResumeProcessing")
   companyMembers   CompanyMember[]
   mailbox          UserMailbox?
+  ownerActivation  CompanyOwnerActivation?
 
   @@index([role])
+  @@index([status])
 }
 
 model Tag {
@@ -696,9 +723,10 @@ model InboundEmailEvent {
 }
 
 model Company {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   name        String
-  slug        String   @unique
+  slug        String        @unique
+  status      CompanyStatus @default(ACTIVE)
   logoUrl     String?
   logoPath    String?
   website     String?
@@ -761,12 +789,13 @@ model UserMailbox {
 }
 
 model CompanyInvitation {
-  id        String                  @id @default(cuid())
-  companyId String
-  email     String
-  role      CompanyRole
-  tokenHash String                  @unique
-  status    CompanyInvitationStatus @default(PENDING)
+  id             String                  @id @default(cuid())
+  companyId      String
+  email          String
+  role           CompanyRole
+  tokenHash      String                  @unique
+  encryptedToken String                  @default("")
+  status         CompanyInvitationStatus @default(PENDING)
 
   expiresAt  DateTime
   acceptedAt DateTime?
@@ -802,9 +831,29 @@ model OutboxEvent {
   @@index([createdAt])
 }
 
+model CompanyOwnerActivation {
+  id             String                       @id @default(cuid())
+  userId         String                       @unique
+  tokenHash      String                       @unique
+  encryptedToken String
+  status         CompanyOwnerActivationStatus @default(PENDING)
+  expiresAt      DateTime
+  consumedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  emailDelivery EmailDelivery?
+
+  @@index([status, expiresAt])
+}
+
 model EmailDelivery {
   id             String              @id @default(cuid())
-  invitationId   String              @unique
+  type           EmailDeliveryType   @default(COMPANY_INVITATION)
+  invitationId   String?             @unique
+  activationId   String?             @unique
   recipientEmail String
   status         EmailDeliveryStatus @default(PENDING)
   attempts       Int                 @default(0)
@@ -813,8 +862,10 @@ model EmailDelivery {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
-  invitation CompanyInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  invitation CompanyInvitation?      @relation(fields: [invitationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  activation CompanyOwnerActivation? @relation(fields: [activationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
+  @@index([type, status, updatedAt])
   @@index([status, updatedAt])
 }
 

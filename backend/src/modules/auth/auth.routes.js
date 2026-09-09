@@ -25,16 +25,28 @@ const {
  * ==========================================================
  */
 
+const {
+  ownerActivationRateLimit,
+  ownerActivationTokenLimit,
+} = require("../../middleware/rate-limit.middleware");
+
 router.post("/register", validateRequest(registerSchema), controller.register);
 router.post("/login", validateRequest(loginSchema), controller.login);
 router.post("/refresh-token", validateRequest(refreshTokenSchema), controller.refreshToken);
 router.post("/logout", controller.logout);
 router.post("/forgot-password", validateRequest(forgotPasswordSchema), controller.forgotPassword);
 router.post("/reset-password", validateRequest(resetPasswordSchema), controller.resetPassword);
+router.post(
+  "/owner/activate",
+  ownerActivationRateLimit,
+  ownerActivationTokenLimit,
+  controller.activateOwner
+);
 
 // Protected Routes
 router.use(requireAuth);
 router.get("/me", controller.getCurrentUser);
+router.get("/me/companies", controller.getUserCompanies);
 router.post("/logout-all", controller.logoutAllDevices);
 router.post("/change-password", validateRequest(changePasswordSchema), controller.changePassword);
 

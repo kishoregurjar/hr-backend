@@ -2,6 +2,8 @@
 
 const crypto = require("crypto");
 const { prisma } = require("../../config/prisma");
+const { runSerializableTransaction } = require("../../utils/prisma-transaction");
+const { encryptToken, decryptToken } = require("../../utils/token-crypto");
 
 const companyRepository = require("./company.repository");
 const companyInvitationRepository = require("./company.invitation.repository");
@@ -32,13 +34,12 @@ const {
 const {
   createCompanyInvitationDto,
   createCompanyInvitationListDto,
-  createCompanyMemberDto,
 } = require("./company.invitation.dto");
 
-const {
-  mapCompanyInvitation,
-  mapCompanyMember,
-} = require("./company.invitation.mapper");
+const { createCompanyMemberDto } = require("./company.dto");
+
+const { mapCompanyInvitation } = require("./company.invitation.mapper");
+const { mapCompanyMember } = require("./company.mapper");
 
 const createInvitationError = (message, code, statusCode) => {
   const error = new Error(message);
@@ -63,21 +64,49 @@ const hashInvitationToken = (token) => {
 const calculateExpirationDate = () => {
   const expiresAt = new Date();
   expiresAt.setDate(
-    expiresAt.getDate() + COMPANY_INVITATION_CONSTANTS.EXPIRATION.DAYS
+    expiresAt.getDate() + COMPANY_INVITATION_CONSTANTS.TOKEN.EXPIRATION_DAYS
   );
   return expiresAt;
 };
 
 const createInvitation = async (
-  companyId,
-  requesterRole,
-  requesterUserId,
-  payload
+  companyIdOrOptions,
+  requesterRoleArg,
+  requesterUserIdArg,
+  payloadArg,
+  auditContextArg = {}
 ) => {
-  assertPermission(requesterRole, COMPANY_PERMISSIONS.INVITE_MEMBER);
+  const options =
+    typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
+      ? companyIdOrOptions
+      : {
+          companyId: companyIdOrOptions,
+          actorRole: requesterRoleArg,
+          actorUserId: requesterUserIdArg,
+          payload: payloadArg,
+          auditContext: auditContextArg,
+        };
+
+  const {
+    companyId,
+    actorRole = requesterRoleArg,
+    actorUserId = requesterUserIdArg,
+    payload = payloadArg,
+    auditContext = auditContextArg,
+  } = options;
+
+  assertPermission(actorRole, COMPANY_PERMISSIONS.INVITE_MEMBER);
 
   const validatedData = createCompanyInvitationSchema.parse(payload);
-  const email = validatedData.email;
+  const email = validatedData.email.trim().toLowerCase();
+
+  if (validatedData.role === "OWNER") {
+    throw createInvitationError(
+      "Cannot invite a member as OWNER",
+      "COMPANY_INVITATION_INVALID_ROLE",
+      400
+    );
+  }
 
   const company = await companyRepository.findCompanyById(companyId);
 
@@ -89,180 +118,205 @@ const createInvitation = async (
     );
   }
 
-  const requester = await companyRepository.findUserById(requesterUserId);
+  const requester = await companyRepository.findUserById(actorUserId);
 
-  /*
-   * Check whether this email already belongs
-   * to the company.
-   */
   const existingUser = await companyRepository.findUserByEmail(email);
 
-  if (existingUser) {
-    const existingMember = await companyRepository.findMember(
-      companyId,
-      existingUser.id
+  if (existingUser && existingUser.id === actorUserId) {
+    throw createInvitationError(
+      "You cannot invite yourself to the company",
+      COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_SELF,
+      409
     );
-
-    if (existingMember) {
-      throw createInvitationError(
-        "User is already a member of this company",
-        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_ALREADY_EXISTS,
-        409
-      );
-    }
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    /*
-     * Expire old invitations first.
-     */
-    await companyInvitationRepository.expirePendingInvitations(
-      companyId,
-      new Date(),
-      tx
-    );
+  const rawToken = generateInvitationToken();
+  const tokenHash = hashInvitationToken(rawToken);
+  const encryptedToken = encryptToken(rawToken);
+  const expiresAt = calculateExpirationDate();
 
-    /*
-     * Application-level duplicate check.
-     */
-    const existingInvitation =
-      await companyInvitationRepository.findPendingInvitationByEmail(
+  try {
+    const result = await runSerializableTransaction(prisma, async (tx) => {
+      await companyInvitationRepository.expirePendingInvitations(
         companyId,
-        email,
+        new Date(),
         tx
       );
 
-    if (existingInvitation) {
-      throw createInvitationError(
-        "A pending invitation already exists for this email",
-        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_ALREADY_EXISTS,
-        409
-      );
-    }
-
-    /*
-     * Pending invitation limit.
-     */
-    const pendingCount =
-      await companyInvitationRepository.countPendingInvitations(
-        companyId,
-        tx
-      );
-
-    if (
-      pendingCount >=
-      COMPANY_INVITATION_CONSTANTS.MAX_PENDING_INVITATIONS_PER_COMPANY
-    ) {
-      throw createInvitationError(
-        "Pending invitation limit reached",
-        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_LIMIT_REACHED,
-        409
-      );
-    }
-
-    const rawToken = generateInvitationToken();
-    const tokenHash = hashInvitationToken(rawToken);
-    const expiresAt = calculateExpirationDate();
-
-    let invitation;
-
-    try {
-      invitation = await companyInvitationRepository.createInvitation(
-        {
+      const existingMember =
+        await companyInvitationRepository.findCompanyMemberByEmail(
           companyId,
           email,
-          role: validatedData.role,
-          tokenHash,
-          expiresAt,
-        },
-        tx
-      );
-    } catch (error) {
-      /*
-       * PostgreSQL unique constraint catches
-       * concurrent duplicate invitations.
-       */
-      if (error.code === "P2002") {
+          tx
+        );
+
+      if (existingMember) {
         throw createInvitationError(
-          "A pending invitation already exists for this email",
-          COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_ALREADY_EXISTS,
+          "User is already a member of this company",
+          COMPANY_INVITATION_CONSTANTS.ERROR_CODES.MEMBER_ALREADY_EXISTS,
           409
         );
       }
 
-      throw error;
-    }
+      const existingInvitation =
+        await companyInvitationRepository.findPendingInvitation(
+          companyId,
+          email,
+          tx
+        );
 
-    const frontendUrl =
-      process.env.CLIENT_URL ||
-      process.env.FRONTEND_URL ||
-      "http://localhost:3000";
+      if (existingInvitation) {
+        throw createInvitationError(
+          "A pending invitation already exists for this email",
+          COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_EMAIL_ALREADY_PENDING,
+          409
+        );
+      }
 
-    const invitationUrl = `${frontendUrl}/company/invitations/accept?token=${encodeURIComponent(
-      rawToken
-    )}`;
+      const pendingCount =
+        await companyInvitationRepository.countPendingInvitations(
+          companyId,
+          tx
+        );
 
-    await createEmailDelivery(
-      {
-        invitationId: invitation.id,
-        recipientEmail: invitation.email,
-        status: "PENDING",
-      },
-      tx
-    );
+      if (
+        pendingCount >=
+        COMPANY_INVITATION_CONSTANTS.MAX_PENDING_INVITATIONS_PER_COMPANY
+      ) {
+        throw createInvitationError(
+          "Pending invitation limit reached",
+          COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_LIMIT_REACHED,
+          409
+        );
+      }
 
-    await createOutboxEvent(
-      {
-        eventType:
-          COMPANY_OUTBOX_CONSTANTS.EVENT_TYPES.COMPANY_INVITATION_EMAIL,
-        aggregateId: invitation.id,
-        payload: {
+      let invitation;
+
+      try {
+        invitation = await companyInvitationRepository.createInvitation(
+          {
+            companyId,
+            email,
+            role: validatedData.role,
+            tokenHash,
+            encryptedToken,
+            status: "PENDING",
+            expiresAt,
+          },
+          tx
+        );
+      } catch (error) {
+        if (error.code === "P2002") {
+          throw createInvitationError(
+            "A pending invitation already exists for this email",
+            COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_EMAIL_ALREADY_PENDING,
+            409
+          );
+        }
+        throw error;
+      }
+
+      const frontendUrl =
+        process.env.CLIENT_URL ||
+        process.env.FRONTEND_URL ||
+        "http://localhost:3000";
+
+      const invitationUrl = `${frontendUrl}/accept-invitation?invitation=${invitation.id}&token=${encodeURIComponent(
+        rawToken
+      )}`;
+
+      const emailDelivery = await createEmailDelivery(
+        {
           invitationId: invitation.id,
-          email: invitation.email,
-          companyName: company.name,
-          inviterName: requester?.name || "",
-          role: invitation.role,
-          invitationUrl,
-          expiresAt: invitation.expiresAt.toISOString(),
+          recipientEmail: invitation.email,
+          status: "PENDING",
         },
-      },
-      tx
-    );
+        tx
+      );
 
-    await auditService.createAuditLog(
-      {
-        companyId,
-        actorUserId: requesterUserId,
-        action: AUDIT_ACTIONS.INVITATION_CREATED,
-        entityType: AUDIT_ENTITY_TYPES.COMPANY_INVITATION,
-        entityId: invitation.id,
-        metadata: {
-          invitedEmail: invitation.email,
-          role: invitation.role,
-          expiresAt: invitation.expiresAt.toISOString(),
+      await createOutboxEvent(
+        {
+          eventType:
+            COMPANY_OUTBOX_CONSTANTS.EVENT_TYPES.COMPANY_INVITATION_EMAIL,
+          aggregateId: invitation.id,
+          payload: {
+            invitationId: invitation.id,
+            emailDeliveryId: emailDelivery.id,
+            email: invitation.email,
+            companyName: company.name,
+            inviterName: requester?.name || "",
+            role: invitation.role,
+            invitationUrl,
+            expiresAt: invitation.expiresAt.toISOString(),
+          },
         },
-        ...auditContext,
-      },
-      tx
-    );
+        tx
+      );
+
+      await auditService.createAuditLog(
+        {
+          companyId,
+          actorUserId: actorUserId,
+          action: AUDIT_ACTIONS.INVITATION_CREATED,
+          entityType: AUDIT_ENTITY_TYPES.COMPANY_INVITATION,
+          entityId: invitation.id,
+          metadata: {
+            invitedEmail: invitation.email,
+            role: invitation.role,
+            expiresAt: invitation.expiresAt.toISOString(),
+          },
+          ...auditContext,
+        },
+        tx
+      );
+
+      return {
+        invitation,
+        rawToken,
+      };
+    });
 
     return {
-      invitation,
-      rawToken,
+      ...createCompanyInvitationDto(mapCompanyInvitation(result.invitation)),
+      rawToken: result.rawToken,
     };
-  });
-
-  return {
-    ...createCompanyInvitationDto(mapCompanyInvitation(result.invitation)),
-    rawToken: result.rawToken,
-  };
+  } catch (error) {
+    if (error.code === "P2002") {
+      throw createInvitationError(
+        "A pending invitation already exists for this email",
+        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_EMAIL_ALREADY_PENDING,
+        409
+      );
+    }
+    throw error;
+  }
 };
 
-const acceptInvitation = async (userId, payload) => {
-  const validatedData = acceptCompanyInvitationSchema.parse(payload);
-  const tokenHash = hashInvitationToken(validatedData.token.trim());
+const acceptInvitation = async (
+  userIdOrOptions,
+  payloadArg,
+  auditContextArg = {}
+) => {
+  const options =
+    typeof userIdOrOptions === "object" && userIdOrOptions !== null
+      ? userIdOrOptions
+      : {
+          userId: userIdOrOptions,
+          payload: payloadArg,
+          auditContext: auditContextArg,
+        };
 
-  return prisma.$transaction(async (tx) => {
+  const {
+    userId,
+    payload = payloadArg,
+    auditContext = auditContextArg,
+  } = options;
+
+  const validatedData = acceptCompanyInvitationSchema.parse(payload);
+  const rawToken = validatedData.token.trim();
+  const tokenHash = hashInvitationToken(rawToken);
+
+  return runSerializableTransaction(prisma, async (tx) => {
     const invitation =
       await companyInvitationRepository.findInvitationByTokenHash(
         tokenHash,
@@ -290,8 +344,8 @@ const acceptInvitation = async (userId, payload) => {
     if (invitation.status === "REVOKED") {
       throw createInvitationError(
         "Invitation has been revoked",
-        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_REVOKED,
-        410
+        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_ALREADY_REVOKED,
+        409
       );
     }
 
@@ -322,7 +376,7 @@ const acceptInvitation = async (userId, payload) => {
 
     if (user.email.toLowerCase() !== invitation.email.toLowerCase()) {
       throw createInvitationError(
-        "Invitation email does not match your account",
+        "Invitation email does not match your logged in account email",
         COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_EMAIL_MISMATCH,
         403
       );
@@ -335,11 +389,18 @@ const acceptInvitation = async (userId, payload) => {
     );
 
     if (existingMember) {
-      await companyInvitationRepository.markInvitationAccepted(
-        invitation.id,
-        now,
-        tx
+      const consumedHash = hashInvitationToken(
+        `${invitation.id}:${crypto.randomUUID()}`
       );
+      await tx.companyInvitation.update({
+        where: { id: invitation.id },
+        data: {
+          status: "ACCEPTED",
+          acceptedAt: now,
+          tokenHash: consumedHash,
+          encryptedToken: "",
+        },
+      });
 
       return {
         alreadyMember: true,
@@ -363,19 +424,26 @@ const acceptInvitation = async (userId, payload) => {
       if (error.code === "P2002") {
         throw createInvitationError(
           "User is already a member of this company",
-          COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_ALREADY_EXISTS,
+          COMPANY_INVITATION_CONSTANTS.ERROR_CODES.MEMBER_ALREADY_EXISTS,
           409
         );
       }
-
       throw error;
     }
 
-    await companyInvitationRepository.markInvitationAccepted(
-      invitation.id,
-      now,
-      tx
+    const consumedHash = hashInvitationToken(
+      `${invitation.id}:${crypto.randomUUID()}`
     );
+
+    await tx.companyInvitation.update({
+      where: { id: invitation.id },
+      data: {
+        status: "ACCEPTED",
+        acceptedAt: now,
+        tokenHash: consumedHash,
+        encryptedToken: "",
+      },
+    });
 
     await auditService.createAuditLog(
       {
@@ -401,43 +469,90 @@ const acceptInvitation = async (userId, payload) => {
 };
 
 const revokeInvitation = async (
-  companyId,
-  requesterRole,
-  invitationId,
-  requesterUserId = null,
-  auditContext = {}
+  companyIdOrOptions,
+  requesterRoleArg,
+  invitationIdArg,
+  requesterUserIdArg = null,
+  auditContextArg = {}
 ) => {
-  assertPermission(requesterRole, COMPANY_PERMISSIONS.INVITE_MEMBER);
+  const options =
+    typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
+      ? companyIdOrOptions
+      : {
+          companyId: companyIdOrOptions,
+          actorRole: requesterRoleArg,
+          invitationId: invitationIdArg,
+          actorUserId: requesterUserIdArg,
+          auditContext: auditContextArg,
+        };
 
-  const invitation = await companyInvitationRepository.findInvitationById(
-    invitationId
-  );
+  const {
+    companyId,
+    actorRole = requesterRoleArg,
+    invitationId = invitationIdArg,
+    actorUserId = requesterUserIdArg,
+    auditContext = auditContextArg,
+  } = options;
 
-  if (!invitation || invitation.companyId !== companyId) {
-    const error = new Error("Invitation not found");
-    error.code =
-      COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_NOT_FOUND;
-    error.statusCode = 404;
-    throw error;
-  }
+  assertPermission(actorRole, COMPANY_PERMISSIONS.INVITE_MEMBER);
 
-  if (invitation.status !== "PENDING") {
-    const error = new Error("Only pending invitations can be revoked");
-    error.code = COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_REVOKED;
-    error.statusCode = 409;
-    throw error;
-  }
-
-  const revokedInvitation = await prisma.$transaction(async (tx) => {
-    const revoked = await companyInvitationRepository.markInvitationRevoked(
-      invitation.id,
+  return runSerializableTransaction(prisma, async (tx) => {
+    const invitation = await companyInvitationRepository.findInvitationById(
+      invitationId,
       tx
     );
+
+    if (!invitation || invitation.companyId !== companyId) {
+      throw createInvitationError(
+        "Invitation not found",
+        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_NOT_FOUND,
+        404
+      );
+    }
+
+    if (invitation.status === "ACCEPTED") {
+      throw createInvitationError(
+        "Invitation has already been accepted",
+        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_ALREADY_ACCEPTED,
+        409
+      );
+    }
+
+    if (invitation.status === "REVOKED") {
+      throw createInvitationError(
+        "Invitation has already been revoked",
+        COMPANY_INVITATION_CONSTANTS.ERROR_CODES.INVITATION_ALREADY_REVOKED,
+        409
+      );
+    }
+
+    const consumedHash = hashInvitationToken(
+      `${invitation.id}:${crypto.randomUUID()}`
+    );
+
+    const revoked = await tx.companyInvitation.update({
+      where: {
+        id: invitation.id,
+      },
+      data: {
+        status: "REVOKED",
+        tokenHash: consumedHash,
+        encryptedToken: "",
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        expiresAt: true,
+        updatedAt: true,
+      },
+    });
 
     await auditService.createAuditLog(
       {
         companyId,
-        actorUserId: requesterUserId,
+        actorUserId,
         action: AUDIT_ACTIONS.INVITATION_REVOKED,
         entityType: AUDIT_ENTITY_TYPES.COMPANY_INVITATION,
         entityId: invitationId,
@@ -451,14 +566,6 @@ const revokeInvitation = async (
 
     return revoked;
   });
-
-  return {
-    id: revokedInvitation.id,
-    email: revokedInvitation.email,
-    role: revokedInvitation.role,
-    status: revokedInvitation.status,
-    expiresAt: revokedInvitation.expiresAt,
-  };
 };
 
 const listInvitations = async (companyId, requesterRole, query = {}) => {
@@ -487,9 +594,57 @@ const listInvitations = async (companyId, requesterRole, query = {}) => {
   });
 };
 
+/**
+ * Expire pending invitations whose expiresAt has passed.
+ * Uses updateMany with status: 'PENDING' condition to be safe
+ * in case of race with concurrent accept requests.
+ */
+const expirePendingInvitations = async () => {
+  const now = new Date();
+
+  const invitations = await prisma.companyInvitation.findMany({
+    where: {
+      status: "PENDING",
+      expiresAt: {
+        lte: now,
+      },
+    },
+    select: {
+      id: true,
+    },
+    take: 500,
+  });
+
+  if (!invitations.length) {
+    return 0;
+  }
+
+  let updatedCount = 0;
+
+  for (const invitation of invitations) {
+    const result = await prisma.companyInvitation.updateMany({
+      where: {
+        id: invitation.id,
+        status: "PENDING",
+      },
+      data: {
+        status: "EXPIRED",
+        encryptedToken: "",
+      },
+    });
+
+    updatedCount += result.count;
+  }
+
+  return updatedCount;
+};
+
 module.exports = {
   createInvitation,
   acceptInvitation,
   revokeInvitation,
   listInvitations,
+  generateInvitationToken,
+  hashInvitationToken,
+  expirePendingInvitations,
 };

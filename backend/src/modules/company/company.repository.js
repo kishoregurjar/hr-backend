@@ -223,6 +223,117 @@ const countCompanyJobs = async (companyId, tx = prisma) => {
   });
 };
 
+const { runSerializableTransaction } = require("../../utils/prisma-transaction");
+
+const findMemberForUpdate = async (companyId, memberId, tx = prisma) => {
+  return tx.companyMember.findFirst({
+    where: {
+      id: memberId,
+      companyId,
+    },
+    select: {
+      id: true,
+      companyId: true,
+      userId: true,
+      role: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          status: true,
+        },
+      },
+    },
+  });
+};
+
+const transferOwnership = async ({
+  companyId,
+  currentOwnerMemberId,
+  targetMemberId,
+}) => {
+  return runSerializableTransaction(prisma, async (tx) => {
+    const currentOwner = await tx.companyMember.findFirst({
+      where: {
+        id: currentOwnerMemberId,
+        companyId,
+        role: "OWNER",
+      },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!currentOwner) {
+      const error = new Error("COMPANY_OWNER_REQUIRED");
+      error.statusCode = 409;
+      error.code = "COMPANY_OWNER_REQUIRED";
+      throw error;
+    }
+
+    const targetMember = await tx.companyMember.findFirst({
+      where: {
+        id: targetMemberId,
+        companyId,
+      },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!targetMember) {
+      const error = new Error("COMPANY_OWNERSHIP_TRANSFER_TARGET_INVALID");
+      error.statusCode = 404;
+      error.code = "COMPANY_OWNERSHIP_TRANSFER_TARGET_INVALID";
+      throw error;
+    }
+
+    if (targetMember.role === "OWNER") {
+      const error = new Error("COMPANY_OWNERSHIP_TRANSFER_TARGET_INVALID");
+      error.statusCode = 409;
+      error.code = "COMPANY_OWNERSHIP_TRANSFER_TARGET_INVALID";
+      throw error;
+    }
+
+    await tx.companyMember.update({
+      where: {
+        id: currentOwnerMemberId,
+      },
+      data: {
+        role: targetMember.role,
+      },
+    });
+
+    const newOwner = await tx.companyMember.update({
+      where: {
+        id: targetMemberId,
+      },
+      data: {
+        role: "OWNER",
+      },
+      select: {
+        id: true,
+        companyId: true,
+        userId: true,
+        role: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    return newOwner;
+  });
+};
+
 module.exports = {
   createCompany,
   findCompanyById,
@@ -233,6 +344,7 @@ module.exports = {
   findMember,
   findMemberById,
   findMemberByIdForUpdate,
+  findMemberForUpdate,
   findMemberByIdWithCompany,
   createMember,
   updateMemberRole,
@@ -247,6 +359,7 @@ module.exports = {
   findCompanyByMemberUserId,
 
   countOwners,
+  transferOwnership,
 
   findUserById,
   findUserByEmail,

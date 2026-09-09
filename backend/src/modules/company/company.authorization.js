@@ -107,6 +107,14 @@ const getRolePermissions = (role) => {
   return Array.from(ROLE_PERMISSIONS[role]);
 };
 
+const assertCanManageMember = (role) => {
+  assertPermission(role, COMPANY_PERMISSIONS.UPDATE_MEMBER_ROLE);
+};
+
+const assertCanRemoveMember = (role) => {
+  assertPermission(role, COMPANY_PERMISSIONS.REMOVE_MEMBER);
+};
+
 module.exports = {
   COMPANY_ROLES,
   COMPANY_PERMISSIONS,
@@ -114,5 +122,7 @@ module.exports = {
   hasPermission,
   assertPermission,
   assertOwner,
+  assertCanManageMember,
+  assertCanRemoveMember,
   getRolePermissions,
 };

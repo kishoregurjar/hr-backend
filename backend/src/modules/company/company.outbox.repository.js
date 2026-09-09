@@ -9,15 +9,14 @@ const createOutboxEvent = async (data, tx = prisma) => {
 };
 
 const claimPendingEvents = async (
-  { batchSize = 20, staleLockMinutes = 10 } = {},
+  { batchSize = 20, staleLockMinutes = 10, now = new Date() } = {},
   tx = prisma
 ) => {
-  const now = new Date();
 
   return tx.$queryRaw`
     UPDATE "OutboxEvent"
     SET
-      "status" = 'PROCESSING',
+      "status" = 'PROCESSING'::"OutboxEventStatus",
       "lockedAt" = ${now},
       "updatedAt" = ${now}
     WHERE "id" IN (
@@ -25,12 +24,12 @@ const claimPendingEvents = async (
       FROM "OutboxEvent"
       WHERE
         (
-          "status" = 'PENDING'
+          "status"::text = 'PENDING'
           AND "availableAt" <= ${now}
         )
         OR
         (
-          "status" = 'PROCESSING'
+          "status"::text = 'PROCESSING'
           AND "lockedAt" IS NOT NULL
           AND "lockedAt" < ${new Date(now.getTime() - staleLockMinutes * 60 * 1000)}
         )

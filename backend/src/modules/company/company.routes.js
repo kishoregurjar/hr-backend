@@ -12,13 +12,17 @@ const router = express.Router();
  * Company Profile Routes (/api/v1/companies)
  */
 
-// Create company (does not require companyContext, creates first company)
-router.post(
-  "/",
-  requireAuth,
-  requireRole(["HR", "SUPER_ADMIN"]),
-  companyController.createCompany
-);
+// Public company creation disabled (Company onboarding is managed by Platform Super Admin at POST /api/v1/super-admin/companies)
+router.post("/", (req, res) => {
+  return res.status(403).json({
+    success: false,
+    error: {
+      code: "PUBLIC_COMPANY_CREATION_DISABLED",
+      message:
+        "Public company creation is disabled. Company onboarding must be managed by Platform Super Admin at /api/v1/super-admin/companies.",
+    },
+  });
+});
 
 // Get current user's company
 router.get(

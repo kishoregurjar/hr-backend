@@ -57,10 +57,58 @@ const markEmailFailed = async (id, errorMessage, tx = prisma) => {
   });
 };
 
+const findEmailDeliveryByActivationId = async (
+  activationId,
+  tx = prisma
+) => {
+  return tx.emailDelivery.findUnique({
+    where: {
+      activationId,
+    },
+  });
+};
+
+const resetForRetry = async (id, tx = prisma) => {
+  return tx.emailDelivery.update({
+    where: {
+      id,
+    },
+    data: {
+      status: "PENDING",
+      sentAt: null,
+      lastError: null,
+    },
+  });
+};
+
+const resetStaleProcessingDeliveries = async ({
+  staleMinutes = 10,
+} = {}) => {
+  return prisma.emailDelivery.updateMany({
+    where: {
+      status: "PROCESSING",
+      updatedAt: {
+        lt: new Date(Date.now() - staleMinutes * 60 * 1000),
+      },
+    },
+    data: {
+      status: "PENDING",
+    },
+  });
+};
+
 module.exports = {
   createEmailDelivery,
   findEmailDeliveryByInvitationId,
+  findEmailDeliveryByActivationId,
+  findByInvitationId: findEmailDeliveryByInvitationId,
+  findByActivationId: findEmailDeliveryByActivationId,
   markEmailProcessing,
+  markProcessing: markEmailProcessing,
   markEmailSent,
+  markSent: markEmailSent,
   markEmailFailed,
+  markFailed: markEmailFailed,
+  resetForRetry,
+  resetStaleProcessingDeliveries,
 };

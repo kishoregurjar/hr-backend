@@ -6,6 +6,10 @@ const logger = require("./config/logger");
 const { disconnectDatabase } = require("./config/prisma");
 const { connectRedis, disconnectRedis } = require("./config/redis");
 const { startMailboxSyncJob } = require("./jobs/mailbox-sync.job");
+const {
+  startInvitationCleanupWorker,
+  stopInvitationCleanupWorker,
+} = require("./modules/company/company.invitation.cleanup.worker");
 
 let server;
 
@@ -13,6 +17,12 @@ const startServer = async () => {
   await connectRedis();
 
   startMailboxSyncJob();
+
+  /*
+   * Start background cleanup worker (invitation expiry + stale delivery reset).
+   * Runs every 5 minutes in the same process.
+   */
+  void startInvitationCleanupWorker();
 
   server = app.listen(env.port, () => {
     logger.info(
@@ -33,6 +43,8 @@ const shutdown = async (signal) => {
   logger.info(`${signal} received. Shutting down...`);
 
   try {
+    stopInvitationCleanupWorker();
+
     await disconnectDatabase();
     logger.info("Database disconnected successfully.");
 

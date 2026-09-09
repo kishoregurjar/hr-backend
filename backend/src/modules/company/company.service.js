@@ -8,6 +8,8 @@ const {
   COMPANY_PERMISSIONS,
   assertPermission,
   assertOwner,
+  assertCanManageMember,
+  assertCanRemoveMember,
 } = require("./company.authorization");
 
 const {
@@ -242,41 +244,72 @@ const inviteMember = async (companyId, role, payload) => {
 };
 
 const updateMemberRole = async (
-  companyId,
-  requesterRole,
-  memberId,
-  payload,
-  requesterUserId = null,
-  auditContext = {}
+  companyIdOrOptions,
+  requesterRoleArg,
+  memberIdArg,
+  payloadArg,
+  requesterUserIdArg = null,
+  auditContextArg = {}
 ) => {
-  const validatedData = updateCompanyMemberRoleSchema.parse(
-    typeof payload === "object" && payload !== null ? payload : { role: payload }
+  const options =
+    typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
+      ? companyIdOrOptions
+      : {
+          companyId: companyIdOrOptions,
+          actorRole: requesterRoleArg,
+          memberId: memberIdArg,
+          role:
+            typeof payloadArg === "object" && payloadArg !== null
+              ? payloadArg.role
+              : payloadArg,
+          actorUserId: requesterUserIdArg,
+          auditContext: auditContextArg,
+        };
+
+  const {
+    companyId,
+    actorRole = requesterRoleArg,
+    memberId = memberIdArg,
+    role = typeof payloadArg === "object" && payloadArg !== null
+      ? payloadArg.role
+      : payloadArg,
+    actorUserId = requesterUserIdArg,
+    auditContext = auditContextArg,
+  } = options;
+
+  assertCanManageMember(actorRole);
+
+  const member = await companyRepository.findMemberForUpdate(
+    companyId,
+    memberId,
+    prisma
   );
 
-  assertPermission(
-    requesterRole,
-    COMPANY_PERMISSIONS.UPDATE_MEMBER_ROLE
-  );
-
-  const targetMember = await companyRepository.findMemberById(memberId);
-
-  if (!targetMember || targetMember.companyId !== companyId) {
+  if (!member || member.companyId !== companyId) {
     throw createCompanyError(
       "Company member not found",
-      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_MEMBER_NOT_FOUND,
+      COMPANY_CONSTANTS.ERROR_CODES.MEMBER_NOT_FOUND,
       404
     );
   }
 
-  if (targetMember.role === "OWNER") {
+  if (actorUserId && member.userId === actorUserId) {
     throw createCompanyError(
-      "Company owner role cannot be changed through this endpoint",
-      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_OWNER_REQUIRED,
-      400
+      "Cannot modify your own membership role",
+      COMPANY_CONSTANTS.ERROR_CODES.CANNOT_MODIFY_SELF,
+      409
     );
   }
 
-  if (requesterRole === "ADMIN" && targetMember.role === "ADMIN") {
+  if (member.role === "OWNER") {
+    throw createCompanyError(
+      "Company owner role cannot be changed directly",
+      COMPANY_CONSTANTS.ERROR_CODES.OWNER_CANNOT_CHANGE_ROLE,
+      409
+    );
+  }
+
+  if (actorRole === "ADMIN" && member.role === "ADMIN") {
     throw createCompanyError(
       "Administrators cannot modify another administrator",
       COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
@@ -284,63 +317,94 @@ const updateMemberRole = async (
     );
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const updatedMember = await companyRepository.updateMemberRole(
-      targetMember.id,
-      validatedData.role,
+  const updatedMember = await prisma.$transaction(async (tx) => {
+    const updated = await companyRepository.updateMemberRole(
+      member.id,
+      role,
       tx
     );
 
     await auditService.createAuditLog(
       {
         companyId,
-        actorUserId: requesterUserId,
+        actorUserId: actorUserId,
         action: AUDIT_ACTIONS.MEMBER_ROLE_UPDATED,
         entityType: AUDIT_ENTITY_TYPES.COMPANY_MEMBER,
         entityId: memberId,
         metadata: {
-          previousRole: targetMember.role,
-          newRole: validatedData.role,
+          previousRole: member.role,
+          newRole: role,
         },
         ...auditContext,
       },
       tx
     );
 
-    return updatedMember;
+    return updated;
   });
 
-  return createCompanyMemberDto(mapCompanyMember(result));
+  return createCompanyMemberDto(mapCompanyMember(updatedMember));
 };
 
 const removeMember = async (
-  companyId,
-  requesterRole,
-  memberId,
-  requesterUserId = null,
-  auditContext = {}
+  companyIdOrOptions,
+  requesterRoleArg,
+  memberIdArg,
+  requesterUserIdArg = null,
+  auditContextArg = {}
 ) => {
-  assertPermission(requesterRole, COMPANY_PERMISSIONS.REMOVE_MEMBER);
+  const options =
+    typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
+      ? companyIdOrOptions
+      : {
+          companyId: companyIdOrOptions,
+          actorRole: requesterRoleArg,
+          memberId: memberIdArg,
+          actorUserId: requesterUserIdArg,
+          auditContext: auditContextArg,
+        };
 
-  const targetMember = await companyRepository.findMemberById(memberId);
+  const {
+    companyId,
+    actorRole = requesterRoleArg,
+    memberId = memberIdArg,
+    actorUserId = requesterUserIdArg,
+    auditContext = auditContextArg,
+  } = options;
 
-  if (!targetMember || targetMember.companyId !== companyId) {
+  assertCanRemoveMember(actorRole);
+
+  const member = await companyRepository.findMemberForUpdate(
+    companyId,
+    memberId,
+    prisma
+  );
+
+  if (!member || member.companyId !== companyId) {
     throw createCompanyError(
       "Company member not found",
-      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_MEMBER_NOT_FOUND,
+      COMPANY_CONSTANTS.ERROR_CODES.MEMBER_NOT_FOUND,
       404
     );
   }
 
-  if (targetMember.role === "OWNER") {
+  if (actorUserId && member.userId === actorUserId) {
     throw createCompanyError(
-      "Company owner cannot be removed",
-      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_OWNER_REQUIRED,
-      400
+      "Cannot remove yourself from the company",
+      COMPANY_CONSTANTS.ERROR_CODES.CANNOT_MODIFY_SELF,
+      409
     );
   }
 
-  if (requesterRole === "ADMIN" && targetMember.role === "ADMIN") {
+  if (member.role === "OWNER") {
+    throw createCompanyError(
+      "Company owner cannot be removed",
+      COMPANY_CONSTANTS.ERROR_CODES.MEMBER_CANNOT_REMOVE_OWNER,
+      409
+    );
+  }
+
+  if (actorRole === "ADMIN" && member.role === "ADMIN") {
     throw createCompanyError(
       "Administrators cannot remove another administrator",
       COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
@@ -349,18 +413,18 @@ const removeMember = async (
   }
 
   await prisma.$transaction(async (tx) => {
-    await companyRepository.deleteMember(targetMember.id, tx);
+    await companyRepository.deleteMember(member.id, tx);
 
     await auditService.createAuditLog(
       {
         companyId,
-        actorUserId: requesterUserId,
+        actorUserId: actorUserId,
         action: AUDIT_ACTIONS.MEMBER_REMOVED,
         entityType: AUDIT_ENTITY_TYPES.COMPANY_MEMBER,
         entityId: memberId,
         metadata: {
-          removedUserId: targetMember.userId,
-          previousRole: targetMember.role,
+          removedUserId: member.userId,
+          previousRole: member.role,
         },
         ...auditContext,
       },
@@ -369,126 +433,101 @@ const removeMember = async (
   });
 
   return {
-    id: targetMember.id,
-    removed: true,
+    memberId: member.id,
   };
 };
 
 const transferOwnership = async (
-  companyId,
-  currentUserId,
-  currentRole,
-  payload,
-  auditContext = {}
+  companyIdOrOptions,
+  currentUserIdArg,
+  currentRoleArg,
+  payloadArg,
+  auditContextArg = {}
 ) => {
-  const validatedData = transferCompanyOwnershipSchema.parse(payload);
+  const options =
+    typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
+      ? companyIdOrOptions
+      : {
+          companyId: companyIdOrOptions,
+          currentOwnerUserId: currentUserIdArg,
+          actorRole: currentRoleArg,
+          targetMemberId:
+            typeof payloadArg === "object" && payloadArg !== null
+              ? payloadArg.targetMemberId || payloadArg.memberId
+              : payloadArg,
+          auditContext: auditContextArg,
+        };
 
-  assertOwner(currentRole);
+  const {
+    companyId,
+    currentOwnerUserId = currentUserIdArg,
+    targetMemberId = typeof payloadArg === "object" && payloadArg !== null
+      ? payloadArg.targetMemberId || payloadArg.memberId
+      : payloadArg,
+    auditContext = auditContextArg,
+  } = options;
 
-  const targetMember = await companyRepository.findMemberById(
-    validatedData.memberId
+  const currentOwner = await companyRepository.findMember(
+    companyId,
+    currentOwnerUserId
   );
+
+  if (!currentOwner || currentOwner.role !== "OWNER") {
+    throw createCompanyError(
+      "Company owner status required",
+      COMPANY_CONSTANTS.ERROR_CODES.OWNER_REQUIRED,
+      403
+    );
+  }
+
+  if (currentOwner.id === targetMemberId) {
+    throw createCompanyError(
+      "Target member is already the company owner",
+      COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TRANSFER_TARGET_INVALID,
+      409
+    );
+  }
+
+  const targetMember = await companyRepository.findMemberById(targetMemberId);
 
   if (!targetMember || targetMember.companyId !== companyId) {
     throw createCompanyError(
       "Target company member not found",
-      COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TARGET_INVALID,
+      COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TRANSFER_TARGET_INVALID,
       404
-    );
-  }
-
-  if (targetMember.userId === currentUserId) {
-    throw createCompanyError(
-      "You are already the company owner",
-      COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TARGET_INVALID,
-      400
     );
   }
 
   if (targetMember.role === "OWNER") {
     throw createCompanyError(
       "Target member is already an owner",
-      COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TARGET_INVALID,
-      400
+      COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TRANSFER_TARGET_INVALID,
+      409
     );
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const owner = await companyRepository.findMember(
-      companyId,
-      currentUserId,
-      tx
-    );
-
-    if (!owner || owner.role !== "OWNER") {
-      throw createCompanyError(
-        "Company ownership has changed",
-        COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
-        403
-      );
-    }
-
-    const target = await companyRepository.findMemberById(
-      validatedData.memberId,
-      tx
-    );
-
-    if (!target || target.companyId !== companyId) {
-      throw createCompanyError(
-        "Target company member not found",
-        COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TARGET_INVALID,
-        404
-      );
-    }
-
-    if (target.role === "OWNER") {
-      throw createCompanyError(
-        "Target member is already an owner",
-        COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TARGET_INVALID,
-        400
-      );
-    }
-
-    await companyRepository.updateMemberRole(owner.id, "ADMIN", tx);
-
-    const newOwner = await companyRepository.updateMemberRole(
-      target.id,
-      "OWNER",
-      tx
-    );
-
-    const ownerCount = await companyRepository.countOwners(companyId, tx);
-
-    if (ownerCount !== 1) {
-      throw createCompanyError(
-        "Ownership transfer failed",
-        COMPANY_CONSTANTS.ERROR_CODES.OWNERSHIP_TRANSFER_FAILED,
-        500
-      );
-    }
-
-    await auditService.createAuditLog(
-      {
-        companyId,
-        actorUserId: currentUserId,
-        action: AUDIT_ACTIONS.OWNERSHIP_TRANSFERRED,
-        entityType: AUDIT_ENTITY_TYPES.COMPANY,
-        entityId: companyId,
-        metadata: {
-          previousOwnerUserId: currentUserId,
-          newOwnerUserId: targetMember.userId,
-          previousOwnerMemberId: owner.id,
-          newOwnerMemberId: targetMember.id,
-        },
-        ...auditContext,
-      },
-      tx
-    );
-
-    return newOwner;
+  const newOwner = await companyRepository.transferOwnership({
+    companyId,
+    currentOwnerMemberId: currentOwner.id,
+    targetMemberId,
   });
 
-  return createCompanyMemberDto(mapCompanyMember(result));
+  await auditService.createAuditLog({
+    companyId,
+    actorUserId: currentOwnerUserId,
+    action: AUDIT_ACTIONS.OWNERSHIP_TRANSFERRED,
+    entityType: AUDIT_ENTITY_TYPES.COMPANY,
+    entityId: companyId,
+    metadata: {
+      previousOwnerUserId: currentOwnerUserId,
+      newOwnerUserId: targetMember.userId,
+      previousOwnerMemberId: currentOwner.id,
+      newOwnerMemberId: targetMember.id,
+    },
+    ...auditContext,
+  });
+
+  return createCompanyMemberDto(mapCompanyMember(newOwner));
 };
 
 const deleteCompany = async (

@@ -32,6 +32,14 @@ const resolveCompanyContext = async (userId, companyId) => {
     );
   }
 
+  if (company.status === "SUSPENDED") {
+    throw createCompanyContextError(
+      "This company has been suspended. Please contact platform support.",
+      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_SUSPENDED || "COMPANY_SUSPENDED",
+      403
+    );
+  }
+
   return {
     company,
     member: company.members[0],

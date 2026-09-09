@@ -2,6 +2,9 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
+/*
+ * These variables are required in ALL environments.
+ */
 const requiredEnvVariables = [
   "NODE_ENV",
   "PORT",
@@ -9,13 +12,46 @@ const requiredEnvVariables = [
   "JWT_ACCESS_SECRET",
   "JWT_REFRESH_SECRET",
   "CLIENT_URL",
+  "REDIS_URL",
 ];
 
-requiredEnvVariables.forEach((key) => {
-  if (!process.env[key]) {
-    throw new Error(`Missing required environment variable: ${key}`);
+/*
+ * These are required in production only.
+ * In development a warning is printed but the server still starts.
+ */
+const productionOnlyVariables = [
+  "BREVO_SMTP_HOST",
+  "BREVO_SMTP_PORT",
+  "BREVO_SMTP_USER",
+  "BREVO_SMTP_PASSWORD",
+  "MAIL_FROM_EMAIL",
+  "OWNER_ACTIVATION_ENCRYPTION_KEY",
+];
+
+const missing = requiredEnvVariables.filter((key) => !process.env[key]);
+
+if (missing.length > 0) {
+  console.error(
+    `[ENV] Missing required environment variables: ${missing.join(", ")}`
+  );
+  process.exit(1);
+}
+
+const isProduction = process.env.NODE_ENV === "production";
+const missingProd = productionOnlyVariables.filter((key) => !process.env[key]);
+
+if (missingProd.length > 0) {
+  if (isProduction) {
+    console.error(
+      `[ENV] Missing production environment variables: ${missingProd.join(", ")}`
+    );
+    process.exit(1);
+  } else {
+    console.warn(
+      `[ENV] Warning: missing variables (required in production): ${missingProd.join(", ")}`
+    );
   }
-});
+}
 
 const env = Object.freeze({
   nodeEnv: process.env.NODE_ENV,
@@ -29,6 +65,10 @@ const env = Object.freeze({
 
   database: {
     url: process.env.DATABASE_URL,
+  },
+
+  redis: {
+    url: process.env.REDIS_URL,
   },
 
   jwt: {
@@ -51,10 +91,28 @@ const env = Object.freeze({
 
   security: {
     bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS) || 12,
+    ownerActivationEncryptionKey: process.env.OWNER_ACTIVATION_ENCRYPTION_KEY,
+  },
+
+  smtp: {
+    host: process.env.BREVO_SMTP_HOST,
+    port: Number(process.env.BREVO_SMTP_PORT),
+    user: process.env.BREVO_SMTP_USER,
+    password: process.env.BREVO_SMTP_PASSWORD,
+    fromEmail: process.env.MAIL_FROM_EMAIL,
+    fromName: process.env.MAIL_FROM_NAME || "HireQuest",
   },
 
   cors: {
     origin: process.env.CLIENT_URL,
+    allowedOrigins: (process.env.CORS_ORIGINS || process.env.CLIENT_URL || "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean),
+  },
+
+  frontend: {
+    url: process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:3000",
   },
 
   logger: {

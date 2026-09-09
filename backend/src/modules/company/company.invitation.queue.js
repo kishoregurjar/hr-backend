@@ -44,6 +44,7 @@ const publishCompanyInvitationEmail = async (payload) => {
     COMPANY_INVITATION_EMAIL_STREAM,
     "*",
     {
+      eventType: "COMPANY_INVITATION_EMAIL",
       invitationId: String(payload.invitationId),
       email: String(payload.email),
       companyName: String(payload.companyName),
@@ -51,6 +52,22 @@ const publishCompanyInvitationEmail = async (payload) => {
       role: String(payload.role),
       invitationUrl: String(payload.invitationUrl),
       expiresAt: String(payload.expiresAt),
+    }
+  );
+};
+
+const publishCompanyOwnerActivationEmail = async (payload) => {
+  return redisClient.xAdd(
+    COMPANY_INVITATION_EMAIL_STREAM,
+    "*",
+    {
+      eventType: "COMPANY_OWNER_ACTIVATION_EMAIL",
+      activationId: String(payload.activationId),
+      recipientEmail: String(payload.recipientEmail || payload.email),
+      ownerName: String(payload.ownerName || ""),
+      companyName: String(payload.companyName || ""),
+      activationUrl: String(payload.activationUrl || ""),
+      expiresAt: String(payload.expiresAt || ""),
     }
   );
 };
@@ -84,5 +101,6 @@ module.exports = {
 
   enqueueCompanyInvitationEmail,
   publishCompanyInvitationEmail,
+  publishCompanyOwnerActivationEmail,
   ensureConsumerGroup,
 };

@@ -11,6 +11,43 @@ const {
   hashToken,
 } = require("./auth.utils");
 
+const { prisma } = require("../../config/prisma");
+
+const assertUserCanLogin = (user) => {
+  switch (user.status) {
+    case "ACTIVE":
+      return;
+
+    case "INVITED": {
+      const error = new Error("Account not activated. Please activate your account via email.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_NOT_ACTIVATED";
+      throw error;
+    }
+
+    case "SUSPENDED": {
+      const error = new Error("Your account has been suspended.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_SUSPENDED";
+      throw error;
+    }
+
+    case "DEACTIVATED": {
+      const error = new Error("Your account has been deactivated.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_DEACTIVATED";
+      throw error;
+    }
+
+    default: {
+      const error = new Error("Login not allowed for this account status.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_LOGIN_NOT_ALLOWED";
+      throw error;
+    }
+  }
+};
+
 /**
  * ==========================================================
  * Enterprise Auth Service
@@ -20,6 +57,33 @@ const {
  * ==========================================================
  */
 class AuthService {
+  async getUserCompanies(userId) {
+    const memberships = await prisma.companyMember.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      select: {
+        companyId: true,
+        role: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            logoUrl: true,
+          },
+        },
+      },
+    });
+
+    return memberships.map((m) => ({
+      id: m.company.id,
+      name: m.company.name,
+      slug: m.company.slug,
+      logoUrl: m.company.logoUrl || null,
+      role: m.role,
+    }));
+  }
+
   async register(payload) {
     const email = payload.email.toLowerCase().trim();
 
@@ -65,6 +129,8 @@ class AuthService {
       throw new UnauthorizedError("Invalid email or password.", "INVALID_CREDENTIALS");
     }
 
+    assertUserCanLogin(user);
+
     const isPasswordValid = await comparePassword(payload.password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedError("Invalid email or password.", "INVALID_CREDENTIALS");
@@ -82,11 +148,14 @@ class AuthService {
       });
     });
 
+    const companies = await this.getUserCompanies(user.id);
+
     return {
       message: "Login successful.",
       accessToken,
       refreshToken,
       user: AuthMapper.toUserResponse(user),
+      companies,
     };
   }
 

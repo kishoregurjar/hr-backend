@@ -13,13 +13,20 @@ const {
 } = require("./company.invitation.queue");
 
 const {
+  buildOwnerWelcomeEmail,
+} = require("../super-admin/super-admin.owner-welcome.email.template");
+
+const {
   findEmailDeliveryByInvitationId,
+  findEmailDeliveryByActivationId,
   markEmailProcessing,
   markEmailSent,
   markEmailFailed,
 } = require("./company.email.repository");
 
 const CLAIM_IDLE_TIME_MS = 10 * 60 * 1000;
+
+const { prisma } = require("../../config/prisma");
 
 const processInvitationEmail = async (message) => {
   const {
@@ -28,7 +35,7 @@ const processInvitationEmail = async (message) => {
     companyName,
     inviterName,
     role,
-    invitationUrl,
+    invitationUrl: fallbackUrl,
     expiresAt,
   } = message;
 
@@ -63,6 +70,50 @@ const processInvitationEmail = async (message) => {
     };
   }
 
+  /*
+   * DB State Guard: Ensure invitation is still PENDING and NOT expired/revoked.
+   */
+  const invitation = await prisma.companyInvitation.findUnique({
+    where: { id: invitationId },
+    select: {
+      id: true,
+      status: true,
+      expiresAt: true,
+      encryptedToken: true,
+    },
+  });
+
+  if (
+    !invitation ||
+    invitation.status !== "PENDING" ||
+    invitation.expiresAt.getTime() <= Date.now()
+  ) {
+    console.warn("Invitation email skipped (invitation is not PENDING or has expired/revoked)", {
+      invitationId,
+      status: invitation?.status,
+    });
+    return {
+      success: false,
+      permanentFailure: true,
+    };
+  }
+
+  let finalInvitationUrl = fallbackUrl;
+  if (invitation.encryptedToken) {
+    try {
+      const rawToken = decryptToken(invitation.encryptedToken);
+      const frontendUrl =
+        process.env.CLIENT_URL ||
+        process.env.FRONTEND_URL ||
+        "http://localhost:3000";
+      finalInvitationUrl = `${frontendUrl}/accept-invitation?invitation=${invitation.id}&token=${encodeURIComponent(
+        rawToken
+      )}`;
+    } catch (e) {
+      console.warn("Failed to decrypt token for invitation email, using fallback URL", e);
+    }
+  }
+
   const attempts = delivery.attempts + 1;
   await markEmailProcessing(delivery.id, attempts);
 
@@ -71,7 +122,7 @@ const processInvitationEmail = async (message) => {
       companyName,
       inviterName,
       role,
-      invitationUrl,
+      invitationUrl: finalInvitationUrl,
       expiresAt,
     });
 
@@ -101,6 +152,110 @@ const processInvitationEmail = async (message) => {
     console.error("Company invitation email failed", {
       invitationId,
       email,
+      attempts,
+      error: errorMessage,
+    });
+
+    throw error;
+  }
+};
+
+const ownerActivationRepository = require("../super-admin/super-admin.owner-activation.repository");
+const { decryptToken } = require("../super-admin/super-admin.owner-activation.crypto");
+
+const buildOwnerActivationUrl = (rawToken) => {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const url = new URL("/activate-owner", frontendUrl);
+  url.searchParams.set("token", rawToken);
+  return url.toString();
+};
+
+const processOwnerActivationEmail = async (message) => {
+  const { activationId } = message;
+
+  const delivery = await findEmailDeliveryByActivationId(activationId);
+
+  if (!delivery) {
+    console.error("Owner activation email delivery record not found", {
+      activationId,
+    });
+
+    return {
+      success: false,
+      permanentFailure: true,
+    };
+  }
+
+  if (delivery.status === "SENT") {
+    console.info("Owner activation email already sent", {
+      activationId,
+    });
+
+    return {
+      success: true,
+      alreadySent: true,
+    };
+  }
+
+  const activation = await ownerActivationRepository.findByActivationId(activationId);
+
+  if (!activation || !activation.user) {
+    console.error("Owner activation DB record not found", { activationId });
+    return { success: false, permanentFailure: true };
+  }
+
+  if (activation.status !== "PENDING") {
+    console.warn(`Activation status is not PENDING (${activation.status})`, { activationId });
+    return { success: false, permanentFailure: true };
+  }
+
+  if (activation.expiresAt.getTime() <= Date.now()) {
+    console.warn("Owner activation link expired", { activationId });
+    return { success: false, permanentFailure: true };
+  }
+
+  const attempts = delivery.attempts + 1;
+  await markEmailProcessing(delivery.id, attempts);
+
+  try {
+    const rawToken = decryptToken(activation.encryptedToken);
+    const activationUrl = buildOwnerActivationUrl(rawToken);
+    const companyName = activation.user.companyMembers?.[0]?.company?.name || message.companyName || "Your Company";
+    const ownerName = activation.user.name || message.ownerName || "Company Owner";
+
+    const { subject, html } = buildOwnerWelcomeEmail({
+      ownerName,
+      companyName,
+      activationUrl,
+      expiresAt: activation.expiresAt,
+    });
+
+    await sendEmail({
+      to: delivery.recipientEmail,
+      subject,
+      html,
+    });
+
+    await markEmailSent(delivery.id);
+
+    console.info("Owner welcome activation email sent", {
+      activationId,
+      email: delivery.recipientEmail,
+      attempts,
+    });
+
+    return {
+      success: true,
+    };
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+
+    await markEmailFailed(delivery.id, errorMessage);
+
+    console.error("Owner activation email failed", {
+      activationId,
+      email: delivery.recipientEmail,
       attempts,
       error: errorMessage,
     });
@@ -145,7 +300,15 @@ const handleMessage = async (message) => {
   const { id, message: data } = message;
 
   try {
-    const result = await processInvitationEmail(data);
+    let result;
+    if (
+      data.eventType === "COMPANY_OWNER_ACTIVATION_EMAIL" ||
+      data.activationId
+    ) {
+      result = await processOwnerActivationEmail(data);
+    } else {
+      result = await processInvitationEmail(data);
+    }
 
     if (result.success || result.permanentFailure) {
       await acknowledgeMessage(id);
