@@ -10,6 +10,8 @@ const {
   startInvitationCleanupWorker,
   stopInvitationCleanupWorker,
 } = require("./modules/company/company.invitation.cleanup.worker");
+const { startOutboxWorker } = require("./modules/company/company.outbox.worker");
+const { startCompanyInvitationWorker } = require("./modules/company/company.invitation.worker");
 
 let server;
 
@@ -23,6 +25,12 @@ const startServer = async () => {
    * Runs every 5 minutes in the same process.
    */
   void startInvitationCleanupWorker();
+
+  /*
+   * Start outbox & email dispatch workers for single-process production deployments (Railway).
+   */
+  void startOutboxWorker().catch((err) => logger.error("Outbox worker error:", err));
+  void startCompanyInvitationWorker().catch((err) => logger.error("Invitation email worker error:", err));
 
   server = app.listen(env.port, () => {
     logger.info(
