@@ -80,7 +80,7 @@ const consumeActivation = async (token, newPassword) => {
 
       if (!activation) {
         const error = new Error(
-          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_NOT_FOUND
+          "This activation link is invalid, expired, or has already been replaced by a newer invitation link."
         );
         error.statusCode = 400;
         error.code =
@@ -90,7 +90,7 @@ const consumeActivation = async (token, newPassword) => {
 
       if (activation.status === "CONSUMED") {
         const error = new Error(
-          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_ALREADY_USED
+          "This workspace activation link has already been used. Please log in with your password."
         );
         error.statusCode = 400;
         error.code =
@@ -100,7 +100,7 @@ const consumeActivation = async (token, newPassword) => {
 
       if (activation.status === "REVOKED") {
         const error = new Error(
-          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_REVOKED
+          "This activation link has been revoked by an administrator. Please request a new link."
         );
         error.statusCode = 400;
         error.code =
@@ -111,7 +111,7 @@ const consumeActivation = async (token, newPassword) => {
       if (activation.expiresAt.getTime() <= Date.now()) {
         await activationRepository.markExpired(activation.id, tx);
         const error = new Error(
-          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_EXPIRED
+          "This activation link has expired. Please ask your administrator to resend a new link."
         );
         error.statusCode = 400;
         error.code =
@@ -121,7 +121,7 @@ const consumeActivation = async (token, newPassword) => {
 
       if (activation.user.status === "ACTIVE") {
         const error = new Error(
-          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.USER_ALREADY_ACTIVE
+          "This workspace owner account is already active. Please sign in directly."
         );
         error.statusCode = 409;
         error.code =
