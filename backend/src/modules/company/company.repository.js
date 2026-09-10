@@ -118,6 +118,15 @@ const findCompanyMembers = async (
     where: {
       companyId,
     },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+        },
+      },
+    },
     orderBy: {
       createdAt: "asc",
     },

@@ -3,15 +3,27 @@
 const companyRepository = require("./company.repository");
 const { COMPANY_CONSTANTS } = require("./company.constants");
 
+const { AppError } = require("../../utils/app-error");
+
 const createCompanyContextError = (message, code, statusCode) => {
-  const error = new Error(message);
-  error.code = code;
-  error.statusCode = statusCode;
-  return error;
+  return new AppError(message, {
+    statusCode: statusCode || 400,
+    code: code || "COMPANY_CONTEXT_ERROR",
+    isOperational: true,
+  });
 };
 
 const resolveCompanyContext = async (userId, companyId) => {
-  if (!companyId) {
+  let targetCompanyId = companyId;
+
+  if (!targetCompanyId) {
+    const userCompany = await companyRepository.findCompanyByMemberUserId(userId);
+    if (userCompany) {
+      targetCompanyId = userCompany.id;
+    }
+  }
+
+  if (!targetCompanyId) {
     throw createCompanyContextError(
       "Company context is required",
       COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
@@ -20,7 +32,7 @@ const resolveCompanyContext = async (userId, companyId) => {
   }
 
   const company = await companyRepository.findCompanyContext(
-    companyId,
+    targetCompanyId,
     userId
   );
 

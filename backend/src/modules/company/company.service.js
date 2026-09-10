@@ -51,11 +51,14 @@ const {
   AUDIT_ENTITY_TYPES,
 } = require("./company.audit.constants");
 
+const { AppError } = require("../../utils/app-error");
+
 const createCompanyError = (message, code, statusCode) => {
-  const error = new Error(message);
-  error.code = code;
-  error.statusCode = statusCode;
-  return error;
+  return new AppError(message, {
+    statusCode: statusCode || 400,
+    code: code || "COMPANY_ERROR",
+    isOperational: true,
+  });
 };
 
 const normalizeSlug = (value) => {

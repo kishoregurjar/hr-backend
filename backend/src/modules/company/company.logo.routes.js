@@ -10,7 +10,7 @@ const companyLogoController = require("./company.logo.controller");
 const router = express.Router();
 
 router.post(
-  "/me/logo",
+  ["/logo", "/me/logo"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,

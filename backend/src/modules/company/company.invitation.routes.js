@@ -14,7 +14,7 @@ const router = express.Router();
 
 // Create invitation
 router.post(
-  "/me/invitations",
+  ["/me/invitations", "/invitations"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -23,7 +23,7 @@ router.post(
 
 // List invitations
 router.get(
-  "/me/invitations",
+  ["/me/invitations", "/invitations"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -32,7 +32,7 @@ router.get(
 
 // Revoke invitation
 router.delete(
-  "/me/invitations/:invitationId",
+  ["/me/invitations/:invitationId", "/invitations/:invitationId"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -40,11 +40,22 @@ router.delete(
 );
 
 /**
- * Invitation acceptance
- * Authentication is required to verify logged-in email matches invitation email.
+ * Invitation verification & acceptance
+ * Verification is public so frontend can display invitation details before acceptance.
+ * Authentication is required for accept to verify logged-in email matches invitation email.
  */
+router.get(
+  ["/invitations/verify", "/invitations/verify-token"],
+  companyInvitationController.verifyInvitationToken
+);
+
 router.post(
-  "/invitations/accept",
+  ["/invitations/accept-and-register", "/invitations/accept-register"],
+  companyInvitationController.acceptAndRegisterInvitation
+);
+
+router.post(
+  ["/invitations/accept", "/me/invitations/accept"],
   requireAuth,
   companyInvitationController.acceptInvitation
 );

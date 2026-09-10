@@ -26,7 +26,7 @@ router.post("/", (req, res) => {
 
 // Get current user's company
 router.get(
-  "/me",
+  ["/me", "/"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -35,7 +35,7 @@ router.get(
 
 // Update current user's company
 router.patch(
-  "/me",
+  ["/me", "/"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -44,7 +44,7 @@ router.patch(
 
 // Delete current user's company
 router.delete(
-  "/me",
+  ["/me", "/"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -57,7 +57,7 @@ router.delete(
 
 // Get company members
 router.get(
-  "/me/members",
+  ["/me/members", "/members"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -66,7 +66,7 @@ router.get(
 
 // Add/invite company member
 router.post(
-  "/me/members",
+  ["/me/members", "/members"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -75,7 +75,7 @@ router.post(
 
 // Update company member role
 router.patch(
-  "/me/members/:memberId",
+  ["/me/members/:memberId", "/members/:memberId"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -84,7 +84,7 @@ router.patch(
 
 // Remove company member
 router.delete(
-  "/me/members/:memberId",
+  ["/me/members/:memberId", "/members/:memberId"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -95,7 +95,7 @@ router.delete(
  * Company Ownership Transfer
  */
 router.post(
-  "/me/ownership/transfer",
+  ["/me/ownership/transfer", "/ownership/transfer"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
@@ -106,7 +106,7 @@ router.post(
  * Company Audit Logs
  */
 router.get(
-  "/me/audit-logs",
+  ["/me/audit-logs", "/audit-logs"],
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,

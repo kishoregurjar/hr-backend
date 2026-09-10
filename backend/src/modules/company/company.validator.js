@@ -3,7 +3,24 @@
 const { z } = require("zod");
 const { COMPANY_CONSTANTS } = require("./company.constants");
 
-const createCompanySchema = z.object({
+const mapCompanyAliases = (data) => {
+  const website = data.website || data.websiteUrl;
+  const email = data.email || data.officialEmail;
+  const description = data.description || data.about;
+
+  const result = { ...data };
+  delete result.websiteUrl;
+  delete result.officialEmail;
+  delete result.about;
+
+  if (website !== undefined) result.website = website;
+  if (email !== undefined) result.email = email;
+  if (description !== undefined) result.description = description;
+
+  return result;
+};
+
+const companyBaseSchema = z.object({
   name: z
     .string()
     .trim()
@@ -11,6 +28,14 @@ const createCompanySchema = z.object({
     .max(COMPANY_CONSTANTS.NAME.MAX_LENGTH),
 
   website: z
+    .string()
+    .trim()
+    .url()
+    .max(COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
+    .optional()
+    .nullable(),
+
+  websiteUrl: z
     .string()
     .trim()
     .url()
@@ -32,7 +57,21 @@ const createCompanySchema = z.object({
     .optional()
     .nullable(),
 
+  about: z
+    .string()
+    .trim()
+    .max(COMPANY_CONSTANTS.DESCRIPTION.MAX_LENGTH)
+    .optional()
+    .nullable(),
+
   email: z
+    .string()
+    .trim()
+    .email()
+    .optional()
+    .nullable(),
+
+  officialEmail: z
     .string()
     .trim()
     .email()
@@ -68,7 +107,9 @@ const createCompanySchema = z.object({
     .nullable(),
 });
 
-const updateCompanySchema = createCompanySchema.partial();
+const createCompanySchema = companyBaseSchema.transform(mapCompanyAliases);
+
+const updateCompanySchema = companyBaseSchema.partial().transform(mapCompanyAliases);
 
 const inviteCompanyMemberSchema = z.object({
   userId: z

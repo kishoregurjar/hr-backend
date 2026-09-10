@@ -22,6 +22,12 @@ const acceptCompanyInvitationSchema = z.object({
     .min(1),
 });
 
+const acceptAndRegisterCompanyInvitationSchema = z.object({
+  token: z.string().trim().min(1, "Invitation token is required."),
+  name: z.string().trim().min(2, "Name must be at least 2 characters."),
+  password: z.string().trim().min(8, "Password must be at least 8 characters."),
+});
+
 const listCompanyInvitationsSchema = z.object({
   page: z.coerce
     .number()
@@ -49,5 +55,6 @@ const listCompanyInvitationsSchema = z.object({
 module.exports = {
   createCompanyInvitationSchema,
   acceptCompanyInvitationSchema,
+  acceptAndRegisterCompanyInvitationSchema,
   listCompanyInvitationsSchema,
 };

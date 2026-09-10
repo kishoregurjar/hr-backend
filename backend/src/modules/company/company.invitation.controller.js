@@ -1,6 +1,7 @@
 "use strict";
 
 const companyInvitationService = require("./company.invitation.service");
+const { setRefreshTokenCookie } = require("../auth/auth.utils");
 
 const createInvitation = async (req, res, next) => {
   try {
@@ -78,9 +79,53 @@ const listInvitations = async (req, res, next) => {
   }
 };
 
+const verifyInvitationToken = async (req, res, next) => {
+  try {
+    const rawToken = req.query.token || req.query.invitationToken || req.query.t;
+    const result = await companyInvitationService.verifyInvitationToken(rawToken);
+
+    return res.status(200).json({
+      success: true,
+      message: "Invitation details verified successfully",
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const acceptAndRegisterInvitation = async (req, res, next) => {
+  try {
+    const result = await companyInvitationService.acceptAndRegisterInvitation(
+      req.body
+    );
+
+    if (result.refreshToken) {
+      setRefreshTokenCookie(res, result.refreshToken);
+    }
+
+    const message = result.isNewUser
+      ? "Account created and invitation accepted successfully"
+      : "Invitation accepted successfully";
+
+    // Never expose raw refreshToken in JSON — it is already set as HttpOnly cookie
+    const { refreshToken: _rt, ...safeResult } = result;
+
+    return res.status(200).json({
+      success: true,
+      message,
+      data: safeResult,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   createInvitation,
+  verifyInvitationToken,
   acceptInvitation,
+  acceptAndRegisterInvitation,
   revokeInvitation,
   listInvitations,
 };

@@ -39,6 +39,11 @@ const refreshTokenSchema = z.object({
       refreshToken: z.string().optional(),
     })
     .optional(),
+  body: z
+    .object({
+      refreshToken: z.string().optional(),
+    })
+    .optional(),
 });
 
 const forgotPasswordSchema = z.object({

@@ -109,6 +109,21 @@ const findCompanies = async ({ where, skip, take, orderBy }, tx = prisma) => {
         country: true,
         createdAt: true,
         updatedAt: true,
+        members: {
+          where: { role: "OWNER" },
+          select: {
+            id: true,
+            role: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                status: true,
+              },
+            },
+          },
+        },
         _count: {
           select: {
             members: true,

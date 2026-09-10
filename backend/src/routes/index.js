@@ -107,11 +107,15 @@ router.use("/games", gameRoutes);
 router.use("/mailbox", mailboxRoutes);
 
 /**
- * Company & Multi-tenant Organization Routes (/api/v1/companies)
+ * Company & Multi-tenant Organization Routes (/api/v1/companies & /api/v1/company)
  */
 router.use("/companies", companyRoutes);
 router.use("/companies", companyInvitationRoutes);
 router.use("/companies", companyLogoRoutes);
+
+router.use("/company", companyRoutes);
+router.use("/company", companyInvitationRoutes);
+router.use("/company", companyLogoRoutes);
 
 /**
  * Super Admin Management Routes (/api/v1/super-admin)
