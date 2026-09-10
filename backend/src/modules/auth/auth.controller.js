@@ -3,7 +3,7 @@ const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const { COOKIE_NAMES, AUTH_MESSAGES } = require("./auth.constants");
 const authService = require("./auth.service");
-const { setRefreshTokenCookie, clearRefreshTokenCookie } = require("./auth.utils");
+const { setRefreshTokenCookie, clearRefreshTokenCookie, generateAccessToken, generateRefreshToken } = require("./auth.utils");
 const { AuthDto } = require("./auth.dto");
 
 /**
@@ -189,17 +189,20 @@ class AuthController {
     const data = activateOwnerSchema.parse(req.body);
     const user = await ownerActivationService.consumeActivation(data.token, data.password);
 
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+    setRefreshTokenCookie(res, refreshToken);
+
+    const companies = await authService.getUserCompanies(user.id);
+
     return SuccessResponse.send(
       res,
       {
         message: "Owner account activated successfully.",
         data: {
-          user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            status: user.status,
-          },
+          accessToken,
+          user: AuthDto.toResponse(user),
+          companies,
         },
       },
       StatusCodes.OK
