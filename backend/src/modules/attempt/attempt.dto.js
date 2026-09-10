@@ -244,9 +244,11 @@ const toInvitationResponse = (invitation) => {
     updatedAt: invitation.updatedAt,
   };
 
-  if (invitation.rawToken) {
+  const env = require("../../config/env");
+
+if (invitation.rawToken) {
     res.token = invitation.rawToken;
-    res.assessmentLink = `${process.env.CLIENT_URL || "http://localhost:3000"}/take-test?token=${invitation.rawToken}`;
+    res.assessmentLink = `${env.frontend.url}/take-test?token=${invitation.rawToken}`;
   }
 
   return res;

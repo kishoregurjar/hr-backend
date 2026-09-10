@@ -1,5 +1,6 @@
 "use strict";
 
+const env = require("../../config/env");
 const { redisClient, connectRedis } = require("../../config/redis");
 const { sendEmail, verifyEmailTransport } = require("../../utils/email");
 const {
@@ -102,10 +103,7 @@ const processInvitationEmail = async (message) => {
   if (invitation.encryptedToken) {
     try {
       const rawToken = decryptToken(invitation.encryptedToken);
-      const frontendUrl =
-        process.env.CLIENT_URL ||
-        process.env.FRONTEND_URL ||
-        "http://localhost:3000";
+      const frontendUrl = env.frontend.url;
       finalInvitationUrl = `${frontendUrl}/accept-invitation?invitation=${invitation.id}&token=${encodeURIComponent(
         rawToken
       )}`;
@@ -164,7 +162,7 @@ const ownerActivationRepository = require("../super-admin/super-admin.owner-acti
 const { decryptToken } = require("../super-admin/super-admin.owner-activation.crypto");
 
 const buildOwnerActivationUrl = (rawToken) => {
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const frontendUrl = env.frontend.url;
   const url = new URL("/activate-owner", frontendUrl);
   url.searchParams.set("token", rawToken);
   return url.toString();

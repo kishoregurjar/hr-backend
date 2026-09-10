@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 const bcrypt = require("bcrypt");
 const { prisma } = require("../../config/prisma");
+const env = require("../../config/env");
 const activationRepository = require("./super-admin.owner-activation.repository");
 const { SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS } = require("./super-admin.owner-activation.constants");
 const { encryptToken, decryptToken } = require("./super-admin.owner-activation.crypto");
@@ -28,7 +29,7 @@ const hashToken = (token) => {
 };
 
 const buildOwnerActivationUrl = (rawToken) => {
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const frontendUrl = env.frontend.url;
   const url = new URL("/activate-owner", frontendUrl);
   url.searchParams.set("token", rawToken);
   return url.toString();

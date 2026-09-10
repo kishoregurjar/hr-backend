@@ -1,5 +1,6 @@
 "use strict";
 
+const env = require("../../config/env");
 const service = require("./mailbox.service");
 
 function getAuthenticatedUser(req) {
@@ -44,7 +45,7 @@ async function handleGoogleCallback(req, res, next) {
 
     const result = await service.handleCallback(code, userId);
 
-    const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+    const clientUrl = env.frontend.url;
     return res.redirect(
       `${clientUrl}/candidates?mailbox=connected&email=${encodeURIComponent(result.email)}`
     );

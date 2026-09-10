@@ -112,7 +112,12 @@ const env = Object.freeze({
   },
 
   frontend: {
-    url: process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:3000",
+    url: (
+      process.env.FRONTEND_URL ||
+      process.env.CLIENT_URL ||
+      process.env.PUBLIC_FRONTEND_URL ||
+      "http://localhost:3000"
+    ).replace(/\/+$/, ""),
   },
 
   logger: {

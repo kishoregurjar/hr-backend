@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
+const env = require("../../config/env");
 const { runTransaction } = require("../../config/prisma");
 const attemptRepository = require("./attempt.repository");
 const attemptAuditService = require("./attempt.audit.service");
@@ -462,7 +463,7 @@ class AttemptService {
     });
 
     // 8. Automated Email Dispatch & sentAt Timestamp Update
-    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || "http://localhost:3000";
+    const clientUrl = env.frontend.url;
     const testLink = `${clientUrl}/take-test?token=${result.rawToken}`;
     let emailSent = false;
 

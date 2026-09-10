@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const env = require("../../config/env");
 const { prisma } = require("../../config/prisma");
 const { runSerializableTransaction } = require("../../utils/prisma-transaction");
 const { encryptToken } = require("../../utils/token-crypto");
@@ -248,10 +249,7 @@ const createInvitation = async (
         }
       }
 
-      const frontendUrl =
-        process.env.CLIENT_URL ||
-        process.env.FRONTEND_URL ||
-        "http://localhost:3000";
+      const frontendUrl = env.frontend.url;
 
       const invitationUrl = `${frontendUrl}/accept-invitation?invitation=${invitation.id}&token=${encodeURIComponent(
         rawToken
