@@ -154,12 +154,16 @@ class AuthController {
   });
 
   getCurrentUser = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const companies = await authService.getUserCompanies(userId);
+
     return SuccessResponse.send(
       res,
       {
         message: AUTH_MESSAGES.CURRENT_USER_FETCHED || "User profile fetched successfully.",
         data: {
           user: AuthDto.toResponse(req.user),
+          companies,
         },
       },
       StatusCodes.OK
