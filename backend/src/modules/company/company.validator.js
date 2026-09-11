@@ -20,6 +20,9 @@ const mapCompanyAliases = (data) => {
   return result;
 };
 
+const emptyToNull = (schema) =>
+  z.preprocess((val) => (typeof val === "string" && val.trim() === "" ? null : val), schema);
+
 const companyBaseSchema = z.object({
   name: z
     .string()
@@ -27,84 +30,106 @@ const companyBaseSchema = z.object({
     .min(COMPANY_CONSTANTS.NAME.MIN_LENGTH)
     .max(COMPANY_CONSTANTS.NAME.MAX_LENGTH),
 
-  website: z
-    .string()
-    .trim()
-    .url()
-    .max(COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  website: emptyToNull(
+    z
+      .string()
+      .trim()
+      .url()
+      .max(COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  websiteUrl: z
-    .string()
-    .trim()
-    .url()
-    .max(COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  websiteUrl: emptyToNull(
+    z
+      .string()
+      .trim()
+      .url()
+      .max(COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  industry: z
-    .string()
-    .trim()
-    .max(COMPANY_CONSTANTS.INDUSTRY.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  industry: emptyToNull(
+    z
+      .string()
+      .trim()
+      .max(COMPANY_CONSTANTS.INDUSTRY.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  description: z
-    .string()
-    .trim()
-    .max(COMPANY_CONSTANTS.DESCRIPTION.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  description: emptyToNull(
+    z
+      .string()
+      .trim()
+      .max(COMPANY_CONSTANTS.DESCRIPTION.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  about: z
-    .string()
-    .trim()
-    .max(COMPANY_CONSTANTS.DESCRIPTION.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  about: emptyToNull(
+    z
+      .string()
+      .trim()
+      .max(COMPANY_CONSTANTS.DESCRIPTION.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  email: z
-    .string()
-    .trim()
-    .email()
-    .optional()
-    .nullable(),
+  email: emptyToNull(
+    z
+      .string()
+      .trim()
+      .email()
+      .optional()
+      .nullable()
+  ),
 
-  officialEmail: z
-    .string()
-    .trim()
-    .email()
-    .optional()
-    .nullable(),
+  officialEmail: emptyToNull(
+    z
+      .string()
+      .trim()
+      .email()
+      .optional()
+      .nullable()
+  ),
 
-  phone: z
-    .string()
-    .trim()
-    .max(COMPANY_CONSTANTS.PHONE.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  phone: emptyToNull(
+    z
+      .string()
+      .trim()
+      .max(COMPANY_CONSTANTS.PHONE.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  address: z
-    .string()
-    .trim()
-    .max(COMPANY_CONSTANTS.ADDRESS.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  address: emptyToNull(
+    z
+      .string()
+      .trim()
+      .max(COMPANY_CONSTANTS.ADDRESS.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  city: z
-    .string()
-    .trim()
-    .max(COMPANY_CONSTANTS.CITY.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  city: emptyToNull(
+    z
+      .string()
+      .trim()
+      .max(COMPANY_CONSTANTS.CITY.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 
-  country: z
-    .string()
-    .trim()
-    .max(COMPANY_CONSTANTS.COUNTRY.MAX_LENGTH)
-    .optional()
-    .nullable(),
+  country: emptyToNull(
+    z
+      .string()
+      .trim()
+      .max(COMPANY_CONSTANTS.COUNTRY.MAX_LENGTH)
+      .optional()
+      .nullable()
+  ),
 });
 
 const createCompanySchema = companyBaseSchema.transform(mapCompanyAliases);
