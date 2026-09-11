@@ -44,8 +44,8 @@ const validatePasswordStrength = (password) => {
 
 // 2. JWT Helpers
 const JWT_OPTIONS = Object.freeze({
-  issuer: env.app.name,
-  audience: env.app.url,
+  issuer: env.app.name || "HireQuest",
+  audience: env.app.name || "HireQuest",
 });
 
 const generateAccessToken = (user) => {

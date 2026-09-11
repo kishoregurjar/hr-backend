@@ -29,6 +29,7 @@ class AuthController {
         message: result.message || "User registered successfully.",
         data: {
           accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
           user: result.user,
         },
       },
@@ -50,6 +51,7 @@ class AuthController {
         message: result.message || "Login successful.",
         data: {
           accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
           user: result.user,
           companies: result.companies || [],
         },
@@ -72,6 +74,7 @@ class AuthController {
         message: result.message || "Token refreshed successfully.",
         data: {
           accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
           user: result.user,
         },
       },
@@ -205,6 +208,7 @@ class AuthController {
         message: "Owner account activated successfully.",
         data: {
           accessToken,
+          refreshToken,
           user: AuthDto.toResponse(user),
           companies,
         },
