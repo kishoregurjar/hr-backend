@@ -188,7 +188,17 @@ class AuthService {
     const tokenHash = hashToken(refreshTokenStr);
     const storedToken = await authRepository.findRefreshToken(tokenHash);
 
-    if (!storedToken || storedToken.revokedAt || new Date() > storedToken.expiresAt) {
+    if (!storedToken) {
+      throw new UnauthorizedError("Invalid or expired refresh token.", "INVALID_REFRESH_TOKEN");
+    }
+
+    // Enterprise Grace Period: Allow 60-second window for recently revoked tokens
+    // to handle multi-device concurrent sessions and parallel network calls without session drops
+    const isGracePeriodActive =
+      storedToken.revokedAt &&
+      new Date().getTime() - new Date(storedToken.revokedAt).getTime() < 60000;
+
+    if ((storedToken.revokedAt && !isGracePeriodActive) || new Date() > storedToken.expiresAt) {
       throw new UnauthorizedError("Invalid or expired refresh token.", "INVALID_REFRESH_TOKEN");
     }
 
@@ -200,19 +210,21 @@ class AuthService {
     const newAccessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken(user);
 
-    await runTransaction(async (tx) => {
-      await authRepository.revokeRefreshToken(tx, storedToken.id);
-      await authRepository.createRefreshToken(tx, {
-        userId: user.id,
-        token: hashToken(newRefreshToken),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    if (!isGracePeriodActive) {
+      await runTransaction(async (tx) => {
+        await authRepository.revokeRefreshToken(tx, storedToken.id);
+        await authRepository.createRefreshToken(tx, {
+          userId: user.id,
+          token: hashToken(newRefreshToken),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        });
       });
-    });
+    }
 
     return {
       message: "Token refreshed successfully.",
       accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
+      refreshToken: isGracePeriodActive ? refreshTokenStr : newRefreshToken,
       user: AuthMapper.toUserResponse(user),
     };
   }
