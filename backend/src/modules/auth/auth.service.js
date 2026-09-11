@@ -317,6 +317,23 @@ class AuthService {
       message: "Password reset successful. Please login with your new password.",
     };
   }
+
+  async updateProfile(userId, payload) {
+    const name = payload.name?.trim();
+    if (!name) {
+      throw new BadRequestError("Name is required.", "NAME_REQUIRED");
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { name },
+    });
+
+    return {
+      message: "Profile updated successfully.",
+      user: AuthMapper.toUserResponse(updatedUser),
+    };
+  }
 }
 
 const authService = new AuthService();

@@ -43,11 +43,14 @@ class AuthMapper {
     const firstName = user.firstName || nameParts[0] || "";
     const lastName = user.lastName || nameParts.slice(1).join(" ") || "";
 
+    const fullName = user.name || `${firstName} ${lastName}`.trim();
+
     return {
       id: user.id,
+      name: fullName,
       firstName,
       lastName,
-      fullName: user.name || `${firstName} ${lastName}`.trim(),
+      fullName,
       email: user.email,
       role: user.role,
       status: user.status,

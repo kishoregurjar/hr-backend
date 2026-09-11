@@ -216,6 +216,23 @@ class AuthController {
       StatusCodes.OK
     );
   });
+
+  updateProfile = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const payload = req.validatedData || req.body;
+    const result = await authService.updateProfile(userId, payload);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Profile updated successfully.",
+        data: {
+          user: result.user,
+        },
+      },
+      StatusCodes.OK
+    );
+  });
 }
 
 const authController = new AuthController();

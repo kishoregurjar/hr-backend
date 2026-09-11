@@ -14,6 +14,7 @@ const {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  updateProfileSchema,
 } = require("./auth.validator");
 
 /**
@@ -46,6 +47,8 @@ router.post(
 // Protected Routes
 router.use(requireAuth);
 router.get("/me", controller.getCurrentUser);
+router.patch("/me", validateRequest(updateProfileSchema), controller.updateProfile);
+router.patch("/profile", validateRequest(updateProfileSchema), controller.updateProfile);
 router.get("/me/companies", controller.getUserCompanies);
 router.post("/logout-all", controller.logoutAllDevices);
 router.post("/change-password", validateRequest(changePasswordSchema), controller.changePassword);
