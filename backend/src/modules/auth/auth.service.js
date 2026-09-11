@@ -165,7 +165,7 @@ class AuthService {
       await authRepository.createRefreshToken(tx, {
         userId: user.id,
         token: hashToken(refreshToken),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });
     });
 
