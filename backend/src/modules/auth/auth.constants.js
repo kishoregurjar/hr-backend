@@ -19,8 +19,8 @@ const TOKEN_TYPES = Object.freeze({
 });
 
 const TOKEN_EXPIRATION = Object.freeze({
-  ACCESS_TOKEN: "15m",
-  REFRESH_TOKEN: "7d",
+  ACCESS_TOKEN: "7d",
+  REFRESH_TOKEN: "30d",
   PASSWORD_RESET: "15m",
   EMAIL_VERIFICATION: "24h",
 });
