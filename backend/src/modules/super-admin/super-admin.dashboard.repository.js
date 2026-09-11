@@ -3,31 +3,19 @@
 const { prisma } = require("../../config/prisma");
 
 const getPlatformStatistics = async (tx = prisma) => {
+  const now = new Date();
   const [
-    totalCompanies,
-    activeCompanies,
-    suspendedCompanies,
+    companyCounts,
     totalMembers,
     totalJobs,
     pendingInvitations,
     pendingOwnerActivations,
   ] = await Promise.all([
-    tx.company.count(),
-
-    tx.company.count({
-      where: {
-        status: "ACTIVE",
-      },
+    tx.company.groupBy({
+      by: ["status"],
+      _count: { id: true },
     }),
-
-    tx.company.count({
-      where: {
-        status: "SUSPENDED",
-      },
-    }),
-
     tx.companyMember.count(),
-
     tx.job.count({
       where: {
         companyId: {
@@ -35,25 +23,34 @@ const getPlatformStatistics = async (tx = prisma) => {
         },
       },
     }),
-
     tx.companyInvitation.count({
       where: {
         status: "PENDING",
         expiresAt: {
-          gt: new Date(),
+          gt: now,
         },
       },
     }),
-
     tx.companyOwnerActivation.count({
       where: {
         status: "PENDING",
         expiresAt: {
-          gt: new Date(),
+          gt: now,
         },
       },
     }),
   ]);
+
+  let totalCompanies = 0;
+  let activeCompanies = 0;
+  let suspendedCompanies = 0;
+
+  for (const group of companyCounts) {
+    const count = Number(group._count?.id || 0);
+    totalCompanies += count;
+    if (group.status === "ACTIVE") activeCompanies += count;
+    if (group.status === "SUSPENDED") suspendedCompanies += count;
+  }
 
   return {
     totalCompanies,

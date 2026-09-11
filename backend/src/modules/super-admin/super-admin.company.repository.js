@@ -91,7 +91,7 @@ const findCompanyOwner = async (companyId, tx = prisma) => {
 };
 
 const findCompanies = async ({ where, skip, take, orderBy }, tx = prisma) => {
-  const [companies, total] = await tx.$transaction([
+  const [companies, total] = await Promise.all([
     tx.company.findMany({
       where,
       skip,
