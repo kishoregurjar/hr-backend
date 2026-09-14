@@ -1188,7 +1188,7 @@ class AttemptRepository {
         id: true,
         email: true,
         role: true,
-        isActive: true,
+        status: true,
       },
     });
   }

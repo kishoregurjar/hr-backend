@@ -635,7 +635,7 @@ class AttemptService {
         continue;
       }
 
-      if (!candidate.isActive) {
+      if (candidate.status !== "ACTIVE") {
         results.push({
           candidateId,
           status: BULK_INVITATION_RESULT_STATUS.FAILED,
@@ -1321,7 +1321,7 @@ class AttemptService {
       );
     }
 
-    if (!candidate.isActive) {
+    if (candidate.status !== "ACTIVE") {
       throw new ForbiddenError(
         "Candidate account is inactive.",
         "CANDIDATE_INACTIVE"
@@ -1739,7 +1739,7 @@ class AttemptService {
       );
     }
 
-    if (!invitation.candidate.isActive) {
+    if (invitation.candidate.status !== "ACTIVE") {
       throw new ForbiddenError(
         "Candidate account is inactive.",
         "CANDIDATE_INACTIVE"
