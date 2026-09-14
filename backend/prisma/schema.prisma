@@ -378,6 +378,7 @@ model Assessment {
   invitations      Invitation[]
   attempts         CandidateAttempt[]
   attemptAuditLogs AttemptAuditLog[]
+  games            AssessmentGame[]
 
   @@index([status])
   @@index([createdById])
@@ -455,6 +456,8 @@ model CandidateAttempt {
   attemptQuestions AttemptQuestion[]
   answers          CandidateAnswer[]
   auditLogs        AttemptAuditLog[]
+  gameAttempts     GameAttempt[]
+  gameResults      GameResult[]
 
   @@index([assessmentId, candidateId])
   @@index([status])
@@ -890,3 +893,90 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
 }
+
+//
+// GAME MODULE MODELS
+//
+
+enum GameAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+  CANCELLED
+}
+
+model Game {
+  id          String    @id @default(cuid())
+  name        String
+  code        String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  assessments AssessmentGame[]
+  results     GameResult[]
+  attempts    GameAttempt[]
+
+  @@index([isActive])
+}
+
+model AssessmentGame {
+  id           String     @id @default(cuid())
+  assessmentId String
+  gameId       String
+  sequence     Int        @default(1)
+  weight       Float      @default(1.0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  game         Game       @relation(fields: [gameId], references: [id], onDelete: Restrict)
+
+  @@unique([assessmentId, gameId])
+  @@index([assessmentId])
+  @@index([gameId])
+}
+
+model GameAttempt {
+  id                    String            @id @default(cuid())
+  candidateAssessmentId String
+  gameId                String
+  status                GameAttemptStatus @default(IN_PROGRESS)
+  puzzleVersion         Int               @default(1)
+  puzzleState           Json
+  startedAt             DateTime          @default(now())
+  expiresAt             DateTime
+  submittedAt           DateTime?
+  score                 Int?
+  metrics               Json?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  candidateAttempt     CandidateAttempt  @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
+  game                 Game              @relation(fields: [gameId], references: [id], onDelete: Restrict)
+
+  @@index([candidateAssessmentId])
+  @@index([gameId])
+  @@index([candidateAssessmentId, gameId])
+  @@index([status, expiresAt])
+}
+
+model GameResult {
+  id                    String   @id @default(cuid())
+  candidateAssessmentId String
+  gameId                String
+  score                 Int
+  metrics               Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  candidateAttempt     CandidateAttempt @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
+  game                 Game             @relation(fields: [gameId], references: [id], onDelete: Restrict)
+
+  @@unique([candidateAssessmentId, gameId])
+  @@index([candidateAssessmentId])
+  @@index([gameId])
+}
+

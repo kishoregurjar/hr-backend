@@ -12,6 +12,9 @@ const gameController = require("./game.controller");
  * ==========================================================
  */
 
+const attemptRoutes = require("./game.attempt.routes");
+
+router.use("/", attemptRoutes);
 router.get("/", gameController.listGames);
 router.get("/:slug", gameController.getGame);
 router.get("/:slug/puzzle", gameController.getPuzzle);

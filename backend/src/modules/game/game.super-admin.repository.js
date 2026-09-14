@@ -3,72 +3,81 @@
 const { prisma } = require("../../config/prisma");
 
 async function findAllGames() {
-  if (!prisma.game) {
+  try {
+    if (!prisma.game) return null;
+    return await prisma.game.findMany({
+      where: {
+        deletedAt: null,
+      },
+      orderBy: [
+        {
+          name: "asc",
+        },
+      ],
+    });
+  } catch (_err) {
     return null;
   }
-  return prisma.game.findMany({
-    where: {
-      deletedAt: null,
-    },
-    orderBy: [
-      {
-        name: "asc",
-      },
-    ],
-  });
 }
 
 async function findGameById(gameId) {
-  if (!prisma.game) {
+  try {
+    if (!prisma.game) return null;
+    return await prisma.game.findFirst({
+      where: {
+        OR: [{ id: gameId }, { code: gameId }],
+        deletedAt: null,
+      },
+    });
+  } catch (_err) {
     return null;
   }
-  return prisma.game.findFirst({
-    where: {
-      OR: [{ id: gameId }, { code: gameId }],
-      deletedAt: null,
-    },
-  });
 }
 
 async function findGameByCode(code) {
-  if (!prisma.game) {
+  try {
+    if (!prisma.game) return null;
+    return await prisma.game.findFirst({
+      where: {
+        code,
+        deletedAt: null,
+      },
+    });
+  } catch (_err) {
     return null;
   }
-  return prisma.game.findFirst({
-    where: {
-      code,
-      deletedAt: null,
-    },
-  });
 }
 
 async function updateGameStatus(gameId, isActive, tx = prisma) {
-  if (!tx.game) {
+  try {
+    if (!tx.game) return null;
+    const existing = await findGameById(gameId);
+    const targetId = existing?.id || gameId;
+
+    return await tx.game.update({
+      where: {
+        id: targetId,
+      },
+      data: {
+        isActive,
+      },
+    });
+  } catch (_err) {
     return null;
   }
-
-  const existing = await findGameById(gameId);
-  const targetId = existing?.id || gameId;
-
-  return tx.game.update({
-    where: {
-      id: targetId,
-    },
-    data: {
-      isActive,
-    },
-  });
 }
 
 async function countAssessmentsUsingGame(gameId) {
-  if (!prisma.assessmentGame) {
+  try {
+    if (!prisma.assessmentGame) return 0;
+    return await prisma.assessmentGame.count({
+      where: {
+        gameId,
+      },
+    });
+  } catch (_err) {
     return 0;
   }
-  return prisma.assessmentGame.count({
-    where: {
-      gameId,
-    },
-  });
 }
 
 module.exports = {
