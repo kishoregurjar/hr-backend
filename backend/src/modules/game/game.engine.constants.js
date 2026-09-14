@@ -1,0 +1,32 @@
+"use strict";
+
+const GAME_ENGINE_CONSTANTS = Object.freeze({
+  VERSION: 1,
+
+  SCORE: Object.freeze({
+    MIN: 0,
+    MAX: 100,
+  }),
+
+  PUZZLE: Object.freeze({
+    MAX_SERIALIZED_BYTES: 100_000,
+    MAX_SOLUTION_BYTES: 100_000,
+  }),
+
+  METRICS: Object.freeze({
+    MAX_SERIALIZED_BYTES: 20_000,
+  }),
+
+  ERROR_CODES: Object.freeze({
+    INVALID_ENGINE: "INVALID_GAME_ENGINE",
+    INVALID_PUZZLE: "INVALID_GAME_PUZZLE",
+    INVALID_SOLUTION: "INVALID_GAME_SOLUTION",
+    INVALID_SCORE: "INVALID_GAME_SCORE",
+    INVALID_METRICS: "INVALID_GAME_METRICS",
+    GAME_ENGINE_NOT_FOUND: "GAME_ENGINE_NOT_FOUND",
+  }),
+});
+
+module.exports = {
+  GAME_ENGINE_CONSTANTS,
+};

@@ -8,7 +8,8 @@ const {
   UnauthorizedError,
 } = require("../../common/errors");
 const repository = require("./game.attempt.repository");
-const { getGameMetadataBySlug } = require("./game.registry");
+const { getGameDefinition, getGameMetadataBySlug } = require("./game.registry");
+const { createGameSeed } = require("./game.engine.crypto");
 const gameSuperAdminService = require("./game.super-admin.service");
 const gameService = require("./game.service");
 const { mapGameAttemptForCandidate, mapGameResult } = require("./game.attempt.mapper");
@@ -28,9 +29,6 @@ function calculateServerAuthoritativeScore(verification, elapsedMs) {
     return 0;
   }
 
-  // Server-authoritative scoring logic:
-  // Base score for 100% correct solution = 70 points
-  // Speed bonus up to 30 points for completing well within max duration (10 mins)
   const maxDurationMs = GAME_ATTEMPT_CONSTANTS.TIME.DEFAULT_GAME_DURATION_MS;
   const timeRatio = Math.min(Math.max(elapsedMs / maxDurationMs, 0), 1);
   const speedBonus = Math.round(30 * (1 - timeRatio));
@@ -51,7 +49,20 @@ class GameAttemptService {
       );
     }
 
-    // 1. Verify candidate assessment access
+    // 1. Resolve game via registry
+    const gameDefinition = getGameDefinition(slug);
+    const metadata = getGameMetadataBySlug(slug);
+
+    if (!gameDefinition && !metadata) {
+      throw new NotFoundError(
+        "Game not found",
+        GAME_ATTEMPT_CONSTANTS.ERROR_CODES.GAME_NOT_FOUND
+      );
+    }
+
+    const canonicalCode = gameDefinition ? gameDefinition.code : (metadata.code || metadata.id);
+
+    // 2. Verify candidate assessment access
     const candidateAssessment = await repository.findCandidateAssessment(
       candidateAssessmentId,
       candidateId
@@ -82,16 +93,8 @@ class GameAttemptService {
       }
     }
 
-    // 2. Verify Game exists & is active platform-wide
-    const metadata = getGameMetadataBySlug(slug);
-    if (!metadata) {
-      throw new NotFoundError(
-        "Game not found",
-        GAME_ATTEMPT_CONSTANTS.ERROR_CODES.GAME_NOT_FOUND
-      );
-    }
-
-    const game = await gameSuperAdminService.getGame(metadata.code || metadata.id);
+    // 3. Verify Game exists & is active platform-wide (DB lookup by code)
+    const game = await gameSuperAdminService.getGame(canonicalCode);
     if (!game || game.isActive === false) {
       throw new ForbiddenError(
         "This game is currently disabled.",
@@ -99,7 +102,7 @@ class GameAttemptService {
       );
     }
 
-    // 3. Verify game attached to assessment
+    // 4. Verify game attached to assessment
     if (assessment) {
       const assessmentGame = await repository.findAssessmentGame(
         assessment.id,
@@ -113,7 +116,7 @@ class GameAttemptService {
       }
     }
 
-    // 4. Verify game not already completed
+    // 5. Verify game not already completed
     const existingResult = await repository.findGameResult(
       candidateAssessmentId,
       game.id
@@ -125,15 +128,32 @@ class GameAttemptService {
       );
     }
 
-    // 5. Reuse active attempt if present
+    // 6. Reuse active attempt if present
     let attempt = await repository.findActiveAttempt(
       candidateAssessmentId,
       game.id
     );
 
     if (!attempt || now > attempt.expiresAt) {
-      // Generate puzzle state
-      const puzzleState = await gameService.generatePuzzle(metadata.slug);
+      const seed = createGameSeed();
+      let puzzleState;
+      let puzzleVersion = gameDefinition ? gameDefinition.version : 1;
+
+      if (gameDefinition && gameDefinition.engine) {
+        const generatedPuzzle = await gameDefinition.engine.generatePuzzle({
+          seed,
+          version: gameDefinition.version,
+        });
+
+        puzzleState = {
+          puzzle: generatedPuzzle.puzzle,
+          solution: generatedPuzzle.solution,
+          seed: generatedPuzzle.seed,
+        };
+        puzzleVersion = generatedPuzzle.version;
+      } else {
+        puzzleState = await gameService.generatePuzzle(metadata.slug);
+      }
 
       // Determine expiry time (10 mins default or capped by assessment endsAt)
       const durationMs = GAME_ATTEMPT_CONSTANTS.TIME.DEFAULT_GAME_DURATION_MS;
@@ -146,11 +166,12 @@ class GameAttemptService {
         candidateAssessmentId,
         gameId: game.id,
         puzzleState,
+        puzzleVersion,
         expiresAt,
       });
     }
 
-    const publicPuzzle = stripSolutionFromPuzzle(attempt.puzzleState);
+    const publicPuzzle = attempt.puzzleState?.puzzle || stripSolutionFromPuzzle(attempt.puzzleState);
     return mapGameAttemptForCandidate(attempt, game, publicPuzzle, metadata);
   }
 
@@ -194,18 +215,37 @@ class GameAttemptService {
 
     // Determine game metadata & code
     const game = attempt.game || (await gameSuperAdminService.getGame(attempt.gameId));
-    const metadata = getGameMetadataBySlug(game.code || game.id || attempt.gameId);
+    const gameCode = game.code || game.id || attempt.gameId;
+    const gameDefinition = getGameDefinition(gameCode) || getGameDefinition(game.slug || "");
+    const metadata = getGameMetadataBySlug(gameCode);
 
-    // Run Server Verification
-    const verification = await gameService.verifySolution(
-      metadata ? metadata.slug : game.code,
-      solution,
-      attempt.puzzleState
-    );
+    let verification;
+    let score;
+
+    if (gameDefinition && gameDefinition.engine) {
+      const engine = gameDefinition.engine;
+      verification = await engine.verifySolution({
+        puzzle: attempt.puzzleState?.puzzle || attempt.puzzleState,
+        solution: attempt.puzzleState?.solution,
+        candidateSolution: solution,
+      });
+
+      score = await engine.calculateScore({
+        verification,
+        startedAt: attempt.startedAt,
+        submittedAt: now,
+      });
+    } else {
+      verification = await gameService.verifySolution(
+        metadata ? metadata.slug : gameCode,
+        solution,
+        attempt.puzzleState
+      );
+      const elapsedMs = Math.max(0, now.getTime() - attempt.startedAt.getTime());
+      score = calculateServerAuthoritativeScore(verification, elapsedMs);
+    }
 
     const elapsedMs = Math.max(0, now.getTime() - attempt.startedAt.getTime());
-    const score = calculateServerAuthoritativeScore(verification, elapsedMs);
-
     const metrics = {
       elapsedMs,
       verifiedAt: now.toISOString(),

@@ -11,6 +11,7 @@ function mapGameAttemptForCandidate(attempt, game, puzzle, metadata = null) {
       category: metadata?.category || "COGNITIVE",
     },
     puzzle,
+    puzzleVersion: attempt?.puzzleVersion || 1,
     startedAt: attempt.startedAt,
     expiresAt: attempt.expiresAt,
   };
