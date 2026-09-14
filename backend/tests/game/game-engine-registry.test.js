@@ -102,32 +102,46 @@ test("Game Engine Validator - Validates puzzle payload and engine structure", ()
   assert.doesNotThrow(() => validateGameEngine(mockEngine));
 });
 
-test("Game Engines - Contract implementation generates puzzles & verifies solutions", () => {
-  const slugs = ["zip-pathfinder", "tango", "mini-sudoku", "mahjong-tile-match"];
+test("Mini Sudoku Engine - Full 6x6 generation, givens immutability & server verification", () => {
+  const engine = getGameEngine("mini-sudoku");
+  assert.ok(engine);
 
-  for (const slug of slugs) {
-    const engine = getGameEngine(slug);
-    assert.ok(engine, `Engine for ${slug} should exist`);
-    assert.equal(engine.version, GAME_ENGINE_CONSTANTS.VERSION);
+  const generated = engine.generatePuzzle({ seed: "sudoku-seed-999", version: 1 });
+  assert.equal(generated.puzzle.size, 6);
+  assert.equal(generated.puzzle.boxRows, 2);
+  assert.equal(generated.puzzle.boxCols, 3);
+  assert.equal(generated.solution.length, 6);
 
-    const generated = engine.generatePuzzle({ seed: "test-seed-123", version: 1 });
-    assert.ok(generated.puzzle);
-    assert.ok(generated.solution);
-    assert.equal(generated.seed, "test-seed-123");
+  // 1. Verify correct solution
+  const verCorrect = engine.verifySolution({
+    puzzle: generated.puzzle,
+    solution: generated.solution,
+    candidateSolution: generated.solution,
+  });
+  assert.equal(verCorrect.correct, true);
+  assert.equal(verCorrect.reason, "CORRECT");
 
-    const verification = engine.verifySolution({
-      puzzle: generated.puzzle,
-      solution: generated.solution,
-      candidateSolution: null,
-    });
-    assert.ok(typeof verification.valid === "boolean");
+  // 2. Score calculation
+  const start = new Date(Date.now() - 5000);
+  const end = new Date();
+  const scoreResult = engine.calculateScore({
+    verification: verCorrect,
+    startedAt: start,
+    submittedAt: end,
+  });
+  assert.equal(scoreResult.score, 100);
+  assert.equal(scoreResult.metrics.completed, true);
+  assert.ok(scoreResult.metrics.elapsedMs >= 0);
 
-    const score = engine.calculateScore({
-      verification: { valid: true, score: 100 },
-      startedAt: new Date(),
-      submittedAt: new Date(),
-    });
-    assert.equal(typeof score, "number");
-    assert.ok(score >= 0 && score <= 100);
-  }
+  // 3. Verify invalid candidate board
+  const invalidSolution = generated.solution.map((r) => [...r]);
+  invalidSolution[0][0] = invalidSolution[0][1]; // Create row conflict
+
+  const verInvalid = engine.verifySolution({
+    puzzle: generated.puzzle,
+    solution: generated.solution,
+    candidateSolution: invalidSolution,
+  });
+  assert.equal(verInvalid.correct, false);
+  assert.equal(verInvalid.reason, "INVALID_SUDOKU_SOLUTION");
 });

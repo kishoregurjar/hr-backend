@@ -25,7 +25,8 @@ function stripSolutionFromPuzzle(puzzleData) {
 }
 
 function calculateServerAuthoritativeScore(verification, elapsedMs) {
-  if (!verification || !verification.valid) {
+  const isValid = typeof verification?.valid === "boolean" ? verification.valid : (verification?.correct ?? false);
+  if (!isValid) {
     return 0;
   }
 
@@ -221,6 +222,7 @@ class GameAttemptService {
 
     let verification;
     let score;
+    let engineMetrics = {};
 
     if (gameDefinition && gameDefinition.engine) {
       const engine = gameDefinition.engine;
@@ -230,11 +232,18 @@ class GameAttemptService {
         candidateSolution: solution,
       });
 
-      score = await engine.calculateScore({
+      const scoreResult = await engine.calculateScore({
         verification,
         startedAt: attempt.startedAt,
         submittedAt: now,
       });
+
+      if (typeof scoreResult === "object" && scoreResult !== null) {
+        score = scoreResult.score;
+        engineMetrics = scoreResult.metrics || {};
+      } else {
+        score = Number(scoreResult) || 0;
+      }
     } else {
       verification = await gameService.verifySolution(
         metadata ? metadata.slug : gameCode,
@@ -246,11 +255,15 @@ class GameAttemptService {
     }
 
     const elapsedMs = Math.max(0, now.getTime() - attempt.startedAt.getTime());
+    const isValidSolution = typeof verification?.valid === "boolean" ? verification.valid : (verification?.correct ?? false);
+
     const metrics = {
       elapsedMs,
       verifiedAt: now.toISOString(),
-      valid: verification.valid,
-      error: verification.error || null,
+      valid: isValidSolution,
+      reason: verification?.reason || null,
+      error: verification?.error || null,
+      ...engineMetrics,
     };
 
     try {
