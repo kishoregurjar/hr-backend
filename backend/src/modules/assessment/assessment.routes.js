@@ -117,4 +117,9 @@ router.delete(
   controller.delete
 );
 
+router.post(
+  "/candidate-assessments/:candidateAssessmentId/finalize",
+  controller.finalizeAssessment
+);
+
 module.exports = router;

@@ -277,6 +277,34 @@ class AssessmentController {
       StatusCodes.CREATED
     );
   });
+
+  /**
+   * Finalize Candidate Assessment & Weighted Scoring Handler
+   * POST /api/v1/assessments/candidate-assessments/:candidateAssessmentId/finalize
+   */
+  finalizeAssessment = asyncHandler(async (req, res) => {
+    const { candidateAssessmentId } = req.params;
+    const candidateId = req.user?.id || req.user?.userId;
+
+    const scoringService = require("./assessment.scoring.service");
+    const scoringDto = require("./assessment.scoring.dto");
+
+    const result = await scoringService.finalizeAssessment({
+      candidateId,
+      candidateAssessmentId,
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.alreadyFinalized
+          ? "Assessment already finalized"
+          : "Assessment finalized and scored successfully",
+        data: scoringDto.buildAssessmentResultResponse(result),
+      },
+      result.alreadyFinalized ? StatusCodes.OK : StatusCodes.CREATED
+    );
+  });
 }
 
 const assessmentController = new AssessmentController();
