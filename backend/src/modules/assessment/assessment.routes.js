@@ -122,4 +122,7 @@ router.post(
   controller.finalizeAssessment
 );
 
+router.use(require("./assessment.result.routes"));
+
 module.exports = router;
+
