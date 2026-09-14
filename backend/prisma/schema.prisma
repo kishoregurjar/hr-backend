@@ -458,6 +458,7 @@ model CandidateAttempt {
   auditLogs        AttemptAuditLog[]
   gameAttempts     GameAttempt[]
   gameResults      GameResult[]
+  assessmentResult AssessmentResult?
 
   @@index([assessmentId, candidateId])
   @@index([status])
@@ -939,6 +940,28 @@ model AssessmentGame {
   @@index([gameId])
 }
 
+enum GameTelemetryEventType {
+  GAME_STARTED
+  GAME_FOCUS_LOST
+  GAME_FOCUS_GAINED
+  VISIBILITY_HIDDEN
+  VISIBILITY_VISIBLE
+  FULLSCREEN_ENTERED
+  FULLSCREEN_EXITED
+  SOLUTION_SUBMITTED
+  GAME_COMPLETED
+  GAME_EXPIRED
+  CLIENT_ERROR
+}
+
+enum GameCheatSeverity {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 model GameAttempt {
   id                    String            @id @default(cuid())
   candidateAssessmentId String
@@ -951,16 +974,42 @@ model GameAttempt {
   submittedAt           DateTime?
   score                 Int?
   metrics               Json?
+
+  cheatSeverity         GameCheatSeverity @default(NONE)
+  cheatFlags            Json?
+  telemetryCount        Int               @default(0)
+
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
-  candidateAttempt     CandidateAttempt  @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
-  game                 Game              @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  candidateAttempt     CandidateAttempt   @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
+  game                 Game               @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  telemetryEvents      GameTelemetryEvent[]
 
   @@index([candidateAssessmentId])
   @@index([gameId])
   @@index([candidateAssessmentId, gameId])
   @@index([status, expiresAt])
+  @@index([cheatSeverity])
+}
+
+model GameTelemetryEvent {
+  id            String                 @id @default(cuid())
+  gameAttemptId String
+  eventType     GameTelemetryEventType
+  clientAt      DateTime?
+  serverAt      DateTime               @default(now())
+  metadata      Json?
+  ipAddress     String?
+  userAgent     String?
+  sequence      Int?
+  createdAt     DateTime               @default(now())
+
+  gameAttempt GameAttempt @relation(fields: [gameAttemptId], references: [id], onDelete: Cascade)
+
+  @@index([gameAttemptId])
+  @@index([gameAttemptId, eventType])
+  @@index([gameAttemptId, createdAt])
 }
 
 model GameResult {
@@ -979,4 +1028,20 @@ model GameResult {
   @@index([candidateAssessmentId])
   @@index([gameId])
 }
+
+model AssessmentResult {
+  id                    String       @id @default(cuid())
+  candidateAssessmentId String       @unique
+  score                 Float
+  percentage            Float
+  status                ResultStatus @default(FAIL)
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  candidateAttempt CandidateAttempt @relation(fields: [candidateAssessmentId], references: [id], onDelete: Cascade)
+
+  @@index([candidateAssessmentId])
+  @@index([status])
+}
+
 
