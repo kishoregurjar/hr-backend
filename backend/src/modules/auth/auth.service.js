@@ -8,6 +8,7 @@ const {
   comparePassword,
   generateAccessToken,
   generateRefreshToken,
+  verifyRefreshToken,
   hashToken,
 } = require("./auth.utils");
 
@@ -185,32 +186,45 @@ class AuthService {
       throw new UnauthorizedError("Refresh token is required.", "REFRESH_TOKEN_REQUIRED");
     }
 
+    // 1. Verify JWT signature & expiration cryptographically
+    const payload = verifyRefreshToken(refreshTokenStr);
+    const userId = payload.sub;
+
+    // 2. Check DB stored token (if RefreshToken table exists in DB)
     const tokenHash = hashToken(refreshTokenStr);
     const storedToken = await authRepository.findRefreshToken(tokenHash);
 
-    if (!storedToken) {
-      throw new UnauthorizedError("Invalid or expired refresh token.", "INVALID_REFRESH_TOKEN");
+    let isGracePeriodActive = false;
+    if (storedToken) {
+      isGracePeriodActive =
+        Boolean(storedToken.revokedAt) &&
+        new Date().getTime() - new Date(storedToken.revokedAt).getTime() < 60000;
+
+      if ((storedToken.revokedAt && !isGracePeriodActive) || new Date() > storedToken.expiresAt) {
+        throw new UnauthorizedError("Invalid or expired refresh token.", "INVALID_REFRESH_TOKEN");
+      }
     }
 
-    // Enterprise Grace Period: Allow 60-second window for recently revoked tokens
-    // to handle multi-device concurrent sessions and parallel network calls without session drops
-    const isGracePeriodActive =
-      storedToken.revokedAt &&
-      new Date().getTime() - new Date(storedToken.revokedAt).getTime() < 60000;
-
-    if ((storedToken.revokedAt && !isGracePeriodActive) || new Date() > storedToken.expiresAt) {
-      throw new UnauthorizedError("Invalid or expired refresh token.", "INVALID_REFRESH_TOKEN");
-    }
-
-    const user = await authRepository.findUserById(storedToken.userId);
-    if (!user || !user.isActive) {
+    // 3. Fetch User & Verify User Status
+    const user = await authRepository.findUserById(userId || (storedToken && storedToken.userId));
+    if (!user || user.status !== "ACTIVE") {
       throw new UnauthorizedError("User is invalid or inactive.", "USER_INVALID");
+    }
+
+    // 4. Verify token version if user token version has been bumped (logout all devices)
+    if (
+      payload.tokenVersion !== undefined &&
+      user.tokenVersion !== undefined &&
+      payload.tokenVersion < user.tokenVersion
+    ) {
+      throw new UnauthorizedError("Refresh token has been revoked.", "TOKEN_REVOKED");
     }
 
     const newAccessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken(user);
 
-    if (!isGracePeriodActive) {
+    // 5. If DB tracking is active for refresh tokens, update DB record
+    if (storedToken && storedToken.id && !isGracePeriodActive) {
       await runTransaction(async (tx) => {
         await authRepository.revokeRefreshToken(tx, storedToken.id);
         await authRepository.createRefreshToken(tx, {
@@ -281,7 +295,7 @@ class AuthService {
     const email = payload.email.toLowerCase().trim();
     const user = await authRepository.findUserByEmail(email);
 
-    if (user && user.isActive) {
+    if (user && user.status === "ACTIVE") {
       const rawToken = hashToken(`${user.id}-${Date.now()}`);
       const tokenHash = hashToken(rawToken);
 
