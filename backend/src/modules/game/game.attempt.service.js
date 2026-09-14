@@ -10,6 +10,7 @@ const {
 const repository = require("./game.attempt.repository");
 const { getGameDefinition, getGameMetadataBySlug } = require("./game.registry");
 const { createGameSeed } = require("./game.engine.crypto");
+const { validateGeneratedPuzzle } = require("./game.engine.validator");
 const gameSuperAdminService = require("./game.super-admin.service");
 const gameService = require("./game.service");
 const { mapGameAttemptForCandidate, mapGameResult } = require("./game.attempt.mapper");
@@ -22,6 +23,30 @@ function stripSolutionFromPuzzle(puzzleData) {
   delete copy.answerKey;
   delete copy.secretSeed;
   return copy;
+}
+
+function sanitizeGameMetrics(metrics) {
+  if (metrics === null || metrics === undefined) {
+    return null;
+  }
+
+  if (typeof metrics !== "object" || Array.isArray(metrics)) {
+    throw new BadRequestError(
+      "Invalid game metrics",
+      GAME_ATTEMPT_CONSTANTS.ERROR_CODES.INVALID_GAME_SCORE
+    );
+  }
+
+  const serialized = JSON.stringify(metrics);
+
+  if (Buffer.byteLength(serialized, "utf8") > 20_000) {
+    throw new BadRequestError(
+      "Game metrics are too large",
+      GAME_ATTEMPT_CONSTANTS.ERROR_CODES.INVALID_GAME_SCORE
+    );
+  }
+
+  return metrics;
 }
 
 function calculateServerAuthoritativeScore(verification, elapsedMs) {
@@ -94,7 +119,7 @@ class GameAttemptService {
       }
     }
 
-    // 3. Verify Game exists & is active platform-wide (DB lookup by code)
+    // 3. Verify Game exists & is active platform-wide (DB lookup by canonical code)
     const game = await gameSuperAdminService.getGame(canonicalCode);
     if (!game || game.isActive === false) {
       throw new ForbiddenError(
@@ -145,6 +170,15 @@ class GameAttemptService {
           seed,
           version: gameDefinition.version,
         });
+
+        validateGeneratedPuzzle(generatedPuzzle);
+
+        if (generatedPuzzle.version !== gameDefinition.version) {
+          throw new ConflictError(
+            "Game engine version mismatch",
+            GAME_ATTEMPT_CONSTANTS.ERROR_CODES.GAME_ENGINE_NOT_FOUND
+          );
+        }
 
         puzzleState = {
           puzzle: generatedPuzzle.puzzle,
@@ -214,7 +248,7 @@ class GameAttemptService {
       );
     }
 
-    // Determine game metadata & code
+    // Determine game metadata & code via registry
     const game = attempt.game || (await gameSuperAdminService.getGame(attempt.gameId));
     const gameCode = game.code || game.id || attempt.gameId;
     const gameDefinition = getGameDefinition(gameCode) || getGameDefinition(game.slug || "");
@@ -244,6 +278,17 @@ class GameAttemptService {
       } else {
         score = Number(scoreResult) || 0;
       }
+
+      if (
+        !Number.isInteger(score) ||
+        score < GAME_ATTEMPT_CONSTANTS.SCORE.MIN ||
+        score > GAME_ATTEMPT_CONSTANTS.SCORE.MAX
+      ) {
+        throw new BadRequestError(
+          "Invalid game score",
+          GAME_ATTEMPT_CONSTANTS.ERROR_CODES.INVALID_GAME_SCORE
+        );
+      }
     } else {
       verification = await gameService.verifySolution(
         metadata ? metadata.slug : gameCode,
@@ -257,7 +302,7 @@ class GameAttemptService {
     const elapsedMs = Math.max(0, now.getTime() - attempt.startedAt.getTime());
     const isValidSolution = typeof verification?.valid === "boolean" ? verification.valid : (verification?.correct ?? false);
 
-    const metrics = {
+    const rawMetrics = {
       elapsedMs,
       verifiedAt: now.toISOString(),
       valid: isValidSolution,
@@ -265,6 +310,8 @@ class GameAttemptService {
       error: verification?.error || null,
       ...engineMetrics,
     };
+
+    const metrics = sanitizeGameMetrics(rawMetrics);
 
     try {
       const submitted = await repository.submitAttempt(attempt.id, score, metrics);
