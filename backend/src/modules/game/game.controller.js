@@ -7,7 +7,7 @@ const gameService = require("./game.service");
 
 class GameController {
   listGames = asyncHandler(async (req, res) => {
-    const games = gameService.getAllGames();
+    const games = await gameService.getAllGames();
     return SuccessResponse.send(
       res,
       {
@@ -20,7 +20,7 @@ class GameController {
 
   getGame = asyncHandler(async (req, res) => {
     const { slug } = req.params;
-    const game = gameService.getGameBySlug(slug);
+    const game = await gameService.getGameBySlug(slug);
     return SuccessResponse.send(
       res,
       {
@@ -34,7 +34,7 @@ class GameController {
   getPuzzle = asyncHandler(async (req, res) => {
     const { slug } = req.params;
     const config = req.query || {};
-    const puzzle = gameService.generatePuzzle(slug, config);
+    const puzzle = await gameService.generatePuzzle(slug, config);
 
     return SuccessResponse.send(
       res,
@@ -49,7 +49,7 @@ class GameController {
   verifyPuzzle = asyncHandler(async (req, res) => {
     const { slug } = req.params;
     const { solution, gameData } = req.body || {};
-    const result = gameService.verifySolution(slug, solution, gameData);
+    const result = await gameService.verifySolution(slug, solution, gameData);
 
     return SuccessResponse.send(
       res,
