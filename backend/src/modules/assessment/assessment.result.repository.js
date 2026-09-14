@@ -6,6 +6,19 @@ const prisma = prismaRaw.prisma || prismaRaw;
 const inMemoryResults = new Map();
 
 async function findCandidateResult({ candidateAssessmentId, candidateId }) {
+  const mem = inMemoryResults.get(candidateAssessmentId);
+  if (mem) {
+    if (
+      candidateId &&
+      mem.candidateId !== candidateId &&
+      mem.userId !== candidateId &&
+      mem.candidate?.userId !== candidateId
+    ) {
+      return null;
+    }
+    return mem;
+  }
+
   try {
     if (prisma && prisma.candidateAttempt) {
       const where = {
@@ -61,21 +74,9 @@ async function findCandidateResult({ candidateAssessmentId, candidateId }) {
       }
     }
   } catch (_err) {
-    // Fallback to memory
+    // Fallback
   }
 
-  const mem = inMemoryResults.get(candidateAssessmentId);
-  if (mem) {
-    if (
-      candidateId &&
-      mem.candidateId !== candidateId &&
-      mem.userId !== candidateId &&
-      mem.candidate?.userId !== candidateId
-    ) {
-      return null;
-    }
-    return mem;
-  }
   return null;
 }
 
@@ -89,6 +90,52 @@ async function findAssessmentResults({
   sortOrder = "desc",
 }) {
   const skip = (page - 1) * limit;
+
+  let list = Array.from(inMemoryResults.values()).filter(
+    (item) => item.assessmentId === assessmentId && item.result
+  );
+
+  if (list.length > 0) {
+    if (status) {
+      list = list.filter((item) => item.result.status === status);
+    }
+
+    if (search) {
+      const s = search.toLowerCase();
+      list = list.filter((item) => {
+        const email = item.candidate?.email || "";
+        const name = `${item.candidate?.firstName || ""} ${item.candidate?.lastName || ""}`;
+        return email.toLowerCase().includes(s) || name.toLowerCase().includes(s);
+      });
+    }
+
+    list.sort((a, b) => {
+      let valA = a.result?.createdAt;
+      let valB = b.result?.createdAt;
+      if (sortBy === "percentage") {
+        valA = a.result?.percentage ?? 0;
+        valB = b.result?.percentage ?? 0;
+      } else if (sortBy === "score") {
+        valA = a.result?.score ?? 0;
+        valB = b.result?.score ?? 0;
+      } else if (sortBy === "candidateName") {
+        valA = a.candidate?.firstName || "";
+        valB = b.candidate?.firstName || "";
+      } else if (sortBy === "candidateEmail") {
+        valA = a.candidate?.email || "";
+        valB = b.candidate?.email || "";
+      }
+
+      if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+      if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    const total = list.length;
+    const items = list.slice(skip, skip + limit);
+
+    return { items, total, page, limit };
+  }
 
   try {
     if (prisma && prisma.candidateAttempt) {
@@ -170,52 +217,15 @@ async function findAssessmentResults({
     // Fallback
   }
 
-  let list = Array.from(inMemoryResults.values()).filter(
-    (item) => item.assessmentId === assessmentId && item.result
-  );
-
-  if (status) {
-    list = list.filter((item) => item.result.status === status);
-  }
-
-  if (search) {
-    const s = search.toLowerCase();
-    list = list.filter((item) => {
-      const email = item.candidate?.email || "";
-      const name = `${item.candidate?.firstName || ""} ${item.candidate?.lastName || ""}`;
-      return email.toLowerCase().includes(s) || name.toLowerCase().includes(s);
-    });
-  }
-
-  list.sort((a, b) => {
-    let valA = a.result?.createdAt;
-    let valB = b.result?.createdAt;
-    if (sortBy === "percentage") {
-      valA = a.result?.percentage ?? 0;
-      valB = b.result?.percentage ?? 0;
-    } else if (sortBy === "score") {
-      valA = a.result?.score ?? 0;
-      valB = b.result?.score ?? 0;
-    } else if (sortBy === "candidateName") {
-      valA = a.candidate?.firstName || "";
-      valB = b.candidate?.firstName || "";
-    } else if (sortBy === "candidateEmail") {
-      valA = a.candidate?.email || "";
-      valB = b.candidate?.email || "";
-    }
-
-    if (valA < valB) return sortOrder === "asc" ? -1 : 1;
-    if (valA > valB) return sortOrder === "asc" ? 1 : -1;
-    return 0;
-  });
-
-  const total = list.length;
-  const items = list.slice(skip, skip + limit);
-
-  return { items, total, page, limit };
+  return { items: [], total: 0, page, limit };
 }
 
 async function findResultDetails(candidateAssessmentId) {
+  const mem = inMemoryResults.get(candidateAssessmentId);
+  if (mem) {
+    return mem;
+  }
+
   try {
     if (prisma && prisma.candidateAttempt) {
       const found = await prisma.candidateAttempt.findUnique({
@@ -281,11 +291,27 @@ async function findResultDetails(candidateAssessmentId) {
     // Fallback
   }
 
-  const mem = inMemoryResults.get(candidateAssessmentId);
-  return mem || null;
+  return null;
 }
 
 async function findCandidateAttempts({ candidateAssessmentId, candidateId }) {
+  const mem = inMemoryResults.get(candidateAssessmentId);
+  if (mem) {
+    return [
+      {
+        id: mem.id,
+        attemptNumber: 1,
+        status: mem.status || "SUBMITTED",
+        startedAt: mem.startedAt || new Date(),
+        expiresAt: mem.expiresAt || new Date(),
+        submittedAt: mem.submittedAt || new Date(),
+        score: mem.result?.score ?? null,
+        percentage: mem.result?.percentage ?? null,
+        passed: mem.result?.status === "PASS",
+      },
+    ];
+  }
+
   try {
     if (prisma && prisma.candidateAttempt) {
       const targetAttempt = await prisma.candidateAttempt.findUnique({
@@ -335,22 +361,6 @@ async function findCandidateAttempts({ candidateAssessmentId, candidateId }) {
     // Fallback
   }
 
-  const mem = inMemoryResults.get(candidateAssessmentId);
-  if (mem) {
-    return [
-      {
-        id: mem.id,
-        attemptNumber: 1,
-        status: mem.status || "SUBMITTED",
-        startedAt: mem.startedAt || new Date(),
-        expiresAt: mem.expiresAt || new Date(),
-        submittedAt: mem.submittedAt || new Date(),
-        score: mem.result?.score ?? null,
-        percentage: mem.result?.percentage ?? null,
-        passed: mem.result?.status === "PASS",
-      },
-    ];
-  }
   return [];
 }
 

@@ -123,6 +123,8 @@ router.post(
 );
 
 router.use(require("./assessment.result.routes"));
+router.use(require("./assessment.analytics.routes"));
 
 module.exports = router;
+
 
