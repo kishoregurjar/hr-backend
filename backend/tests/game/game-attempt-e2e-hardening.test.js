@@ -161,28 +161,32 @@ test.describe("GameAttempt End-to-End Hardening & Integration", () => {
     const attempt = await gameAttemptService.startGame({
       candidateId,
       candidateAssessmentId,
-      slug: "tango",
+      slug: "mini-sudoku",
     });
+
+    const attemptRecord = await repository.findAttemptForCandidate(attempt.attemptId, candidateAssessmentId);
+    const validSolution = attemptRecord.puzzleState.solution;
 
     const results = await Promise.allSettled([
       gameAttemptService.submitGame({
         candidateId,
         candidateAssessmentId,
         attemptId: attempt.attemptId,
-        solution: { grid: {} },
+        solution: validSolution,
       }),
       gameAttemptService.submitGame({
         candidateId,
         candidateAssessmentId,
         attemptId: attempt.attemptId,
-        solution: { grid: {} },
+        solution: validSolution,
       }),
     ]);
 
     const fulfilled = results.filter((r) => r.status === "fulfilled");
     const rejected = results.filter((r) => r.status === "rejected");
 
-    assert.equal(fulfilled.length, 1, "Exactly one concurrent submission must succeed");
+    assert.equal(fulfilled.length, 1, "Exactly one concurrent submission must succeed with a valid solution");
+    assert.equal(fulfilled[0].value.score, 100, "Winning submission must yield server score 100");
     assert.equal(rejected.length, 1, "Concurrent submission must fail for second call");
     assert.equal(rejected[0].reason.code, "GAME_ALREADY_COMPLETED");
   });
@@ -279,5 +283,50 @@ test.describe("GameAttempt End-to-End Hardening & Integration", () => {
     const existing = await repository.findGameResult(candidateAssessmentId, attempt.game.id);
     assert.ok(existing);
     assert.equal(existing.score, submitted.score);
+  });
+
+  test("10. All 4 Production Engines E2E Cycle - Start, Strip Solution, Submit & Persist Result", async () => {
+    const candidateId = "cand_e2e_cycle_user";
+    const testCases = [
+      { slug: "mini-sudoku", caId: "ca_e2e_cycle_1" },
+      { slug: "mahjong-tile-match", caId: "ca_e2e_cycle_2" },
+      { slug: "zip-pathfinder", caId: "ca_e2e_cycle_3" },
+      { slug: "tango", caId: "ca_e2e_cycle_4" },
+    ];
+
+    for (const { slug, caId } of testCases) {
+      // 1. Start Game
+      const started = await gameAttemptService.startGame({
+        candidateId,
+        candidateAssessmentId: caId,
+        slug,
+      });
+
+      assert.ok(started.attemptId);
+      assert.ok(started.puzzle);
+      assert.equal(started.puzzle.solution, undefined, `Solution must be stripped for ${slug}`);
+      assert.equal(started.puzzle.seed, undefined, `Seed must be stripped for ${slug}`);
+
+      // 2. Fetch server solution for valid submit test
+      const attemptRecord = await repository.findAttemptForCandidate(started.attemptId, caId);
+      const solutionPayload = attemptRecord.puzzleState.solution || { grid: {}, path: [], moves: [] };
+
+      // 3. Submit Game
+      const submitted = await gameAttemptService.submitGame({
+        candidateId,
+        candidateAssessmentId: caId,
+        attemptId: started.attemptId,
+        solution: solutionPayload,
+      });
+
+      assert.ok(submitted.id);
+      assert.equal(typeof submitted.score, "number");
+      assert.equal(submitted.status, "SUBMITTED");
+
+      // 4. Verify GameResult persistence
+      const savedResult = await repository.findGameResult(caId, started.game.id);
+      assert.ok(savedResult, `GameResult must be persisted for ${slug}`);
+      assert.equal(savedResult.score, submitted.score);
+    }
   });
 });
