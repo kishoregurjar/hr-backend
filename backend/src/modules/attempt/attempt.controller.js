@@ -513,7 +513,7 @@ class AttemptController {
     const result = await attemptService.getCandidates({
       query: req.query,
       user: req.user,
-      companyId: req.company?.id || null,
+      companyId: req.company?.id || req.user?.companyId || null,
     });
 
     return SuccessResponse.send(

@@ -377,9 +377,10 @@ class AttemptService {
         assessment.status = "PUBLISHED";
       }
 
-      // 3. Verify or auto-create candidate profile by email/id/name
+      // 3. Verify or auto-create candidate profile by email/id/name with active company binding
       let candidateProfile = null;
       const normalizedEmail = typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
+      const effectiveCompanyId = assessment.companyId || null;
 
       if (candidateId || normalizedEmail) {
         candidateProfile = await tx.candidateProfile.findFirst({
@@ -392,7 +393,14 @@ class AttemptService {
         });
       }
 
-      if (!candidateProfile && normalizedEmail) {
+      if (candidateProfile) {
+        if (!candidateProfile.companyId && effectiveCompanyId) {
+          candidateProfile = await tx.candidateProfile.update({
+            where: { id: candidateProfile.id },
+            data: { companyId: effectiveCompanyId },
+          });
+        }
+      } else if (normalizedEmail) {
         const fName = (firstName || "").trim() || "Candidate";
         const lName = (lastName || "").trim() || "User";
         candidateProfile = await tx.candidateProfile.create({
@@ -400,6 +408,7 @@ class AttemptService {
             email: normalizedEmail,
             firstName: fName,
             lastName: lName,
+            companyId: effectiveCompanyId,
           },
         });
       }

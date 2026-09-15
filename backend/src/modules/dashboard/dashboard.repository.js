@@ -6,7 +6,9 @@ const { prisma } = require("../../config/prisma");
  * Get aggregated dashboard statistics in a single parallel query batch
  */
 async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
-  const candidateWhere = companyId ? { companyId } : {};
+  const candidateWhere = companyId
+    ? { OR: [{ companyId: companyId }, { companyId: null }] }
+    : {};
 
   const [
     totalCandidates,

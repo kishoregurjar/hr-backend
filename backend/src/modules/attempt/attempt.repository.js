@@ -2133,7 +2133,12 @@ class AttemptRepository {
       return profiles;
     }
 
-    // Fallback: If CandidateProfile is empty, fetch from User table (role: CANDIDATE)
+    const totalProfilesInDb = await client.candidateProfile.count();
+    if (totalProfilesInDb > 0) {
+      return profiles || [];
+    }
+
+    // Fallback: If CandidateProfile table is completely empty, fetch from User table (role: CANDIDATE)
     const candidateUsers = await client.user.findMany({
       where: {
         role: "CANDIDATE",
