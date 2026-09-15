@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const env = require("../../config/env");
-const { runTransaction } = require("../../config/prisma");
+const { runTransaction, prisma } = require("../../config/prisma");
 const attemptRepository = require("./attempt.repository");
 const attemptAuditService = require("./attempt.audit.service");
 const attemptMetrics = require("./attempt.metrics");
@@ -270,7 +270,7 @@ class AttemptService {
   /**
    * Dedicated Candidate Creation Workflow (No Invitation / No Email Sent)
    */
-  async createCandidate({ email, firstName, lastName, phoneNumber, companyId = null }) {
+  async createCandidate({ email, firstName, lastName, phoneNumber, companyId = null, userId = null }) {
     if (typeof email !== "string" || !email.trim()) {
       throw new BadRequestError(
         "Candidate email is required.",
@@ -281,15 +281,27 @@ class AttemptService {
     const normalizedEmail = email.trim().toLowerCase();
 
     return runTransaction(async (tx) => {
+      let targetCompanyId = companyId;
+
+      if (!targetCompanyId && userId) {
+        const member = await tx.companyMember.findFirst({
+          where: { userId },
+          select: { companyId: true },
+        });
+        if (member?.companyId) {
+          targetCompanyId = member.companyId;
+        }
+      }
+
       let candidateProfile = await tx.candidateProfile.findUnique({
         where: { email: normalizedEmail },
       });
 
       if (candidateProfile) {
-        if (!candidateProfile.companyId && companyId) {
+        if (!candidateProfile.companyId && targetCompanyId) {
           candidateProfile = await tx.candidateProfile.update({
             where: { id: candidateProfile.id },
-            data: { companyId },
+            data: { companyId: targetCompanyId },
           });
         }
         return candidateProfile;
@@ -304,7 +316,7 @@ class AttemptService {
           firstName: fName,
           lastName: lName,
           phoneNumber: phoneNumber ? phoneNumber.trim() : null,
-          companyId: companyId || null,
+          companyId: targetCompanyId || null,
         },
       });
 
@@ -3331,12 +3343,23 @@ class AttemptService {
       );
     }
 
+    let targetCompanyId = companyId;
+    if (!targetCompanyId && user?.id) {
+      const member = await prisma.companyMember.findFirst({
+        where: { userId: user.id },
+        select: { companyId: true },
+      });
+      if (member?.companyId) {
+        targetCompanyId = member.companyId;
+      }
+    }
+
     const { page = 1, limit = 20, search } = query;
     const skip = (page - 1) * limit;
 
     const where = {};
-    const companyFilter = companyId
-      ? [{ companyId: companyId }, { companyId: null }]
+    const companyFilter = targetCompanyId
+      ? [{ companyId: targetCompanyId }, { companyId: null }]
       : null;
 
     if (search) {

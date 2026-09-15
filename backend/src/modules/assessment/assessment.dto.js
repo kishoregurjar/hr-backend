@@ -140,6 +140,17 @@ class AssessmentDto {
           this.toQuestionResponse(item)
         ) ?? [],
 
+      games:
+        assessment.games?.map((item) => ({
+          gameId: item.gameId,
+          orderIndex: item.orderIndex,
+          weight: item.weight,
+          game: item.game || null,
+        })) ?? [],
+
+      selectedGameIds:
+        assessment.games?.map((item) => item.gameId).filter(Boolean) ?? [],
+
       createdAt: assessment.createdAt,
 
       updatedAt: assessment.updatedAt,

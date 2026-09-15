@@ -92,8 +92,23 @@ class AssessmentService {
       createdById
     );
 
+    const gameIds = data.selectedGameIds || data.gameIds || data.games || [];
+    const rawQuestions = data.selectedQuestionIds || data.questionIds || data.questions || [];
+
     const createdAssessment = await runTransaction(async (tx) => {
-      return assessmentRepository.create(tx, assessmentData);
+      const created = await assessmentRepository.create(tx, assessmentData);
+      if (Array.isArray(gameIds) && gameIds.length > 0) {
+        await assessmentRepository.syncGames(tx, created.id, gameIds);
+      }
+      if (Array.isArray(rawQuestions) && rawQuestions.length > 0) {
+        const questionPayload = rawQuestions.map((q, idx) => ({
+          questionId: typeof q === "object" ? q.questionId || q.id : q,
+          sequence: idx,
+          marks: typeof q === "object" ? q.points || q.marks || 1 : 1,
+        }));
+        await assessmentRepository.addQuestions(tx, created.id, questionPayload);
+      }
+      return assessmentRepository.findById(created.id, { detailed: true }, tx);
     });
 
     return {
@@ -260,9 +275,29 @@ class AssessmentService {
     }
 
     const updateData = AssessmentMapper.toUpdateEntity(normalizedData);
+    const gameIds = data.selectedGameIds ?? data.gameIds ?? data.games;
+    const rawQuestions = data.selectedQuestionIds ?? data.questionIds ?? data.questions;
 
     const updatedAssessment = await runTransaction(async (tx) => {
-      return assessmentRepository.update(tx, assessmentId, updateData);
+      await assessmentRepository.update(tx, assessmentId, updateData);
+
+      if (gameIds !== undefined && Array.isArray(gameIds)) {
+        await assessmentRepository.syncGames(tx, assessmentId, gameIds);
+      }
+
+      if (rawQuestions !== undefined && Array.isArray(rawQuestions)) {
+        await assessmentRepository.clearQuestions(tx, assessmentId);
+        if (rawQuestions.length > 0) {
+          const questionPayload = rawQuestions.map((q, idx) => ({
+            questionId: typeof q === "object" ? q.questionId || q.id : q,
+            sequence: idx,
+            marks: typeof q === "object" ? q.points || q.marks || 1 : 1,
+          }));
+          await assessmentRepository.addQuestions(tx, assessmentId, questionPayload);
+        }
+      }
+
+      return assessmentRepository.findById(assessmentId, { detailed: true }, tx);
     });
 
     return {

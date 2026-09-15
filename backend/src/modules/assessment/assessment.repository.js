@@ -89,6 +89,27 @@ const ASSESSMENT_DETAIL_SELECT = Object.freeze({
       },
     },
   },
+  games: {
+    orderBy: {
+      orderIndex: "asc",
+    },
+    select: {
+      assessmentId: true,
+      gameId: true,
+      orderIndex: true,
+      weight: true,
+      game: {
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          description: true,
+          category: true,
+          thumbnailUrl: true,
+        },
+      },
+    },
+  },
 });
 
 /**
@@ -428,6 +449,50 @@ class AssessmentRepository {
   async clearQuestions(tx, assessmentId) {
     const db = getClient(tx);
     return db.assessmentQuestion.deleteMany({
+      where: {
+        assessmentId,
+      },
+    });
+  }
+
+  /**
+   * Synchronize Games Attached to Assessment
+   */
+  async syncGames(tx, assessmentId, gameIds = []) {
+    const db = getClient(tx);
+    await db.assessmentGame.deleteMany({
+      where: {
+        assessmentId,
+      },
+    });
+
+    if (!Array.isArray(gameIds) || gameIds.length === 0) {
+      return [];
+    }
+
+    const cleanGameIds = gameIds.filter(Boolean);
+    const records = cleanGameIds.map((gameId, idx) => ({
+      assessmentId,
+      gameId: String(gameId),
+      orderIndex: idx,
+      weight: 1.0,
+    }));
+
+    await db.assessmentGame.createMany({
+      data: records,
+    });
+
+    return db.assessmentGame.findMany({
+      where: { assessmentId },
+    });
+  }
+
+  /**
+   * Clear All Games from Assessment
+   */
+  async clearGames(tx, assessmentId) {
+    const db = getClient(tx);
+    return db.assessmentGame.deleteMany({
       where: {
         assessmentId,
       },
