@@ -270,7 +270,7 @@ class AttemptService {
   /**
    * Dedicated Candidate Creation Workflow (No Invitation / No Email Sent)
    */
-  async createCandidate({ email, firstName, lastName, phoneNumber }) {
+  async createCandidate({ email, firstName, lastName, phoneNumber, companyId = null }) {
     if (typeof email !== "string" || !email.trim()) {
       throw new BadRequestError(
         "Candidate email is required.",
@@ -286,6 +286,12 @@ class AttemptService {
       });
 
       if (candidateProfile) {
+        if (!candidateProfile.companyId && companyId) {
+          candidateProfile = await tx.candidateProfile.update({
+            where: { id: candidateProfile.id },
+            data: { companyId },
+          });
+        }
         return candidateProfile;
       }
 
@@ -298,6 +304,7 @@ class AttemptService {
           firstName: fName,
           lastName: lName,
           phoneNumber: phoneNumber ? phoneNumber.trim() : null,
+          companyId: companyId || null,
         },
       });
 
@@ -3309,15 +3316,24 @@ class AttemptService {
     const skip = (page - 1) * limit;
 
     const where = {};
-    if (companyId) {
-      where.companyId = companyId;
-    }
+    const companyFilter = companyId
+      ? [{ companyId: companyId }, { companyId: null }]
+      : null;
+
     if (search) {
-      where.OR = [
+      const searchFilter = [
         { firstName: { contains: search, mode: "insensitive" } },
         { lastName: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
       ];
+
+      if (companyFilter) {
+        where.AND = [{ OR: companyFilter }, { OR: searchFilter }];
+      } else {
+        where.OR = searchFilter;
+      }
+    } else if (companyFilter) {
+      where.OR = companyFilter;
     }
 
     const [items, total] = await Promise.all([

@@ -71,12 +71,14 @@ class AttemptController {
    */
   createCandidate = asyncHandler(async (req, res) => {
     const { email, firstName, lastName, phoneNumber } = req.body || {};
+    const companyId = req.company?.id || req.user?.companyId || null;
 
     const candidate = await attemptService.createCandidate({
       email,
       firstName,
       lastName,
       phoneNumber,
+      companyId,
     });
 
     return SuccessResponse.send(
