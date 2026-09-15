@@ -679,6 +679,10 @@ class AssessmentService {
       );
     }
 
+    if (assessment.status === ASSESSMENT_STATUS.PUBLISHED) {
+      return assessment;
+    }
+
     if (assessment.status !== ASSESSMENT_STATUS.DRAFT) {
       throw new ConflictError(
         "Only draft assessments can be published.",
