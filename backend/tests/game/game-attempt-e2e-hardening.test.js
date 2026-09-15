@@ -35,6 +35,31 @@ test.describe("GameAttempt End-to-End Hardening & Integration", () => {
     assert.ok(attemptResponse.puzzle);
     assert.equal(attemptResponse.puzzle.solution, undefined, "Solution must be stripped");
     assert.equal(attemptResponse.puzzle.seed, undefined, "Seed must be stripped");
+
+    // Re-starting before completion reuses the active attempt
+    const reusedResponse = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "mini-sudoku",
+    });
+    assert.equal(reusedResponse.attemptId, attemptResponse.attemptId, "Active attempt must be reused");
+  });
+
+  test("2b. Start Game Integration - Unknown slug rejection", async () => {
+    await assert.rejects(
+      async () => {
+        await gameAttemptService.startGame({
+          candidateId: "cand_e2e_user_1",
+          candidateAssessmentId: "ca_e2e_101",
+          slug: "unknown-puzzle-slug",
+        });
+      },
+      (err) => {
+        assert.equal(err.code, "GAME_NOT_FOUND");
+        assert.equal(err.statusCode, 404);
+        return true;
+      }
+    );
   });
 
   test("3. Submit Game Integration - Produces server-calculated score and sanitized metrics", async () => {
@@ -127,6 +152,39 @@ test.describe("GameAttempt End-to-End Hardening & Integration", () => {
         return true;
       }
     );
+  });
+
+  test("5b. Concurrent Submission Safety - Simultaneous requests result in exactly one GameResult", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_401";
+
+    const attempt = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "tango",
+    });
+
+    const results = await Promise.allSettled([
+      gameAttemptService.submitGame({
+        candidateId,
+        candidateAssessmentId,
+        attemptId: attempt.attemptId,
+        solution: { grid: {} },
+      }),
+      gameAttemptService.submitGame({
+        candidateId,
+        candidateAssessmentId,
+        attemptId: attempt.attemptId,
+        solution: { grid: {} },
+      }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+
+    assert.equal(fulfilled.length, 1, "Exactly one concurrent submission must succeed");
+    assert.equal(rejected.length, 1, "Concurrent submission must fail for second call");
+    assert.equal(rejected[0].reason.code, "GAME_ALREADY_COMPLETED");
   });
 
   test("6. Candidate Ownership Boundary - Prevents unauthorized candidate access", async () => {
