@@ -952,6 +952,7 @@ class AttemptRepository {
                 orderIndex: "asc",
               },
             },
+            games: true,
           },
         },
         candidate: {
@@ -960,6 +961,13 @@ class AttemptRepository {
             email: true,
             firstName: true,
             lastName: true,
+            company: {
+              select: {
+                id: true,
+                name: true,
+                logoUrl: true,
+              },
+            },
           },
         },
       },

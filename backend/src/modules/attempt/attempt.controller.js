@@ -431,6 +431,9 @@ class AttemptController {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
     const invitation = await attemptService.findInvitationByRawToken(rawToken);
 
+    const company = invitation.candidate?.company || null;
+    const companyName = company?.name || null;
+
     return res.status(200).json({
       success: true,
       message: "Invitation verified successfully.",
@@ -442,6 +445,9 @@ class AttemptController {
         isExpired: invitation.expiresAt <= new Date(),
         assessmentId: invitation.assessmentId,
         candidateId: invitation.candidateId,
+        companyName,
+        companyLogo: company?.logoUrl || null,
+        company,
         assessment: invitation.assessment,
         candidate: invitation.candidate,
       },
