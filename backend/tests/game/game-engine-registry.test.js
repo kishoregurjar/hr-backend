@@ -48,6 +48,7 @@ test("Game Engine Registry - Rejects duplicate game registration", () => {
       registerGame({
         slug: "zip-pathfinder",
         code: "ZIP_PATHFINDER_DUP",
+        version: 1,
         engine: {
           generatePuzzle: () => {},
           verifySolution: () => {},
@@ -55,7 +56,7 @@ test("Game Engine Registry - Rejects duplicate game registration", () => {
         },
       });
     },
-    { message: /Duplicate game registry slug: zip-pathfinder/ }
+    /DUPLICATE_GAME_SLUG/
   );
 });
 
@@ -135,7 +136,7 @@ test("Mini Sudoku Engine - Full 6x6 generation, givens immutability & server ver
 
   // 3. Verify invalid candidate board
   const invalidSolution = generated.solution.map((r) => [...r]);
-  invalidSolution[0][0] = invalidSolution[0][1]; // Create row conflict
+  invalidSolution[0][1] = invalidSolution[0][0]; // Create row conflict
 
   const verInvalid = engine.verifySolution({
     puzzle: generated.puzzle,

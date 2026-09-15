@@ -17,6 +17,20 @@ function mapGameAttemptForCandidate(attempt, game, puzzle, metadata = null) {
   };
 }
 
+function toCandidatePuzzleResponse(attempt) {
+  const state = attempt.puzzleState || {};
+  return {
+    attemptId: attempt.id,
+    game: {
+      id: attempt.gameId,
+    },
+    puzzle: state.puzzle || state,
+    puzzleVersion: attempt.puzzleVersion || 1,
+    startedAt: attempt.startedAt,
+    expiresAt: attempt.expiresAt,
+  };
+}
+
 function mapGameResult(result) {
   return {
     id: result.id,
@@ -31,5 +45,6 @@ function mapGameResult(result) {
 
 module.exports = {
   mapGameAttemptForCandidate,
+  toCandidatePuzzleResponse,
   mapGameResult,
 };
