@@ -117,4 +117,14 @@ router.delete(
   controller.delete
 );
 
+router.post(
+  "/candidate-assessments/:candidateAssessmentId/finalize",
+  controller.finalizeAssessment
+);
+
+router.use(require("./assessment.result.routes"));
+router.use(require("./assessment.analytics.routes"));
+
 module.exports = router;
+
+

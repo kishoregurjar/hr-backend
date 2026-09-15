@@ -12,6 +12,11 @@ const gameController = require("./game.controller");
  * ==========================================================
  */
 
+const attemptRoutes = require("./game.attempt.routes");
+const telemetryRoutes = require("./game.telemetry.routes");
+
+router.use("/", attemptRoutes);
+router.use("/", telemetryRoutes);
 router.get("/", gameController.listGames);
 router.get("/:slug", gameController.getGame);
 router.get("/:slug/puzzle", gameController.getPuzzle);

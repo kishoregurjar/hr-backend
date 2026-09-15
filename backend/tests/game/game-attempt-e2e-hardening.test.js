@@ -1,0 +1,332 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const gameAttemptService = require("../../src/modules/game/game.attempt.service");
+const gameSuperAdminService = require("../../src/modules/game/game.super-admin.service");
+const { getGameDefinition } = require("../../src/modules/game/game.registry");
+const { validateSubmitGame } = require("../../src/modules/game/game.attempt.validator");
+const repository = require("../../src/modules/game/game.attempt.repository");
+
+test.describe("GameAttempt End-to-End Hardening & Integration", () => {
+  test("1. ZIP, Tango, Mini Sudoku, and Mahjong registry integration resolution", () => {
+    const games = ["zip-pathfinder", "tango", "mini-sudoku", "mahjong-tile-match"];
+    for (const slug of games) {
+      const def = getGameDefinition(slug);
+      assert.ok(def, `Registry must resolve definition for ${slug}`);
+      assert.ok(def.code, `Definition for ${slug} must have canonical code`);
+      assert.ok(def.engine, `Definition for ${slug} must have engine`);
+    }
+  });
+
+  test("2. Start Game Integration - Generates server puzzle and strips solution & seed", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_100";
+
+    const attemptResponse = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "mini-sudoku",
+    });
+
+    assert.ok(attemptResponse.attemptId);
+    assert.equal(attemptResponse.game.code, "MINI_SUDOKU");
+    assert.ok(attemptResponse.puzzle);
+    assert.equal(attemptResponse.puzzle.solution, undefined, "Solution must be stripped");
+    assert.equal(attemptResponse.puzzle.seed, undefined, "Seed must be stripped");
+
+    // Re-starting before completion reuses the active attempt
+    const reusedResponse = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "mini-sudoku",
+    });
+    assert.equal(reusedResponse.attemptId, attemptResponse.attemptId, "Active attempt must be reused");
+  });
+
+  test("2b. Start Game Integration - Unknown slug rejection", async () => {
+    await assert.rejects(
+      async () => {
+        await gameAttemptService.startGame({
+          candidateId: "cand_e2e_user_1",
+          candidateAssessmentId: "ca_e2e_101",
+          slug: "unknown-puzzle-slug",
+        });
+      },
+      (err) => {
+        assert.equal(err.code, "GAME_NOT_FOUND");
+        assert.equal(err.statusCode, 404);
+        return true;
+      }
+    );
+  });
+
+  test("3. Submit Game Integration - Produces server-calculated score and sanitized metrics", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_200";
+
+    const attempt = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "mini-sudoku",
+    });
+
+    // Fetch attempt details from repository to get server solution for testing
+    const attemptRecord = await repository.findAttemptForCandidate(attempt.attemptId, candidateAssessmentId);
+    const serverSolution = attemptRecord.puzzleState.solution;
+
+    const result = await gameAttemptService.submitGame({
+      candidateId,
+      candidateAssessmentId,
+      attemptId: attempt.attemptId,
+      solution: serverSolution,
+    });
+
+    assert.ok(result.id);
+    assert.equal(result.score, 100);
+    assert.equal(result.status, "SUBMITTED");
+    assert.equal(result.metrics.completed, true);
+  });
+
+  test("4. Expired Attempt Verification - Rejects expired attempts", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_300";
+
+    const attempt = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "mahjong-tile-match",
+    });
+
+    // Manually expire the attempt in repository memory/store
+    const attemptRecord = await repository.findAttemptForCandidate(attempt.attemptId, candidateAssessmentId);
+    attemptRecord.expiresAt = new Date(Date.now() - 60000); // 1 minute in the past
+
+    await assert.rejects(
+      async () => {
+        await gameAttemptService.submitGame({
+          candidateId,
+          candidateAssessmentId,
+          attemptId: attempt.attemptId,
+          solution: { moves: [] },
+        });
+      },
+      (err) => {
+        assert.equal(err.code, "GAME_ATTEMPT_EXPIRED");
+        assert.equal(err.statusCode, 403);
+        return true;
+      }
+    );
+  });
+
+  test("5. Duplicate Submission Prevention - Throws GAME_ALREADY_COMPLETED", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_400";
+
+    const attempt = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "tango",
+    });
+
+    await gameAttemptService.submitGame({
+      candidateId,
+      candidateAssessmentId,
+      attemptId: attempt.attemptId,
+      solution: { grid: {} },
+    });
+
+    await assert.rejects(
+      async () => {
+        await gameAttemptService.submitGame({
+          candidateId,
+          candidateAssessmentId,
+          attemptId: attempt.attemptId,
+          solution: { grid: {} },
+        });
+      },
+      (err) => {
+        assert.equal(err.code, "GAME_ALREADY_COMPLETED");
+        assert.equal(err.statusCode, 409);
+        return true;
+      }
+    );
+  });
+
+  test("5b. Concurrent Submission Safety - Simultaneous requests result in exactly one GameResult", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_401";
+
+    const attempt = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "mini-sudoku",
+    });
+
+    const attemptRecord = await repository.findAttemptForCandidate(attempt.attemptId, candidateAssessmentId);
+    const validSolution = attemptRecord.puzzleState.solution;
+
+    const results = await Promise.allSettled([
+      gameAttemptService.submitGame({
+        candidateId,
+        candidateAssessmentId,
+        attemptId: attempt.attemptId,
+        solution: validSolution,
+      }),
+      gameAttemptService.submitGame({
+        candidateId,
+        candidateAssessmentId,
+        attemptId: attempt.attemptId,
+        solution: validSolution,
+      }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+
+    assert.equal(fulfilled.length, 1, "Exactly one concurrent submission must succeed with a valid solution");
+    assert.equal(fulfilled[0].value.score, 100, "Winning submission must yield server score 100");
+    assert.equal(rejected.length, 1, "Concurrent submission must fail for second call");
+    assert.equal(rejected[0].reason.code, "GAME_ALREADY_COMPLETED");
+  });
+
+  test("6. Candidate Ownership Boundary - Prevents unauthorized candidate access", async () => {
+    const candidateA = "cand_owner_A";
+    const candidateB = "cand_imposter_B";
+    const caA = "ca_owner_A_100";
+
+    const attemptA = await gameAttemptService.startGame({
+      candidateId: candidateA,
+      candidateAssessmentId: caA,
+      slug: "mini-sudoku",
+    });
+
+    // Candidate B attempting to submit candidate A's attempt
+    await assert.rejects(
+      async () => {
+        await gameAttemptService.submitGame({
+          candidateId: candidateB,
+          candidateAssessmentId: caA,
+          attemptId: attemptA.attemptId,
+          solution: { board: [] },
+        });
+      },
+      (err) => {
+        assert.equal(err.code, "CANDIDATE_ASSESSMENT_NOT_FOUND");
+        assert.equal(err.statusCode, 404);
+        return true;
+      }
+    );
+  });
+
+  test("7. Disabled Game Boundary - Rejects start attempt for disabled games", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_500";
+
+    // Disable TANGO
+    await gameSuperAdminService.updateGameStatus("TANGO", false);
+
+    await assert.rejects(
+      async () => {
+        await gameAttemptService.startGame({
+          candidateId,
+          candidateAssessmentId,
+          slug: "tango",
+        });
+      },
+      (err) => {
+        assert.equal(err.code, "GAME_DISABLED");
+        assert.equal(err.statusCode, 403);
+        return true;
+      }
+    );
+
+    // Re-enable TANGO
+    await gameSuperAdminService.updateGameStatus("TANGO", true);
+  });
+
+  test("8. Score Tampering Protection - Rejects client-side score/passed injection in validator", () => {
+    assert.throws(
+      () => validateSubmitGame({ solution: [], score: 100 }),
+      /Client cannot provide score/i
+    );
+
+    assert.throws(
+      () => validateSubmitGame({ solution: [], metrics: { cheat: 1 } }),
+      /Client cannot provide score/i
+    );
+
+    assert.throws(
+      () => validateSubmitGame({ solution: [], passed: true }),
+      /Client cannot provide score/i
+    );
+  });
+
+  test("9. GameResult Idempotency & Persistence - Idempotent query verification", async () => {
+    const candidateId = "cand_e2e_user_1";
+    const candidateAssessmentId = "ca_e2e_600";
+
+    const attempt = await gameAttemptService.startGame({
+      candidateId,
+      candidateAssessmentId,
+      slug: "zip-pathfinder",
+    });
+
+    const submitted = await gameAttemptService.submitGame({
+      candidateId,
+      candidateAssessmentId,
+      attemptId: attempt.attemptId,
+      solution: { path: [] },
+    });
+
+    const existing = await repository.findGameResult(candidateAssessmentId, attempt.game.id);
+    assert.ok(existing);
+    assert.equal(existing.score, submitted.score);
+  });
+
+  test("10. All 4 Production Engines E2E Cycle - Start, Strip Solution, Submit & Persist Result", async () => {
+    const candidateId = "cand_e2e_cycle_user";
+    const testCases = [
+      { slug: "mini-sudoku", caId: "ca_e2e_cycle_1" },
+      { slug: "mahjong-tile-match", caId: "ca_e2e_cycle_2" },
+      { slug: "zip-pathfinder", caId: "ca_e2e_cycle_3" },
+      { slug: "tango", caId: "ca_e2e_cycle_4" },
+    ];
+
+    for (const { slug, caId } of testCases) {
+      // 1. Start Game
+      const started = await gameAttemptService.startGame({
+        candidateId,
+        candidateAssessmentId: caId,
+        slug,
+      });
+
+      assert.ok(started.attemptId);
+      assert.ok(started.puzzle);
+      assert.equal(started.puzzle.solution, undefined, `Solution must be stripped for ${slug}`);
+      assert.equal(started.puzzle.seed, undefined, `Seed must be stripped for ${slug}`);
+
+      // 2. Fetch server solution for valid submit test
+      const attemptRecord = await repository.findAttemptForCandidate(started.attemptId, caId);
+      const solutionPayload = attemptRecord.puzzleState.solution || { grid: {}, path: [], moves: [] };
+
+      // 3. Submit Game
+      const submitted = await gameAttemptService.submitGame({
+        candidateId,
+        candidateAssessmentId: caId,
+        attemptId: started.attemptId,
+        solution: solutionPayload,
+      });
+
+      assert.ok(submitted.id);
+      assert.equal(typeof submitted.score, "number");
+      assert.equal(submitted.status, "SUBMITTED");
+
+      // 4. Verify GameResult persistence
+      const savedResult = await repository.findGameResult(caId, started.game.id);
+      assert.ok(savedResult, `GameResult must be persisted for ${slug}`);
+      assert.equal(savedResult.score, submitted.score);
+    }
+  });
+});
