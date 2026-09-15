@@ -227,11 +227,24 @@ class AssessmentRepository {
   async transitionStatus(tx, { id, fromStatus, toStatus, data = {} }) {
     const db = getClient(tx);
     try {
+      const existing = await db.assessment.findFirst({
+        where: { id },
+      });
+
+      if (!existing) {
+        return null;
+      }
+
+      if (existing.status === toStatus) {
+        return this.findById(id, { detailed: true }, tx);
+      }
+
+      if (fromStatus && existing.status !== fromStatus) {
+        return null;
+      }
+
       return await db.assessment.update({
-        where: {
-          id,
-          status: fromStatus,
-        },
+        where: { id },
         data: {
           ...data,
           status: toStatus,
