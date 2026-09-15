@@ -458,16 +458,63 @@ class AssessmentRepository {
     }
 
     const cleanGameIds = gameIds.filter(Boolean);
-    const records = cleanGameIds.map((gameId, idx) => ({
-      assessmentId,
-      gameId: String(gameId),
-      sequence: idx + 1,
-      weight: 1.0,
-    }));
+    const records = [];
 
-    await db.assessmentGame.createMany({
-      data: records,
-    });
+    for (let idx = 0; idx < cleanGameIds.length; idx++) {
+      const rawId = String(cleanGameIds[idx]).trim();
+      let targetGameId = null;
+
+      const existingGame = await db.game.findFirst({
+        where: {
+          OR: [
+            { id: rawId },
+            { code: rawId },
+            { code: rawId.toLowerCase() },
+            { code: rawId.toUpperCase() },
+          ],
+          deletedAt: null,
+        },
+      });
+
+      if (existingGame) {
+        targetGameId = existingGame.id;
+      } else {
+        const code = rawId.toLowerCase();
+        const formattedName = code
+          .split(/[-_]/)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+
+        const createdGame = await db.game.upsert({
+          where: { code },
+          create: {
+            code,
+            name: formattedName,
+            description: `${formattedName} Cognitive Game`,
+            isActive: true,
+          },
+          update: {
+            isActive: true,
+          },
+        });
+        targetGameId = createdGame.id;
+      }
+
+      if (targetGameId) {
+        records.push({
+          assessmentId,
+          gameId: targetGameId,
+          sequence: idx + 1,
+          weight: 1.0,
+        });
+      }
+    }
+
+    if (records.length > 0) {
+      await db.assessmentGame.createMany({
+        data: records,
+      });
+    }
 
     return db.assessmentGame.findMany({
       where: { assessmentId },
