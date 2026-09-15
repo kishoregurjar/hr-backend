@@ -687,9 +687,10 @@ class AssessmentService {
     }
 
     const assessmentQuestions = assessment.questions ?? [];
-    if (assessmentQuestions.length === 0) {
+    const assessmentGames = assessment.games ?? [];
+    if (assessmentQuestions.length === 0 && assessmentGames.length === 0) {
       throw new BadRequestError(
-        "At least one question is required before publishing the assessment.",
+        "At least one game or question is required before publishing the assessment.",
         ASSESSMENT_ERRORS.NO_QUESTIONS || "ASSESSMENT_NO_QUESTIONS"
       );
     }
