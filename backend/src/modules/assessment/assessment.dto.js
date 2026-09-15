@@ -146,7 +146,18 @@ class AssessmentDto {
           orderIndex: item.sequence !== undefined ? item.sequence : item.orderIndex,
           sequence: item.sequence !== undefined ? item.sequence : item.orderIndex,
           weight: item.weight,
-          game: item.game || null,
+          game: item.game
+            ? {
+                id: item.game.id,
+                code: item.game.code,
+                name: item.game.name,
+                slug: item.game.code,
+                title: item.game.name,
+                description: item.game.description,
+                category: "Cognitive",
+                isActive: item.game.isActive,
+              }
+            : null,
         })) ?? [],
 
       selectedGameIds:

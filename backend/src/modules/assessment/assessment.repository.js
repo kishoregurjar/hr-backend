@@ -101,11 +101,10 @@ const ASSESSMENT_DETAIL_SELECT = Object.freeze({
       game: {
         select: {
           id: true,
-          slug: true,
-          title: true,
+          code: true,
+          name: true,
           description: true,
-          category: true,
-          thumbnailUrl: true,
+          isActive: true,
         },
       },
     },
