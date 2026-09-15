@@ -1,4 +1,5 @@
 const { StatusCodes } = require("http-status-codes");
+const { prisma } = require("../../config/prisma");
 const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const { ATTEMPT_MESSAGES, ATTEMPT_ERRORS } = require("./attempt.constants");
