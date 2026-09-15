@@ -433,8 +433,12 @@ class AttemptController {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
     const invitation = await attemptService.findInvitationByRawToken(rawToken);
 
-    const company = invitation.candidate?.company || null;
-    const companyName = company?.name || null;
+    const candidateCompany = invitation.candidate?.company || null;
+    const creatorCompany = invitation.assessment?.createdBy?.companyMembers?.[0]?.company || null;
+
+    const company = candidateCompany || creatorCompany || null;
+    const companyName = company?.name || candidateCompany?.name || creatorCompany?.name || null;
+    const companyLogo = company?.logoUrl || candidateCompany?.logoUrl || creatorCompany?.logoUrl || null;
 
     return res.status(200).json({
       success: true,
@@ -448,7 +452,7 @@ class AttemptController {
         assessmentId: invitation.assessmentId,
         candidateId: invitation.candidateId,
         companyName,
-        companyLogo: company?.logoUrl || null,
+        companyLogo,
         company,
         assessment: invitation.assessment,
         candidate: invitation.candidate,

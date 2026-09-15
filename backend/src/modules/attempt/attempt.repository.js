@@ -953,6 +953,24 @@ class AttemptRepository {
               },
             },
             games: true,
+            createdBy: {
+              select: {
+                id: true,
+                name: true,
+                companyMembers: {
+                  take: 1,
+                  select: {
+                    company: {
+                      select: {
+                        id: true,
+                        name: true,
+                        logoUrl: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         candidate: {
