@@ -175,11 +175,11 @@ class AttemptController {
    * Passwordless Candidate Entry Point
    */
   startAttemptByToken = asyncHandler(async (req, res) => {
-    const { token } = req.body || {};
+    const rawToken = req.body?.token || req.body?.invitationToken;
     const candidateSession = req.candidateSession;
 
     const attempt = await attemptService.startAttemptByToken({
-      token,
+      token: rawToken,
       candidateSession,
     });
 
