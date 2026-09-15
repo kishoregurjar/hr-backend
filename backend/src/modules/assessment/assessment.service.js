@@ -753,25 +753,27 @@ class AssessmentService {
       0
     );
 
-    if (totalQuestionMarks <= 0) {
-      throw new BadRequestError(
-        "Assessment must have valid question marks before publishing.",
-        ASSESSMENT_ERRORS.INVALID_TOTAL_MARKS || "ASSESSMENT_INVALID_TOTAL_MARKS"
-      );
-    }
+    if (assessmentQuestions.length > 0) {
+      if (totalQuestionMarks <= 0) {
+        throw new BadRequestError(
+          "Assessment must have valid question marks before publishing.",
+          ASSESSMENT_ERRORS.INVALID_TOTAL_MARKS || "ASSESSMENT_INVALID_TOTAL_MARKS"
+        );
+      }
 
-    if (totalQuestionMarks > assessment.maximumScore) {
-      throw new BadRequestError(
-        `Total question marks (${totalQuestionMarks}) cannot exceed assessment maximum score (${assessment.maximumScore}).`,
-        ASSESSMENT_ERRORS.INVALID_TOTAL_MARKS || "ASSESSMENT_INVALID_TOTAL_MARKS"
-      );
-    }
+      if (totalQuestionMarks > assessment.maximumScore) {
+        throw new BadRequestError(
+          `Total question marks (${totalQuestionMarks}) cannot exceed assessment maximum score (${assessment.maximumScore}).`,
+          ASSESSMENT_ERRORS.INVALID_TOTAL_MARKS || "ASSESSMENT_INVALID_TOTAL_MARKS"
+        );
+      }
 
-    if (assessment.passingScore > totalQuestionMarks) {
-      throw new BadRequestError(
-        `Passing score (${assessment.passingScore}) cannot be greater than the total available question marks (${totalQuestionMarks}).`,
-        ASSESSMENT_ERRORS.INVALID_PASSING_SCORE || "ASSESSMENT_INVALID_PASSING_SCORE"
-      );
+      if (assessment.passingScore > totalQuestionMarks) {
+        throw new BadRequestError(
+          `Passing score (${assessment.passingScore}) cannot be greater than the total available question marks (${totalQuestionMarks}).`,
+          ASSESSMENT_ERRORS.INVALID_PASSING_SCORE || "ASSESSMENT_INVALID_PASSING_SCORE"
+        );
+      }
     }
 
     if (
