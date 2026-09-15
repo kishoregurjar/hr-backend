@@ -143,7 +143,8 @@ class AssessmentDto {
       games:
         assessment.games?.map((item) => ({
           gameId: item.gameId,
-          orderIndex: item.orderIndex,
+          orderIndex: item.sequence !== undefined ? item.sequence : item.orderIndex,
+          sequence: item.sequence !== undefined ? item.sequence : item.orderIndex,
           weight: item.weight,
           game: item.game || null,
         })) ?? [],
