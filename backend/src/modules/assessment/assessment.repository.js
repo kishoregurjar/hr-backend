@@ -91,12 +91,12 @@ const ASSESSMENT_DETAIL_SELECT = Object.freeze({
   },
   games: {
     orderBy: {
-      orderIndex: "asc",
+      sequence: "asc",
     },
     select: {
       assessmentId: true,
       gameId: true,
-      orderIndex: true,
+      sequence: true,
       weight: true,
       game: {
         select: {
@@ -474,7 +474,7 @@ class AssessmentRepository {
     const records = cleanGameIds.map((gameId, idx) => ({
       assessmentId,
       gameId: String(gameId),
-      orderIndex: idx,
+      sequence: idx + 1,
       weight: 1.0,
     }));
 

@@ -3,7 +3,23 @@
 const { AppError } = require("./app-error");
 
 const handlePrismaError = (error) => {
-  if (!error || !error.code) {
+  if (!error) {
+    return null;
+  }
+
+  // Handle PrismaClientValidationError / Raw Query Dumps
+  if (
+    error.name === "PrismaClientValidationError" ||
+    (typeof error.message === "string" && error.message.includes("Invalid `db."))
+  ) {
+    return new AppError("Database request validation failed. Please verify submitted fields.", {
+      statusCode: 400,
+      code: "INVALID_QUERY_ARGUMENT",
+      isOperational: true,
+    });
+  }
+
+  if (!error.code) {
     return null;
   }
 
