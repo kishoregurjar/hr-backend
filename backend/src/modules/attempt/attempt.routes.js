@@ -248,23 +248,6 @@ router.post(
   }
 );
 
-/**
- * Dedicated Candidate & Attempt/Invitation GET List Dispatcher
- * - GET /api/v1/candidates -> getCandidates
- * - GET /api/v1/invitations | /attempts -> getHRAttemptResults
- */
-router.get(
-  ["/", "/invitations", "/candidates"],
-  adminRateLimiter,
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  (req, res, next) => {
-    const urlPath = (req.originalUrl || req.baseUrl || "").toLowerCase();
-    if (urlPath.includes("/candidates")) {
-      return attemptController.getCandidates(req, res, next);
-    }
-    return attemptController.getHRAttemptResults(req, res, next);
-  }
-);
 
 /**
  * Candidate Email Sync Endpoint Alias
