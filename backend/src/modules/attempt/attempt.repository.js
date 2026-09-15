@@ -953,6 +953,26 @@ class AttemptRepository {
               },
             },
             games: true,
+            createdBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                companyMembers: {
+                  select: {
+                    role: true,
+                    company: {
+                      select: {
+                        id: true,
+                        name: true,
+                        logoUrl: true,
+                        slug: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         candidate: {
@@ -2097,6 +2117,14 @@ class AttemptRepository {
         firstName: true,
         lastName: true,
         phoneNumber: true,
+        companyId: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+            logoUrl: true,
+          },
+        },
         createdAt: true,
         updatedAt: true,
         invitations: {

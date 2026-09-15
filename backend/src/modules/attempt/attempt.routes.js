@@ -140,15 +140,21 @@ router.post(
 router.use(requireAuth);
 
 /**
- * Get Paginated HR Attempt Results List (HR / Super Admin)
- * GET /api/v1/attempts
+ * Get Candidates List OR HR Attempt Results (Central Root Dispatcher)
+ * GET /api/v1/candidates -> getCandidates
+ * GET /api/v1/attempts | /api/v1/invitations -> getHRAttemptResults
  */
 router.get(
-  "/",
+  ["/", "/candidates", "/invitations"],
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(attemptResultQuerySchema, "query"),
-  attemptController.getHRAttemptResults
+  (req, res, next) => {
+    const urlPath = (req.originalUrl || req.baseUrl || "").toLowerCase();
+    if (urlPath.includes("/candidates")) {
+      return attemptController.getCandidates(req, res, next);
+    }
+    return attemptController.getHRAttemptResults(req, res, next);
+  }
 );
 
 /**

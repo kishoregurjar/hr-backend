@@ -40,6 +40,18 @@ const ASSESSMENT_DETAIL_SELECT = Object.freeze({
       id: true,
       name: true,
       email: true,
+      companyMembers: {
+        select: {
+          role: true,
+          company: {
+            select: {
+              id: true,
+              name: true,
+              logoUrl: true,
+            },
+          },
+        },
+      },
     },
   },
   questions: {

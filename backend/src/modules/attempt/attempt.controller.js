@@ -71,7 +71,14 @@ class AttemptController {
    */
   createCandidate = asyncHandler(async (req, res) => {
     const { email, firstName, lastName, phoneNumber } = req.body || {};
-    const companyId = req.company?.id || req.user?.companyId || null;
+    let companyId = req.company?.id || req.user?.companyId || null;
+    if (!companyId && req.user?.id) {
+      const member = await prisma.companyMember.findFirst({
+        where: { userId: req.user.id },
+        select: { companyId: true },
+      });
+      if (member?.companyId) companyId = member.companyId;
+    }
 
     const candidate = await attemptService.createCandidate({
       email,
@@ -425,16 +432,31 @@ class AttemptController {
   });
 
   /**
-   * Verify Candidate Invitation Token (Public)
-   * GET /api/v1/attempts/verify/:token
+   * Verify Candidate Invitation Handler (Passwordless Entrance)
    * GET /api/v1/invitations/verify/:token
    */
   verifyInvitation = asyncHandler(async (req, res) => {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
     const invitation = await attemptService.findInvitationByRawToken(rawToken);
 
-    const company = invitation.candidate?.company || null;
+    // Resolve company from candidate OR assessment creator's companyMember
+    let company =
+      invitation.candidate?.company ||
+      invitation.assessment?.createdBy?.companyMembers?.[0]?.company ||
+      null;
+
+    if (!company && invitation.assessment?.createdById) {
+      const creatorMember = await prisma.companyMember.findFirst({
+        where: { userId: invitation.assessment.createdById },
+        select: { company: { select: { id: true, name: true, logoUrl: true, slug: true } } },
+      });
+      if (creatorMember?.company) {
+        company = creatorMember.company;
+      }
+    }
+
     const companyName = company?.name || null;
+    const companyLogo = company?.logoUrl || null;
 
     return res.status(200).json({
       success: true,
@@ -448,10 +470,20 @@ class AttemptController {
         assessmentId: invitation.assessmentId,
         candidateId: invitation.candidateId,
         companyName,
-        companyLogo: company?.logoUrl || null,
+        companyLogo,
         company,
-        assessment: invitation.assessment,
-        candidate: invitation.candidate,
+        assessment: {
+          ...invitation.assessment,
+          companyName,
+          companyLogo,
+          company,
+        },
+        candidate: {
+          ...invitation.candidate,
+          companyName,
+          companyLogo,
+          company,
+        },
       },
       meta: null,
     });
@@ -510,10 +542,19 @@ class AttemptController {
    * GET /api/v1/candidates
    */
   getCandidates = asyncHandler(async (req, res) => {
+    let companyId = req.company?.id || req.user?.companyId || null;
+    if (!companyId && req.user?.id) {
+      const member = await prisma.companyMember.findFirst({
+        where: { userId: req.user.id },
+        select: { companyId: true },
+      });
+      if (member?.companyId) companyId = member.companyId;
+    }
+
     const result = await attemptService.getCandidates({
       query: req.query,
       user: req.user,
-      companyId: req.company?.id || req.user?.companyId || null,
+      companyId,
     });
 
     return SuccessResponse.send(

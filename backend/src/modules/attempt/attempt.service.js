@@ -380,7 +380,17 @@ class AttemptService {
       // 3. Verify or auto-create candidate profile by email/id/name with active company binding
       let candidateProfile = null;
       const normalizedEmail = typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
-      const effectiveCompanyId = assessment.companyId || null;
+      
+      let effectiveCompanyId = assessment.companyId || null;
+      if (!effectiveCompanyId && invitedByUserId) {
+        const hrMember = await tx.companyMember.findFirst({
+          where: { userId: invitedByUserId },
+          select: { companyId: true },
+        });
+        if (hrMember?.companyId) {
+          effectiveCompanyId = hrMember.companyId;
+        }
+      }
 
       if (candidateId || normalizedEmail) {
         candidateProfile = await tx.candidateProfile.findFirst({
