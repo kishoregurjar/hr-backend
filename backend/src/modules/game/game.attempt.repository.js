@@ -6,6 +6,8 @@ const prisma = prismaRaw.prisma || prismaRaw;
 const inMemoryGameResults = new Map();
 const inMemoryGameAttempts = new Map();
 
+const inMemoryCandidateAssessments = new Map();
+
 async function findCandidateAssessment(candidateAssessmentId, candidateId) {
   try {
     if (prisma && prisma.candidateAttempt) {
@@ -37,7 +39,21 @@ async function findCandidateAssessment(candidateAssessmentId, candidateId) {
     // Fallback
   }
 
-  return { id: candidateAssessmentId, candidateId, assessment: { id: "ass_1", status: "PUBLISHED", durationMinutes: 60 } };
+  const existing = inMemoryCandidateAssessments.get(candidateAssessmentId);
+  if (existing) {
+    if (candidateId && existing.candidateId !== candidateId) {
+      return null;
+    }
+    return existing;
+  }
+
+  const created = {
+    id: candidateAssessmentId,
+    candidateId,
+    assessment: { id: "ass_1", status: "PUBLISHED", durationMinutes: 60 },
+  };
+  inMemoryCandidateAssessments.set(candidateAssessmentId, created);
+  return created;
 }
 
 async function findAssessmentGame(assessmentId, gameId) {
@@ -128,10 +144,12 @@ async function findActiveAttempt(candidateAssessmentId, gameId) {
 }
 
 async function createAttempt({ candidateAssessmentId, gameId, puzzleState, expiresAt }) {
+  const gameObj = await findGameByCode(gameId);
   const attemptObj = {
     id: `attempt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     candidateAssessmentId,
     gameId,
+    game: gameObj || { id: gameId, code: gameId, isActive: true },
     status: "IN_PROGRESS",
     puzzleVersion: 1,
     puzzleState,
@@ -153,9 +171,13 @@ async function createAttempt({ candidateAssessmentId, gameId, puzzleState, expir
           status: "IN_PROGRESS",
         },
       });
-      inMemoryGameAttempts.set(created.id, created);
-      inMemoryGameAttempts.set(`${candidateAssessmentId}_${gameId}`, created);
-      return created;
+      const enriched = {
+        ...created,
+        game: created.game || gameObj || { id: gameId, code: gameId, isActive: true },
+      };
+      inMemoryGameAttempts.set(created.id, enriched);
+      inMemoryGameAttempts.set(`${candidateAssessmentId}_${gameId}`, enriched);
+      return enriched;
     }
   } catch (_err) {
     // Fallback to memory object
@@ -167,10 +189,7 @@ async function createAttempt({ candidateAssessmentId, gameId, puzzleState, expir
 async function findAttemptForCandidate(attemptId, candidateAssessmentId) {
   const mem = inMemoryGameAttempts.get(attemptId);
   if (mem && mem.candidateAssessmentId === candidateAssessmentId) {
-    return {
-      ...mem,
-      game: mem.game || { id: mem.gameId, code: "ZIP_PATHFINDER", isActive: true },
-    };
+    return mem;
   }
 
   try {

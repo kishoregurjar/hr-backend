@@ -13,13 +13,13 @@ test.describe("Mahjong Tile Match Engine", () => {
     });
 
     assert.equal(result.version, 1);
-    assert.equal(result.puzzle.rows, 5);
-    assert.equal(result.puzzle.cols, 6);
+    assert.equal(result.puzzle.rows, 6);
+    assert.equal(result.puzzle.cols, 8);
 
-    assert.equal(result.puzzle.board.length, 5);
+    assert.equal(result.puzzle.board.length, 6);
 
     for (const row of result.puzzle.board) {
-      assert.equal(row.length, 6);
+      assert.equal(row.length, 8);
     }
   });
 
@@ -51,7 +51,7 @@ test.describe("Mahjong Tile Match Engine", () => {
     assert.notDeepEqual(first.puzzle.board, second.puzzle.board);
   });
 
-  test("easy board contains 30 tiles", () => {
+  test("easy board contains 48 tiles", () => {
     const result = engine.generatePuzzle({
       difficulty: "easy",
       seed: "tile-count",
@@ -59,10 +59,10 @@ test.describe("Mahjong Tile Match Engine", () => {
 
     const tiles = result.puzzle.board.flat().filter(Boolean);
 
-    assert.equal(tiles.length, 30);
+    assert.equal(tiles.length, 48);
   });
 
-  test("medium board contains 48 tiles", () => {
+  test("medium board contains 80 tiles", () => {
     const result = engine.generatePuzzle({
       difficulty: "medium",
       seed: "medium-count",
@@ -70,10 +70,10 @@ test.describe("Mahjong Tile Match Engine", () => {
 
     const tiles = result.puzzle.board.flat().filter(Boolean);
 
-    assert.equal(tiles.length, 48);
+    assert.equal(tiles.length, 80);
   });
 
-  test("hard board contains 80 tiles", () => {
+  test("hard board contains 120 tiles", () => {
     const result = engine.generatePuzzle({
       difficulty: "hard",
       seed: "hard-count",
@@ -81,7 +81,7 @@ test.describe("Mahjong Tile Match Engine", () => {
 
     const tiles = result.puzzle.board.flat().filter(Boolean);
 
-    assert.equal(tiles.length, 80);
+    assert.equal(tiles.length, 120);
   });
 
   test("every tile design occurs in pairs", () => {

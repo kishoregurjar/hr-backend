@@ -184,6 +184,18 @@ class GameAttemptService {
       );
     }
 
+    const candidateAssessment = await repository.findCandidateAssessment(
+      candidateAssessmentId,
+      candidateId
+    );
+
+    if (!candidateAssessment) {
+      throw new NotFoundError(
+        "Candidate assessment not found",
+        GAME_ATTEMPT_CONSTANTS.ERROR_CODES.CANDIDATE_ASSESSMENT_NOT_FOUND
+      );
+    }
+
     const attempt = await repository.findAttemptForCandidate(
       attemptId,
       candidateAssessmentId
@@ -261,6 +273,7 @@ class GameAttemptService {
       elapsedMs,
       verifiedAt: now.toISOString(),
       valid: isValidSolution,
+      completed: isValidSolution,
       reason: verification?.reason || null,
       error: verification?.error || null,
       ...engineMetrics,

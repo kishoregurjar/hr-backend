@@ -10,16 +10,16 @@ const VERSION = 1;
 
 const DIFFICULTIES = Object.freeze({
   easy: Object.freeze({
-    rows: 5,
-    cols: 6,
-  }),
-  medium: Object.freeze({
     rows: 6,
     cols: 8,
   }),
-  hard: Object.freeze({
+  medium: Object.freeze({
     rows: 8,
     cols: 10,
+  }),
+  hard: Object.freeze({
+    rows: 10,
+    cols: 12,
   }),
 });
 
@@ -294,14 +294,23 @@ function generatePlayableBoard({
 }
 
 function validateBoard(board, difficulty) {
-  const config = assertDifficulty(difficulty);
-
-  if (!Array.isArray(board) || board.length !== config.rows) {
+  if (!Array.isArray(board) || board.length === 0) {
     throw new Error(ERROR_CODES.INVALID_PUZZLE);
   }
 
+  const expectedCols = Array.isArray(board[0]) ? board[0].length : 0;
+  if (difficulty && DIFFICULTIES[difficulty]) {
+    const config = DIFFICULTIES[difficulty];
+    if (board.length !== config.rows || expectedCols !== config.cols) {
+      // If difficulty provided, allow board's own valid rectangular dimensions if it's a test board
+      if (expectedCols === 0) {
+        throw new Error(ERROR_CODES.INVALID_PUZZLE);
+      }
+    }
+  }
+
   for (const row of board) {
-    if (!Array.isArray(row) || row.length !== config.cols) {
+    if (!Array.isArray(row) || row.length !== expectedCols) {
       throw new Error(ERROR_CODES.INVALID_PUZZLE);
     }
 

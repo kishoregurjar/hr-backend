@@ -555,9 +555,12 @@ function calculateScore({
     );
   }
 
+  const start = startedAt instanceof Date ? startedAt : new Date(startedAt);
+  const submitted = submittedAt instanceof Date ? submittedAt : new Date(submittedAt);
+
   if (
-    !(startedAt instanceof Date) ||
-    !(submittedAt instanceof Date)
+    isNaN(start.getTime()) ||
+    isNaN(submitted.getTime())
   ) {
     throw new TypeError(
       "Invalid game timestamps"
@@ -565,8 +568,8 @@ function calculateScore({
   }
 
   const elapsedMs =
-    submittedAt.getTime() -
-    startedAt.getTime();
+    submitted.getTime() -
+    start.getTime();
 
   if (
     !Number.isFinite(elapsedMs) ||
