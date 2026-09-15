@@ -52,6 +52,21 @@ const toAssessmentSummary = (assessment) => {
     maximumScore: assessment.maximumScore ?? null,
     type: assessment.type ?? null,
     difficulty: assessment.difficulty ?? null,
+    games: Array.isArray(assessment.games)
+      ? assessment.games.map((ag) => {
+          const g = ag.game || ag;
+          return {
+            id: g.id || ag.gameId,
+            gameId: g.id || ag.gameId,
+            code: g.code || g.slug || ag.gameId,
+            slug: g.slug || g.code || ag.gameId,
+            title: g.title || g.name || "Cognitive Game",
+            name: g.name || g.title || "Cognitive Game",
+            sequence: ag.sequence ?? 1,
+            weight: ag.weight ?? 1,
+          };
+        })
+      : [],
   };
 };
 
@@ -426,6 +441,21 @@ const toCandidateCurrentAttemptResponse = (attempt, serverTime = new Date().toIS
           maximumScore: serializeNumber(attempt.assessment.maximumScore),
           type: attempt.assessment.type,
           difficulty: attempt.assessment.difficulty,
+          games: Array.isArray(attempt.assessment.games)
+            ? attempt.assessment.games.map((ag) => {
+                const g = ag.game || ag;
+                return {
+                  id: g.id || ag.gameId,
+                  gameId: g.id || ag.gameId,
+                  code: g.code || g.slug || ag.gameId,
+                  slug: g.slug || g.code || ag.gameId,
+                  title: g.title || g.name || "Cognitive Game",
+                  name: g.name || g.title || "Cognitive Game",
+                  sequence: ag.sequence ?? 1,
+                  weight: ag.weight ?? 1,
+                };
+              })
+            : [],
         }
       : null,
     questions: (attempt.questions || attempt.attemptQuestions || []).map((attemptQuestion) => {
