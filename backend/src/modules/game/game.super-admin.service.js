@@ -14,31 +14,33 @@ const { GAME_SUPER_ADMIN_CONSTANTS } = require("./game.super-admin.constants");
 const inMemoryGameStatus = new Map();
 
 async function listGames() {
-  const dbGames = await repository.findAllGames();
+  const dbGames = (await repository.findAllGames()) || [];
   const allMetadata = getAllGameMetadata();
 
-  if (dbGames && dbGames.length > 0) {
-    return dbGames.map((game) => {
-      const metadata = getGameMetadataByCode(game.code) || getGameMetadataBySlug(game.code);
-      return mapper.mapGame(game, metadata);
-    });
-  }
+  const dbGameMap = new Map();
+  dbGames.forEach((g) => {
+    if (g.code) dbGameMap.set(String(g.code).toLowerCase(), g);
+    if (g.id) dbGameMap.set(String(g.id).toLowerCase(), g);
+  });
 
-  // Fallback to static registry metadata + inMemory status override
   return allMetadata.map((metadata) => {
+    const codeKey = String(metadata.code || metadata.slug || "").toLowerCase();
+    const idKey = String(metadata.id || "").toLowerCase();
+    const dbMatch = dbGameMap.get(codeKey) || dbGameMap.get(idKey);
+
     const memoryStatus = inMemoryGameStatus.get(metadata.code) ?? inMemoryGameStatus.get(metadata.id) ?? true;
-    return mapper.mapGame(
-      {
-        id: metadata.id,
-        code: metadata.code,
-        name: metadata.name,
-        description: metadata.description,
-        isActive: memoryStatus,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      metadata
-    );
+
+    const gameEntity = dbMatch || {
+      id: metadata.id,
+      code: metadata.code,
+      name: metadata.name,
+      description: metadata.description,
+      isActive: memoryStatus,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    return mapper.mapGame(gameEntity, metadata);
   });
 }
 
