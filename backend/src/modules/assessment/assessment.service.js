@@ -820,7 +820,7 @@ class AssessmentService {
             },
           },
           data: {
-            sequence: sortedAssessmentQuestions[i].sequence,
+            orderIndex: sortedAssessmentQuestions[i].sequence || sortedAssessmentQuestions[i].orderIndex || (i + 1),
           },
         });
       }
