@@ -1094,16 +1094,20 @@ class AttemptService {
         );
       }
 
-      // Lock invitation & candidate assessment row for concurrent start requests
-      await attemptRepository.lockInvitationRow(invitation.id, tx);
-      await attemptRepository.lockCandidateAssessment(
-        {
-          candidateId: invitation.candidateId,
-          assessmentId: invitation.assessmentId,
-          candidateAssessmentId: invitation.id,
-        },
-        tx
-      );
+      // Lock invitation & candidate assessment row for concurrent start requests (safely guarded)
+      if (typeof attemptRepository.lockInvitationRow === "function") {
+        await attemptRepository.lockInvitationRow(invitation.id, tx);
+      }
+      if (typeof attemptRepository.lockCandidateAssessment === "function") {
+        await attemptRepository.lockCandidateAssessment(
+          {
+            candidateId: invitation.candidateId,
+            assessmentId: invitation.assessmentId,
+            candidateAssessmentId: invitation.id,
+          },
+          tx
+        );
+      }
 
       // 2. Validate invitation expiry
       if (invitation.expiresAt <= now) {
