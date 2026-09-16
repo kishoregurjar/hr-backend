@@ -732,11 +732,12 @@ class AssessmentService {
 
     // Auto-normalize question sequence numbers (1..N) to heal any existing gaps or starting offsets
     const sortedAssessmentQuestions = [...assessmentQuestions].sort(
-      (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)
+      (a, b) => (a.orderIndex ?? a.sequence ?? 0) - (b.orderIndex ?? b.sequence ?? 0)
     );
 
     sortedAssessmentQuestions.forEach((item, index) => {
       item.sequence = index + 1;
+      item.orderIndex = index + 1;
     });
 
     const sequences = sortedAssessmentQuestions
@@ -753,7 +754,7 @@ class AssessmentService {
     }
 
     const totalQuestionMarks = assessmentQuestions.reduce(
-      (total, item) => total + (item.marks || 0),
+      (total, item) => total + (item.points || item.marks || 1),
       0
     );
 

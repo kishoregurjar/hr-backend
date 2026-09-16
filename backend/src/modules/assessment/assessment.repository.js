@@ -252,6 +252,7 @@ class AssessmentRepository {
         select: ASSESSMENT_DETAIL_SELECT,
       });
     } catch (_err) {
+      console.error("assessmentRepository.transitionStatus error:", _err);
       return null;
     }
   }
