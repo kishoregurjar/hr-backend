@@ -148,7 +148,7 @@ class AttemptController {
       );
     }
 
-    const { assessmentId } = req.params;
+    const assessmentId = req.params?.assessmentId || req.body?.assessmentId;
     const { candidateIds, candidates, expiresAt } = req.body;
 
     const result = await attemptService.createBulkInvitations({
