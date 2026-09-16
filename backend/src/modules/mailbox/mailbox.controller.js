@@ -59,6 +59,7 @@ async function getMailboxStatus(req, res, next) {
     const user = getAuthenticatedUser(req);
     const status = await service.getMailboxStatus(user.id);
 
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     return res.status(200).json({
       success: true,
       data: status,
