@@ -6,24 +6,21 @@ const { prisma } = require("../../config/prisma");
  * Get aggregated dashboard statistics in a single parallel query batch
  */
 async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
-  // If companyId is not found, scope to a non-existent company to prevent global data leak
-  const candidateWhere = companyId
-    ? { companyId }
-    : { id: "no-matching-company" };
+  // 1. Fetch assessments created by the user first to obtain valid assessment IDs
+  const userAssessments = userId
+    ? await db.assessment.findMany({
+        where: { createdById: userId },
+        select: { id: true, status: true },
+      })
+    : [];
 
-  const assessmentWhere = userId
-    ? { createdById: userId }
-    : { id: "no-matching-assessment" };
+  const assessmentIds = userAssessments.map((a) => a.id);
+  const totalAssessments = userAssessments.length;
+  const activeAssessments = userAssessments.filter(
+    (a) => a.status === "ACTIVE" || a.status === "PUBLISHED"
+  ).length;
 
-  const invitationWhere = userId
-    ? { assessment: { createdById: userId } }
-    : { id: "no-matching-invitation" };
-
-  const attemptWhere = userId
-    ? { assessment: { createdById: userId } }
-    : { id: "no-matching-attempt" };
-
-  // Fetch user's connected mailbox first to scope email parsed resumes
+  // 2. Fetch user's connected mailbox to scope email parsed resumes
   const userMailbox = userId
     ? await db.userMailbox.findUnique({
         where: { userId },
@@ -36,11 +33,10 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
       })
     : null;
 
+  // 3. Parallel query execution with 100% valid Prisma where clauses
   const [
     totalCandidates,
     parsedResumesCount,
-    totalAssessments,
-    activeAssessments,
     totalInvitations,
     pendingInvitations,
     completedInvitations,
@@ -49,12 +45,10 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
     submittedAttempts,
     recentCandidates,
   ] = await Promise.all([
-    // 1. Total Candidates (Strictly filtered by companyId)
-    db.candidateProfile.count({
-      where: candidateWhere,
-    }),
+    // Total Candidates (Strictly filtered by companyId)
+    companyId ? db.candidateProfile.count({ where: { companyId } }) : 0,
 
-    // 2. Parsed Resumes Count (Scoped to user's connected mailbox)
+    // Parsed Resumes Count (Scoped to user's connected mailbox)
     userMailbox?.email
       ? db.inboundEmailEvent.count({
           where: {
@@ -64,75 +58,76 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
         })
       : 0,
 
-    // 3. Total Assessments (Strictly filtered by user's company/createdById)
-    db.assessment.count({
-      where: assessmentWhere,
-    }),
+    // Total Assessment Invitations
+    assessmentIds.length > 0
+      ? db.invitation.count({
+          where: { assessmentId: { in: assessmentIds } },
+        })
+      : 0,
 
-    // 4. Active/Published Assessments
-    db.assessment.count({
-      where: {
-        ...assessmentWhere,
-        status: { in: ["ACTIVE", "PUBLISHED"] },
-      },
-    }),
+    // Pending Invitations
+    assessmentIds.length > 0
+      ? db.invitation.count({
+          where: {
+            assessmentId: { in: assessmentIds },
+            status: "PENDING",
+          },
+        })
+      : 0,
 
-    // 5. Total Assessment Invitations
-    db.invitation.count({
-      where: invitationWhere,
-    }),
+    // Completed Invitations (Valid InvitationStatus enum: COMPLETED)
+    assessmentIds.length > 0
+      ? db.invitation.count({
+          where: {
+            assessmentId: { in: assessmentIds },
+            status: "COMPLETED",
+          },
+        })
+      : 0,
 
-    // 6. Pending Invitations
-    db.invitation.count({
-      where: {
-        ...invitationWhere,
-        status: "PENDING",
-      },
-    }),
+    // Total Attempts
+    assessmentIds.length > 0
+      ? db.candidateAttempt.count({
+          where: { assessmentId: { in: assessmentIds } },
+        })
+      : 0,
 
-    // 7. Completed Invitations
-    db.invitation.count({
-      where: {
-        ...invitationWhere,
-        status: { in: ["COMPLETED", "SUBMITTED"] },
-      },
-    }),
+    // In Progress Attempts (Valid CandidateAssessmentStatus enum: IN_PROGRESS)
+    assessmentIds.length > 0
+      ? db.candidateAttempt.count({
+          where: {
+            assessmentId: { in: assessmentIds },
+            status: "IN_PROGRESS",
+          },
+        })
+      : 0,
 
-    // 8. Total Attempts
-    db.candidateAttempt.count({
-      where: attemptWhere,
-    }),
+    // Submitted Attempts (Valid CandidateAssessmentStatus enum: SUBMITTED)
+    assessmentIds.length > 0
+      ? db.candidateAttempt.count({
+          where: {
+            assessmentId: { in: assessmentIds },
+            status: "SUBMITTED",
+          },
+        })
+      : 0,
 
-    // 9. In Progress Attempts
-    db.candidateAttempt.count({
-      where: {
-        ...attemptWhere,
-        status: "IN_PROGRESS",
-      },
-    }),
-
-    // 10. Submitted Attempts
-    db.candidateAttempt.count({
-      where: {
-        ...attemptWhere,
-        status: "SUBMITTED",
-      },
-    }),
-
-    // 11. Recent Candidates (Strictly filtered by companyId)
-    db.candidateProfile.findMany({
-      where: candidateWhere,
-      take: 5,
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        phoneNumber: true,
-        createdAt: true,
-      },
-    }),
+    // Recent Candidates (Strictly filtered by companyId)
+    companyId
+      ? db.candidateProfile.findMany({
+          where: { companyId },
+          take: 5,
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+            createdAt: true,
+          },
+        })
+      : [],
   ]);
 
   return {
@@ -168,3 +163,4 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
 module.exports = {
   getDashboardOverviewData,
 };
+
