@@ -24,15 +24,16 @@ const GAMES_METADATA = Object.freeze([
     description:
       "Continuous pathfinding puzzle that evaluates spatial reasoning and planning.",
     category: "COGNITIVE",
-    difficulty: "Medium",
+    difficulty: "Easy",
     duration: 6,
     skill: "Spatial Path Planning",
     scoringMetric: "Path Accuracy & Speed",
     supportedDifficulties: ["EASY", "MEDIUM", "HARD"],
     config: {
-      gridSize: 8,
-      minClues: 10,
-      maxClues: 15,
+      difficulty: "easy",
+      gridSize: 5,
+      minClues: 6,
+      maxClues: 10,
     },
   }),
   Object.freeze({
@@ -44,14 +45,14 @@ const GAMES_METADATA = Object.freeze([
     description:
       "Binary deduction puzzle based on balance and adjacency constraints.",
     category: "COGNITIVE",
-    difficulty: "Medium",
+    difficulty: "Easy",
     duration: 8,
     skill: "Constraint Satisfaction",
     scoringMetric: "Constraint Accuracy & Efficiency",
     supportedDifficulties: ["EASY", "MEDIUM", "HARD"],
     config: {
       size: 6,
-      difficulty: "medium",
+      difficulty: "easy",
     },
   }),
   Object.freeze({
@@ -63,14 +64,14 @@ const GAMES_METADATA = Object.freeze([
     description:
       "6x6 Sudoku puzzle evaluating logical and quantitative reasoning.",
     category: "COGNITIVE",
-    difficulty: "Medium",
+    difficulty: "Easy",
     duration: 10,
     skill: "Logical Deduction",
     scoringMetric: "Completion Time & Error Count",
     supportedDifficulties: ["EASY", "MEDIUM", "HARD"],
     config: {
       size: 6,
-      difficulty: "medium",
+      difficulty: "easy",
     },
   }),
   Object.freeze({
@@ -82,14 +83,14 @@ const GAMES_METADATA = Object.freeze([
     description:
       "Layered tile matching game evaluating visual recognition and processing speed.",
     category: "COGNITIVE",
-    difficulty: "Medium",
+    difficulty: "Easy",
     duration: 7,
     skill: "Visual Scanning & Pattern Matching",
     supportedDifficulties: ["EASY", "MEDIUM", "HARD"],
     config: {
-      difficulty: "medium",
-      rows: 6,
-      cols: 8,
+      difficulty: "easy",
+      rows: 5,
+      cols: 6,
     },
   }),
 ]);
