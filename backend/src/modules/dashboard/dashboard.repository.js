@@ -23,6 +23,19 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
     ? { assessment: { createdById: userId } }
     : { id: "no-matching-attempt" };
 
+  // Fetch user's connected mailbox first to scope email parsed resumes
+  const userMailbox = userId
+    ? await db.userMailbox.findUnique({
+        where: { userId },
+        select: {
+          email: true,
+          isSyncActive: true,
+          lastSyncedAt: true,
+          lastError: true,
+        },
+      })
+    : null;
+
   const [
     totalCandidates,
     parsedResumesCount,
@@ -34,7 +47,6 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
     totalAttempts,
     inProgressAttempts,
     submittedAttempts,
-    userMailbox,
     recentCandidates,
   ] = await Promise.all([
     // 1. Total Candidates (Strictly filtered by companyId)
@@ -42,13 +54,15 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
       where: candidateWhere,
     }),
 
-    // 2. Parsed Resumes Count (Strictly filtered by companyId & Email source)
-    db.candidateProfile.count({
-      where: {
-        ...candidateWhere,
-        source: { contains: "EMAIL", mode: "insensitive" },
-      },
-    }),
+    // 2. Parsed Resumes Count (Scoped to user's connected mailbox)
+    userMailbox?.email
+      ? db.inboundEmailEvent.count({
+          where: {
+            recipientEmail: userMailbox.email,
+            status: "COMPLETED",
+          },
+        })
+      : 0,
 
     // 3. Total Assessments (Strictly filtered by user's company/createdById)
     db.assessment.count({
@@ -105,20 +119,7 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
       },
     }),
 
-    // 11. User Mailbox Connection Status
-    userId
-      ? db.userMailbox.findUnique({
-          where: { userId },
-          select: {
-            email: true,
-            isSyncActive: true,
-            lastSyncedAt: true,
-            lastError: true,
-          },
-        })
-      : null,
-
-    // 12. Recent Candidates (Strictly filtered by companyId)
+    // 11. Recent Candidates (Strictly filtered by companyId)
     db.candidateProfile.findMany({
       where: candidateWhere,
       take: 5,
