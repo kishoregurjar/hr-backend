@@ -37,6 +37,13 @@ router.post(
 );
 
 router.post(
+  "/sync",
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  controller.syncMailboxNow
+);
+
+router.post(
   "/",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
