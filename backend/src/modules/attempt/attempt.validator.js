@@ -243,6 +243,7 @@ const candidateItemSchema = z.union([
 
 const createBulkInvitationSchema = z
   .object({
+    assessmentId: z.string().trim().optional(),
     candidateIds: z
       .array(z.string().trim().min(1))
       .min(1)

@@ -780,6 +780,34 @@ class AttemptService {
       ).length,
     };
 
+    // Automated Email Dispatch for Bulk Invitations
+    const clientUrl = env.frontend.url;
+    for (const job of emailJobs) {
+      try {
+        const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
+        const candidateProfile = candidateMap.get(job.candidateId) || {};
+        const candidateName = (candidateProfile.name || "Candidate").trim();
+
+        const emailContent = buildInvitationEmail({
+          candidateName,
+          assessmentTitle: assessment.title,
+          testLink,
+          expiresAt: job.expiresAt,
+        });
+
+        await sendEmail({
+          to: job.email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html,
+        });
+
+        await attemptRepository.updateInvitationStatus(job.invitationId, "SENT");
+      } catch (err) {
+        console.error(`Failed to send bulk invitation email to ${job.email}:`, err.message);
+      }
+    }
+
     return {
       summary,
       results,
