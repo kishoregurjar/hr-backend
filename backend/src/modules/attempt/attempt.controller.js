@@ -546,7 +546,13 @@ class AttemptController {
    * GET /api/v1/candidates
    */
   getCandidates = asyncHandler(async (req, res) => {
-    let companyId = req.company?.id || req.user?.companyId || null;
+    let companyId =
+      req.headers["x-company-id"] ||
+      req.query?.companyId ||
+      req.company?.id ||
+      req.user?.companyId ||
+      null;
+
     if (!companyId && req.user?.id) {
       const member = await prisma.companyMember.findFirst({
         where: { userId: req.user.id },

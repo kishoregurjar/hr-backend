@@ -3452,9 +3452,11 @@ class AttemptService {
     const skip = (page - 1) * limit;
 
     const where = {};
-    const companyFilter = targetCompanyId
-      ? [{ companyId: targetCompanyId }, { companyId: null }]
-      : null;
+    if (targetCompanyId) {
+      where.companyId = targetCompanyId;
+    } else {
+      where.id = "no-matching-company";
+    }
 
     if (search) {
       const searchFilter = [
@@ -3463,13 +3465,10 @@ class AttemptService {
         { email: { contains: search, mode: "insensitive" } },
       ];
 
-      if (companyFilter) {
-        where.AND = [{ OR: companyFilter }, { OR: searchFilter }];
-      } else {
-        where.OR = searchFilter;
-      }
-    } else if (companyFilter) {
-      where.OR = companyFilter;
+      where.AND = [
+        targetCompanyId ? { companyId: targetCompanyId } : { id: "no-matching-company" },
+        { OR: searchFilter },
+      ];
     }
 
     const [items, total] = await Promise.all([

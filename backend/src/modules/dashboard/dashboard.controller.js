@@ -5,10 +5,23 @@ const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const dashboardService = require("./dashboard.service");
 
+const { prisma } = require("../../config/prisma");
+
 class DashboardController {
   getOverview = asyncHandler(async (req, res) => {
     const userId = req.user?.id;
-    const companyId = req.company?.id;
+    let companyId =
+      req.headers["x-company-id"] ||
+      req.query?.companyId ||
+      req.company?.id;
+
+    if (!companyId && userId) {
+      const member = await prisma.companyMember.findFirst({
+        where: { userId },
+        select: { companyId: true },
+      });
+      companyId = member?.companyId || null;
+    }
 
     const data = await dashboardService.getDashboardOverview({ userId, companyId });
 

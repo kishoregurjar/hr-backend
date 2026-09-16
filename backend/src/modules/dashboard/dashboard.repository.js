@@ -6,9 +6,22 @@ const { prisma } = require("../../config/prisma");
  * Get aggregated dashboard statistics in a single parallel query batch
  */
 async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
+  // If companyId is not found, scope to a non-existent company to prevent global data leak
   const candidateWhere = companyId
-    ? { OR: [{ companyId: companyId }, { companyId: null }] }
-    : {};
+    ? { companyId }
+    : { id: "no-matching-company" };
+
+  const assessmentWhere = userId
+    ? { createdById: userId }
+    : { id: "no-matching-assessment" };
+
+  const invitationWhere = userId
+    ? { assessment: { createdById: userId } }
+    : { id: "no-matching-invitation" };
+
+  const attemptWhere = userId
+    ? { assessment: { createdById: userId } }
+    : { id: "no-matching-attempt" };
 
   const [
     totalCandidates,
@@ -24,50 +37,72 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
     userMailbox,
     recentCandidates,
   ] = await Promise.all([
-    // 1. Total Candidates (filtered by companyId if present)
+    // 1. Total Candidates (Strictly filtered by companyId)
     db.candidateProfile.count({
       where: candidateWhere,
     }),
 
-    // 2. Parsed Resumes Count
-    db.inboundEmailEvent.count({
-      where: { status: "COMPLETED" },
+    // 2. Parsed Resumes Count (Strictly filtered by companyId & Email source)
+    db.candidateProfile.count({
+      where: {
+        ...candidateWhere,
+        source: { contains: "EMAIL", mode: "insensitive" },
+      },
     }),
 
-    // 3. Total Assessments
-    db.assessment.count(),
+    // 3. Total Assessments (Strictly filtered by user's company/createdById)
+    db.assessment.count({
+      where: assessmentWhere,
+    }),
 
     // 4. Active/Published Assessments
     db.assessment.count({
       where: {
+        ...assessmentWhere,
         status: { in: ["ACTIVE", "PUBLISHED"] },
       },
     }),
 
     // 5. Total Assessment Invitations
-    db.invitation.count(),
+    db.invitation.count({
+      where: invitationWhere,
+    }),
 
     // 6. Pending Invitations
     db.invitation.count({
-      where: { status: "PENDING" },
+      where: {
+        ...invitationWhere,
+        status: "PENDING",
+      },
     }),
 
     // 7. Completed Invitations
     db.invitation.count({
-      where: { status: "COMPLETED" },
+      where: {
+        ...invitationWhere,
+        status: { in: ["COMPLETED", "SUBMITTED"] },
+      },
     }),
 
     // 8. Total Attempts
-    db.candidateAttempt.count(),
+    db.candidateAttempt.count({
+      where: attemptWhere,
+    }),
 
     // 9. In Progress Attempts
     db.candidateAttempt.count({
-      where: { status: "IN_PROGRESS" },
+      where: {
+        ...attemptWhere,
+        status: "IN_PROGRESS",
+      },
     }),
 
     // 10. Submitted Attempts
     db.candidateAttempt.count({
-      where: { status: "SUBMITTED" },
+      where: {
+        ...attemptWhere,
+        status: "SUBMITTED",
+      },
     }),
 
     // 11. User Mailbox Connection Status
@@ -83,7 +118,7 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
         })
       : null,
 
-    // 12. Recent Candidates (filtered by companyId if present)
+    // 12. Recent Candidates (Strictly filtered by companyId)
     db.candidateProfile.findMany({
       where: candidateWhere,
       take: 5,
