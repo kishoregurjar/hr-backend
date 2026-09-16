@@ -58,7 +58,7 @@ class AssessmentMapper {
 
       type: data.type || "TECHNICAL",
 
-      status: ASSESSMENT_STATUS.DRAFT,
+      status: data.status || ASSESSMENT_STATUS.DRAFT,
 
       startsAt: data.startsAt ? new Date(data.startsAt) : null,
 
