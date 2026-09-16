@@ -137,31 +137,42 @@ function parseSender(senderStr) {
   return { email: null, name: null };
 }
 
+const activeMailboxSyncs = new Set();
+
 async function syncMailboxForUser(userId) {
-  const mailbox = await repository.findMailboxByUserId(userId);
-  if (!mailbox || !mailbox.refreshToken) {
-    const error = new Error("No connected Google Mailbox found");
-    error.code = "MAILBOX_NOT_CONNECTED";
-    error.statusCode = 404;
+  if (activeMailboxSyncs.has(userId)) {
+    const error = new Error("Mailbox sync is already in progress for your account. Please wait a moment.");
+    error.code = "MAILBOX_SYNC_IN_PROGRESS";
+    error.statusCode = 409;
     throw error;
   }
 
-  const companyMember = await prisma.companyMember.findFirst({
-    where: { userId },
-    select: { companyId: true },
-  });
-  const userCompanyId = companyMember?.companyId || null;
-
-  const oauth2Client = createOAuth2Client();
-  oauth2Client.setCredentials({
-    refresh_token: mailbox.refreshToken,
-  });
-
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-  let processedCount = 0;
+  activeMailboxSyncs.add(userId);
 
   try {
+    const mailbox = await repository.findMailboxByUserId(userId);
+    if (!mailbox || !mailbox.refreshToken) {
+      const error = new Error("No connected Google Mailbox found");
+      error.code = "MAILBOX_NOT_CONNECTED";
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const companyMember = await prisma.companyMember.findFirst({
+      where: { userId },
+      select: { companyId: true },
+    });
+    const userCompanyId = companyMember?.companyId || null;
+
+    const oauth2Client = createOAuth2Client();
+    oauth2Client.setCredentials({
+      refresh_token: mailbox.refreshToken,
+    });
+
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+    let processedCount = 0;
+
     const res = await gmail.users.messages.list({
       userId: "me",
       q: "has:attachment (filename:pdf OR filename:docx)",
@@ -302,7 +313,21 @@ async function syncMailboxForUser(userId) {
     });
 
     if (
+      errorMessage.toLowerCase().includes("invalid_grant") ||
+      errorMessage.toLowerCase().includes("token has been revoked") ||
+      error.code === 401
+    ) {
+      const customError = new Error(
+        "Google Mailbox authorization expired or revoked. Please click Disconnect and reconnect your Gmail account."
+      );
+      customError.code = "GMAIL_AUTH_EXPIRED";
+      customError.statusCode = 401;
+      throw customError;
+    }
+
+    if (
       errorMessage.toLowerCase().includes("insufficient authentication scopes") ||
+      errorMessage.toLowerCase().includes("insufficient permissions") ||
       error.code === 403
     ) {
       const customError = new Error(
@@ -314,6 +339,8 @@ async function syncMailboxForUser(userId) {
     }
 
     throw error;
+  } finally {
+    activeMailboxSyncs.delete(userId);
   }
 }
 
