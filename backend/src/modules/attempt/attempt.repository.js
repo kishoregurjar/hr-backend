@@ -2400,6 +2400,8 @@ class AttemptRepository {
         },
       },
     });
+  }
+
   /**
    * Submit Attempt & Record Final Score
    */
