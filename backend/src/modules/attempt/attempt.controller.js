@@ -276,6 +276,9 @@ class AttemptController {
       const result = await attemptService.submitCandidateAttempt({
         token,
         candidateSession,
+        responses: req.body?.responses,
+        gameResults: req.body?.gameResults,
+        score: req.body?.score,
       });
 
       const responseData = {

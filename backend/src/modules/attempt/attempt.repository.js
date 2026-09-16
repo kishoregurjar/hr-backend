@@ -2400,11 +2400,51 @@ class AttemptRepository {
         },
       },
     });
+  /**
+   * Submit Attempt & Record Final Score
+   */
+  async submitAttempt({ attemptId, score, percentage, passed, result, submittedAt = new Date() }, tx) {
+    const client = tx || prisma;
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    const resultVal = result || (typeof passed === "boolean" ? (passed ? "PASS" : "FAIL") : (passed === "PASSED" ? "PASS" : "FAIL"));
+
+    const updated = await model.update({
+      where: { id: attemptId },
+      data: {
+        status: "SUBMITTED",
+        score: Number(score || 0),
+        percentage: Number(percentage || 0),
+        result: resultVal,
+        submittedAt,
+      },
+    });
+
+    if (client.assessmentResult) {
+      try {
+        await client.assessmentResult.upsert({
+          where: { candidateAssessmentId: attemptId },
+          create: {
+            candidateAssessmentId: attemptId,
+            score: Number(score || 0),
+            percentage: Number(percentage || 0),
+            status: resultVal,
+          },
+          update: {
+            score: Number(score || 0),
+            percentage: Number(percentage || 0),
+            status: resultVal,
+          },
+        });
+      } catch (_e) {}
+    }
+
+    return updated;
   }
 }
 
 const attemptRepository = new AttemptRepository();
 module.exports = attemptRepository;
+module.exports.submitAttempt = attemptRepository.submitAttempt.bind(attemptRepository);
 module.exports.ATTEMPT_BASE_SELECT = ATTEMPT_BASE_SELECT;
 module.exports.ATTEMPT_QUESTION_SELECT = ATTEMPT_QUESTION_SELECT;
 module.exports.ATTEMPT_ANSWER_SELECT = ATTEMPT_ANSWER_SELECT;

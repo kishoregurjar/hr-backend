@@ -3002,9 +3002,26 @@ class AttemptService {
   /**
    * Submit Candidate Assessment Attempt Workflow (Verification Session Integrated)
    */
-  async submitCandidateAttempt({ candidateAssessmentId, candidateSession, token, now = new Date() }) {
-    const effectiveCandidateAssessmentId = candidateAssessmentId || candidateSession?.candidateAssessmentId || candidateSession?.candidateAttemptId;
+  async submitCandidateAttempt({ candidateAssessmentId, candidateSession, token, responses, gameResults, score: clientScore, now = new Date() }) {
+    let effectiveCandidateAssessmentId =
+      candidateAssessmentId ||
+      candidateSession?.candidateAssessmentId ||
+      candidateSession?.candidateAttemptId;
+
     const sessionId = candidateSession?.sessionId;
+
+    if (!effectiveCandidateAssessmentId && token) {
+      try {
+        const invitation = await this.findInvitationByRawToken(token);
+        if (invitation) {
+          const found = await attemptRepository.findActiveAttemptByCandidateAndAssessment(
+            invitation.candidateId,
+            invitation.assessmentId
+          );
+          if (found) effectiveCandidateAssessmentId = found.id;
+        }
+      } catch (_e) {}
+    }
 
     if (!effectiveCandidateAssessmentId && !token) {
       throw new UnauthorizedError(
@@ -3013,16 +3030,25 @@ class AttemptService {
       );
     }
 
-    if (token && !effectiveCandidateAssessmentId) {
-      return this.submitAttemptByToken({ token });
-    }
-
     return attemptRepository.transaction(async (tx) => {
-      let currentAttempt = await attemptRepository.findAttemptById(effectiveCandidateAssessmentId, tx);
-      if (!currentAttempt) {
+      let currentAttempt = effectiveCandidateAssessmentId
+        ? await attemptRepository.findAttemptById(effectiveCandidateAssessmentId, tx)
+        : null;
+
+      if (!currentAttempt && effectiveCandidateAssessmentId) {
         currentAttempt = await attemptRepository.findCurrentAttempt({
           candidateAssessmentId: effectiveCandidateAssessmentId,
         }, tx);
+      }
+
+      if (!currentAttempt && token) {
+        const inv = await this.findInvitationByRawToken(token, tx);
+        if (inv) {
+          currentAttempt = await attemptRepository.findCurrentAttempt({
+            candidateId: inv.candidateId,
+            assessmentId: inv.assessmentId,
+          }, tx);
+        }
       }
 
       if (!currentAttempt) {
@@ -3060,7 +3086,7 @@ class AttemptService {
           submittedAt: lockedAttempt.submittedAt,
           score: Number(lockedAttempt.score || 0),
           percentage: Number(lockedAttempt.percentage || 0),
-          passed: Boolean(lockedAttempt.passed),
+          passed: Boolean(lockedAttempt.passed || lockedAttempt.result === "PASS"),
         };
       }
 
@@ -3093,7 +3119,9 @@ class AttemptService {
 
       attemptFailureService.beforeSubmitEvaluation();
 
-      const evaluations = attempt.questions.map((attemptQuestion) => {
+      const questionsList = Array.isArray(attempt.questions) ? attempt.questions : [];
+
+      const evaluations = questionsList.map((attemptQuestion) => {
         const evalResult = this.evaluateAttemptQuestion({ attemptQuestion });
         if (evalResult.status === ATTEMPT_EVALUATION_STATUS.CORRECT) {
           correctCount += 1;
@@ -3109,25 +3137,56 @@ class AttemptService {
       });
 
       const score = this.calculateAttemptScore(evaluations);
-      const maximumScore = Number(attempt.assessment.maximumScore);
-      const percentage = maximumScore > 0 ? (score.finalScore / maximumScore) * 100 : 0;
-      const normalizedPercentage = Math.min(100, Math.max(0, percentage));
+      const maximumScore = Number(attempt.assessment?.maximumScore || 100);
 
-      const result = this.determineResult({
-        finalScore: score.finalScore,
-        passingScore: attempt.assessment.passingScore,
-      });
+      // 1. Calculate Quiz Percentage
+      const quizPercentage = questionsList.length > 0
+        ? (correctCount / questionsList.length) * 100
+        : null;
+
+      // 2. Calculate Games Composite Score
+      let gameScoreAvg = null;
+      const effectiveGameResults = gameResults || lockedAttempt.gameResults || {};
+      const gameEntries = Object.values(effectiveGameResults).filter((g) => g && typeof g.score === "number");
+
+      if (gameEntries.length > 0) {
+        const totalGamePoints = gameEntries.reduce((sum, g) => sum + Number(g.score || 0), 0);
+        gameScoreAvg = totalGamePoints / gameEntries.length;
+      }
+
+      // 3. Compute Weighted Hybrid Final Percentage
+      let finalPercentage = 0;
+      const quizWeight = Number(attempt.assessment?.quizWeight || 40);
+      const gameWeight = Number(attempt.assessment?.gameWeight || 60);
+
+      if (quizPercentage !== null && gameScoreAvg !== null) {
+        finalPercentage = (quizPercentage * (quizWeight / 100)) + (gameScoreAvg * (gameWeight / 100));
+      } else if (quizPercentage !== null) {
+        finalPercentage = quizPercentage;
+      } else if (gameScoreAvg !== null) {
+        finalPercentage = gameScoreAvg;
+      } else if (typeof clientScore === "number") {
+        finalPercentage = clientScore;
+      } else {
+        finalPercentage = maximumScore > 0 ? (score.finalScore / maximumScore) * 100 : 0;
+      }
+
+      const normalizedPercentage = Number(Math.min(100, Math.max(0, finalPercentage)).toFixed(2));
+      const passingScore = Number(attempt.assessment?.passingScore || 60);
+      const isPassed = normalizedPercentage >= passingScore;
 
       for (const evaluation of evaluations) {
-        await attemptRepository.persistAnswerEvaluation(
-          {
-            answerId: evaluation.attemptQuestion.answers?.[0]?.id,
-            evaluationStatus: evaluation.status,
-            marksAwarded: evaluation.positiveMarks - evaluation.negativeMarks,
-            isCorrect: evaluation.isCorrect,
-          },
-          tx
-        );
+        if (evaluation.attemptQuestion?.answers?.[0]?.id) {
+          await attemptRepository.persistAnswerEvaluation(
+            {
+              answerId: evaluation.attemptQuestion.answers[0].id,
+              evaluationStatus: evaluation.status,
+              marksAwarded: evaluation.positiveMarks - evaluation.negativeMarks,
+              isCorrect: evaluation.isCorrect,
+            },
+            tx
+          );
+        }
       }
 
       attemptFailureService.afterSubmitEvaluation();
@@ -3136,9 +3195,10 @@ class AttemptService {
       const submitted = await attemptRepository.submitAttempt(
         {
           attemptId: attempt.id,
-          score: score.finalScore,
-          percentage: Number(normalizedPercentage.toFixed(2)),
-          passed: result === ATTEMPT_RESULT_STATUS.PASSED,
+          score: normalizedPercentage,
+          percentage: normalizedPercentage,
+          passed: isPassed,
+          result: isPassed ? ATTEMPT_RESULT_STATUS.PASSED : ATTEMPT_RESULT_STATUS.FAILED,
           submittedAt: now,
         },
         tx
@@ -3160,6 +3220,8 @@ class AttemptService {
         assessmentId: attempt.assessmentId,
         metadata: {
           attemptNumber: attempt.attemptNumber,
+          score: normalizedPercentage,
+          passed: isPassed,
         },
         tx,
       });
@@ -3175,10 +3237,10 @@ class AttemptService {
         attemptId: attempt.id,
         status: "SUBMITTED",
         submittedAt: now,
-        score: score.finalScore,
+        score: normalizedPercentage,
         maximumScore,
-        percentage: Number(normalizedPercentage.toFixed(2)),
-        passed: result === ATTEMPT_RESULT_STATUS.PASSED,
+        percentage: normalizedPercentage,
+        passed: isPassed,
         correctCount,
         incorrectCount,
         unansweredCount,
