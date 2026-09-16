@@ -9,7 +9,13 @@ const { prisma } = require("../../config/prisma");
 function createOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  let redirectUri = process.env.GOOGLE_REDIRECT_URI;
+
+  // Auto-heal offline ngrok URLs or missing redirectUri in production
+  if (!redirectUri || redirectUri.includes("ngrok")) {
+    const baseUrl = process.env.BACKEND_URL || process.env.APP_URL || "https://walkingdreamzhrmanagement.up.railway.app";
+    redirectUri = `${baseUrl.replace(/\/$/, "")}/api/v1/mailbox/google/callback`;
+  }
 
   if (!clientId || !clientSecret || !redirectUri) {
     const error = new Error(
