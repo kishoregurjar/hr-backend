@@ -172,125 +172,151 @@ async function syncMailboxForUser(userId) {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
     let processedCount = 0;
+    let pageToken = null;
+    let keepFetching = true;
+    let pagesScanned = 0;
+    const MAX_NEW_RESUMES_PER_BATCH = 15;
+    const MAX_PAGES_PER_SYNC = 5;
 
-    const res = await gmail.users.messages.list({
-      userId: "me",
-      q: "has:attachment (filename:pdf OR filename:docx)",
-      maxResults: 10,
-    });
+    while (keepFetching && processedCount < MAX_NEW_RESUMES_PER_BATCH && pagesScanned < MAX_PAGES_PER_SYNC) {
+      pagesScanned++;
+      const listParams = {
+        userId: "me",
+        q: "has:attachment (filename:pdf OR filename:docx)",
+        maxResults: 25,
+      };
+      if (pageToken) {
+        listParams.pageToken = pageToken;
+      }
 
-    const messages = res.data.messages || [];
+      const res = await gmail.users.messages.list(listParams);
+      const messages = res.data.messages || [];
 
-    for (const msg of messages) {
-      try {
-        // Quick DB check: skip only if this email was already processed AND has a valid resumeProcessingId
-        const existingEvent = await resumeRepository.findInboundEmailEvent(
-          "google_mailbox",
-          msg.id
-        );
+      if (messages.length === 0) {
+        break;
+      }
 
-        if (existingEvent && existingEvent.status === "COMPLETED" && existingEvent.resumeProcessingId) {
-          continue;
-        }
+      for (const msg of messages) {
+        try {
+          if (processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
+            keepFetching = false;
+            break;
+          }
 
-        const fullMsg = await gmail.users.messages.get({
-          userId: "me",
-          id: msg.id,
-        });
+          // DB check: Skip if email was already completed to avoid re-downloading attachments
+          const existingEvent = await resumeRepository.findInboundEmailEvent(
+            "google_mailbox",
+            msg.id
+          );
 
-        const payload = fullMsg.data.payload || {};
-        const headers = payload.headers || [];
-        const subject =
-          headers.find((h) => h.name.toLowerCase() === "subject")?.value || "";
-        const sender =
-          headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
+          if (existingEvent && existingEvent.status === "COMPLETED") {
+            continue;
+          }
 
-        const emailEvent = await resumeRepository.createInboundEmailEventSafely({
-          provider: "google_mailbox",
-          providerMessageId: msg.id,
-          recipientEmail: mailbox.email,
-          senderEmail: sender,
-          subject,
-        });
+          const fullMsg = await gmail.users.messages.get({
+            userId: "me",
+            id: msg.id,
+          });
 
-        const parts = payload.parts || [];
-        let messageProcessed = false;
+          const payload = fullMsg.data.payload || {};
+          const headers = payload.headers || [];
+          const subject =
+            headers.find((h) => h.name.toLowerCase() === "subject")?.value || "";
+          const sender =
+            headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
 
-        for (const part of parts) {
-          if (part.filename && part.body && part.body.attachmentId) {
-            const ext = part.filename.toLowerCase();
-            if (ext.endsWith(".pdf") || ext.endsWith(".docx")) {
-              try {
-                const attachment = await gmail.users.messages.attachments.get({
-                  userId: "me",
-                  messageId: msg.id,
-                  id: part.body.attachmentId,
-                });
+          const emailEvent = await resumeRepository.createInboundEmailEventSafely({
+            provider: "google_mailbox",
+            providerMessageId: msg.id,
+            recipientEmail: mailbox.email,
+            senderEmail: sender,
+            subject,
+          });
 
-                const buffer = Buffer.from(attachment.data.data, "base64");
+          const parts = payload.parts || [];
+          let messageProcessed = false;
 
-                const inferredMime = ext.endsWith(".pdf")
-                  ? "application/pdf"
-                  : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          for (const part of parts) {
+            if (part.filename && part.body && part.body.attachmentId) {
+              const ext = part.filename.toLowerCase();
+              if (ext.endsWith(".pdf") || ext.endsWith(".docx")) {
+                try {
+                  const attachment = await gmail.users.messages.attachments.get({
+                    userId: "me",
+                    messageId: msg.id,
+                    id: part.body.attachmentId,
+                  });
 
-                const resumeResult = await resumeService.processResume({
-                  file: {
-                    buffer,
-                    originalname: part.filename,
-                    mimetype: part.mimeType || inferredMime,
-                    size: buffer.length,
-                  },
-                  source: "INBOUND_EMAIL",
-                  uploadedByUserId: userId,
-                });
+                  const buffer = Buffer.from(attachment.data.data, "base64");
 
-                processedCount++;
-                messageProcessed = true;
+                  const inferredMime = ext.endsWith(".pdf")
+                    ? "application/pdf"
+                    : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-                const extractedData = resumeResult?.extractedData || {};
-                const parsedSender = parseSender(sender);
-                const candidateEmail = extractedData.email || parsedSender.email;
-                const candidateName = extractedData.name || parsedSender.name || "";
+                  const resumeResult = await resumeService.processResume({
+                    file: {
+                      buffer,
+                      originalname: part.filename,
+                      mimetype: part.mimeType || inferredMime,
+                      size: buffer.length,
+                    },
+                    source: "INBOUND_EMAIL",
+                    uploadedByUserId: userId,
+                  });
 
-                if (candidateEmail) {
-                  await resumeRepository.ensureCandidateProfile(
-                    { id: null, email: candidateEmail, name: candidateName },
-                    extractedData,
-                    userCompanyId
+                  processedCount++;
+                  messageProcessed = true;
+
+                  const extractedData = resumeResult?.extractedData || {};
+                  const parsedSender = parseSender(sender);
+                  const candidateEmail = extractedData.email || parsedSender.email;
+                  const candidateName = extractedData.name || parsedSender.name || "";
+
+                  if (candidateEmail) {
+                    await resumeRepository.ensureCandidateProfile(
+                      { id: null, email: candidateEmail, name: candidateName },
+                      extractedData,
+                      userCompanyId
+                    );
+                  }
+
+                  if (emailEvent?.id) {
+                    await resumeRepository.markInboundEmailEventCompleted(
+                      emailEvent.id,
+                      resumeResult?.id || null
+                    );
+                  }
+                } catch (attachmentError) {
+                  console.warn(
+                    `[MailboxSync] Skipping attachment "${part.filename}":`,
+                    attachmentError.message
                   );
                 }
-
-                if (emailEvent?.id) {
-                  await resumeRepository.markInboundEmailEventCompleted(
-                    emailEvent.id,
-                    resumeResult?.id || null
-                  );
-                }
-              } catch (attachmentError) {
-                console.warn(
-                  `[MailboxSync] Skipping attachment "${part.filename}":`,
-                  attachmentError.message
-                );
               }
             }
           }
-        }
 
-        if (
-          !messageProcessed &&
-          emailEvent?.id &&
-          emailEvent.status !== "COMPLETED"
-        ) {
-          await resumeRepository.markInboundEmailEventCompleted(
-            emailEvent.id,
-            null
+          if (
+            !messageProcessed &&
+            emailEvent?.id &&
+            emailEvent.status !== "COMPLETED"
+          ) {
+            await resumeRepository.markInboundEmailEventCompleted(
+              emailEvent.id,
+              null
+            );
+          }
+        } catch (msgError) {
+          console.warn(
+            `[MailboxSync] Error processing message ${msg.id}:`,
+            msgError.message
           );
         }
-      } catch (msgError) {
-        console.warn(
-          `[MailboxSync] Error processing message ${msg.id}:`,
-          msgError.message
-        );
+      }
+
+      pageToken = res.data.nextPageToken;
+      if (!pageToken) {
+        break;
       }
     }
 
