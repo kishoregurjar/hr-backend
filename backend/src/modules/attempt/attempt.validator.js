@@ -189,6 +189,8 @@ const saveAnswerSchema = z
  * Only accepts invitation token.
  * candidateId, attemptId, score, passed, evaluationStatus are forbidden.
  */
+const submitAttemptBodySchema = z.object({}).passthrough();
+
 const submitAttemptSchema = z
   .object({
     token: z.string().trim().optional(),
