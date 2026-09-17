@@ -32,6 +32,17 @@ const requireCandidateVerification = async (req, res, next) => {
     const token = extractBearerToken(req.headers?.authorization);
 
     if (!token) {
+      // If invitation token or attempt identifier is present in body/query, allow request to proceed to token-aware controller
+      if (
+        req.body?.token ||
+        req.body?.invitationToken ||
+        req.body?.candidateAssessmentId ||
+        req.body?.attemptId ||
+        req.query?.token
+      ) {
+        return next();
+      }
+
       throw createSessionError(
         "Candidate verification is required.",
         VERIFICATION_SESSION_ERROR_CODES.INVALID_SESSION,

@@ -269,16 +269,26 @@ class AttemptController {
    * POST /api/v1/attempts/submit
    */
   submitAttempt = asyncHandler(async (req, res) => {
-    const { token } = req.body || {};
+    const {
+      token,
+      invitationToken,
+      attemptId,
+      candidateAssessmentId,
+      responses,
+      gameResults,
+      score,
+    } = req.body || {};
     const candidateSession = req.candidateSession;
 
     const executeSubmission = async () => {
       const result = await attemptService.submitCandidateAttempt({
-        token,
+        token: token || invitationToken,
+        candidateAssessmentId: candidateAssessmentId || attemptId,
+        attemptId: attemptId || candidateAssessmentId,
         candidateSession,
-        responses: req.body?.responses,
-        gameResults: req.body?.gameResults,
-        score: req.body?.score,
+        responses,
+        gameResults,
+        score,
       });
 
       const responseData = {

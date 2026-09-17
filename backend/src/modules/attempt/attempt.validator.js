@@ -189,19 +189,17 @@ const saveAnswerSchema = z
  * Only accepts invitation token.
  * candidateId, attemptId, score, passed, evaluationStatus are forbidden.
  */
-const submitAttemptBodySchema = z.object({}).strict();
-
 const submitAttemptSchema = z
   .object({
-    token: z
-      .string()
-      .trim()
-      .min(68, "Token must be at least 68 characters.")
-      .max(200, "Token is too long.")
-      .regex(/^inv_[a-f0-9]+$/, "Invalid invitation token format.")
-      .optional(),
+    token: z.string().trim().optional(),
+    invitationToken: z.string().trim().optional(),
+    attemptId: z.string().trim().optional(),
+    candidateAssessmentId: z.string().trim().optional(),
+    responses: z.any().optional(),
+    gameResults: z.any().optional(),
+    score: z.coerce.number().optional(),
   })
-  .strict();
+  .passthrough();
 
 /**
  * ==========================================================

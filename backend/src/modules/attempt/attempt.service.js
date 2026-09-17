@@ -3254,6 +3254,21 @@ class AttemptService {
         tx,
       });
 
+      if (attempt.candidateId && attempt.assessmentId) {
+        try {
+          const db = tx || prisma;
+          await db.invitation.updateMany({
+            where: {
+              candidateId: attempt.candidateId,
+              assessmentId: attempt.assessmentId,
+            },
+            data: {
+              status: "COMPLETED",
+            },
+          });
+        } catch (_invErr) {}
+      }
+
       if (sessionId) {
         await attemptRepository.revokeVerificationSession({ id: sessionId, revokedAt: now }, tx);
       }
