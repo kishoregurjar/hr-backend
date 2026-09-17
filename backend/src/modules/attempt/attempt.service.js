@@ -3058,7 +3058,7 @@ class AttemptService {
       );
     }
 
-    return attemptRepository.transaction(async (tx) => {
+    return runTransaction(async (tx) => {
       let currentAttempt = effectiveCandidateAssessmentId
         ? await attemptRepository.findAttemptById(effectiveCandidateAssessmentId, tx)
         : null;
