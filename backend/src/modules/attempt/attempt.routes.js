@@ -136,6 +136,14 @@ router.post(
   attemptController.submitAttempt
 );
 
+/**
+ * Direct Candidate Attempt Detail Recovery (Candidate Safe)
+ * GET /api/v1/attempts/candidate/:attemptId
+ * GET /api/v1/attempts/candidate-session/:attemptId
+ */
+router.get("/candidate/:attemptId", attemptController.getCandidateAttempt);
+router.get("/candidate-session/:attemptId", attemptController.getCandidateAttempt);
+
 // Protected routes below require JWT authentication
 router.use(requireAuth);
 

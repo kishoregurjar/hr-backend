@@ -236,6 +236,28 @@ class AttemptController {
   });
 
   /**
+   * Candidate Direct Attempt Recovery Handler
+   * GET /api/v1/attempts/candidate/:attemptId
+   * GET /api/v1/attempts/candidate-session/:attemptId
+   */
+  getCandidateAttempt = asyncHandler(async (req, res) => {
+    const { attemptId } = req.params;
+    const attempt = await attemptRepository.findAttemptById(attemptId);
+    if (!attempt) {
+      throw new NotFoundError("Assessment attempt not found.", ATTEMPT_ERRORS.NOT_FOUND);
+    }
+    const response = toCandidateResponse(attempt);
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Assessment attempt retrieved successfully.",
+        data: response,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
    * Save Answer Handler
    * POST /api/v1/attempts/save-answer
    * Passwordless Candidate Real-Time Autosave Engine Point

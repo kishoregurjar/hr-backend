@@ -93,26 +93,53 @@ const toCandidateOptionResponse = (option) => {
  */
 const toCandidateQuestionResponse = (attemptQuestion) => {
   if (!attemptQuestion) return null;
-  const question = attemptQuestion.question || null;
+  const snapshot = typeof attemptQuestion.questionSnapshot === "string"
+    ? (() => { try { return JSON.parse(attemptQuestion.questionSnapshot); } catch (e) { return {}; } })()
+    : (attemptQuestion.questionSnapshot || {});
+
+  const baseQuestion = attemptQuestion.question || (Object.keys(snapshot).length > 0 ? snapshot : null) || attemptQuestion;
+  const rawOptions = (baseQuestion.options && baseQuestion.options.length > 0)
+    ? baseQuestion.options
+    : (snapshot.options || attemptQuestion.options || []);
+
+  const titleVal = baseQuestion.content || snapshot.content || baseQuestion.title || snapshot.title || "";
+  const codeSnippetVal = baseQuestion.codeSnippet || snapshot.codeSnippet || null;
+  const explanationVal = baseQuestion.explanation || snapshot.explanation || null;
+
+  const formattedOptions = rawOptions.map((option) => {
+    const val = option.optionText ?? option.text ?? option.content ?? option.label ?? "";
+    return {
+      id: option.id,
+      text: val,
+      optionText: val,
+      content: val,
+      label: val,
+      sequence: option.sequence ?? null,
+    };
+  });
 
   return {
-    id: attemptQuestion.id,
-    questionId: attemptQuestion.questionId,
+    id: attemptQuestion.id || baseQuestion.id || attemptQuestion.questionId,
+    questionId: attemptQuestion.questionId || baseQuestion.id,
     sequence: attemptQuestion.sequence,
     marks: serializeNumber(attemptQuestion.marks),
     negativeMarks: serializeNumber(attemptQuestion.negativeMarks),
-    question: question
-      ? {
-          id: question.id,
-          title: question.title ?? null,
-          description: question.description ?? null,
-          type: question.type ?? null,
-          difficulty: question.difficulty ?? null,
-          options: Array.isArray(question.options)
-            ? question.options.map(toCandidateOptionResponse)
-            : [],
-        }
-      : null,
+    content: titleVal,
+    title: titleVal,
+    codeSnippet: codeSnippetVal,
+    explanation: explanationVal,
+    question: {
+      id: baseQuestion.id || attemptQuestion.questionId,
+      title: titleVal,
+      content: titleVal,
+      codeSnippet: codeSnippetVal,
+      explanation: explanationVal,
+      description: baseQuestion.description || snapshot.description || null,
+      type: baseQuestion.type || snapshot.type || "SINGLE_CHOICE",
+      difficulty: baseQuestion.difficulty || snapshot.difficulty || null,
+      options: formattedOptions,
+    },
+    options: formattedOptions,
   };
 };
 
@@ -176,8 +203,27 @@ const toEvaluatedQuestionResponse = (attemptQuestion, answer) => {
  */
 const toCandidateResponse = (attempt) => {
   if (!attempt) return null;
+
+  const rawAttemptQuestions =
+    (Array.isArray(attempt.attemptQuestions) && attempt.attemptQuestions.length > 0 ? attempt.attemptQuestions : null) ||
+    (Array.isArray(attempt.questions) && attempt.questions.length > 0 ? attempt.questions : null) ||
+    (Array.isArray(attempt.assessment?.questions) && attempt.assessment.questions.length > 0 ? attempt.assessment.questions : null) ||
+    [];
+
+  const mappedQuestions = rawAttemptQuestions.map(toCandidateQuestionResponse).filter(Boolean);
+
+  const rawGames =
+    attempt.games ||
+    attempt.assessment?.games ||
+    attempt.assessment?.selectedGameIds ||
+    attempt.assessment?.AssessmentGames ||
+    [];
+
+  const summary = toAssessmentSummary(attempt.assessment);
+
   return {
     id: attempt.id,
+    attemptId: attempt.id,
     assessmentId: attempt.assessmentId,
     attemptNumber: attempt.attemptNumber,
     status: attempt.status,
@@ -185,13 +231,16 @@ const toCandidateResponse = (attempt) => {
     expiresAt: attempt.expiresAt,
     submittedAt: attempt.submittedAt ?? null,
     cancelledAt: attempt.cancelledAt ?? null,
-    questions: Array.isArray(attempt.questions)
-      ? attempt.questions.map(toCandidateQuestionResponse)
-      : [],
+    questions: mappedQuestions,
+    games: Array.isArray(rawGames) ? rawGames : (summary?.games || []),
     answers: Array.isArray(attempt.answers)
       ? attempt.answers.map(toCandidateAnswerResponse)
       : [],
-    assessment: toAssessmentSummary(attempt.assessment),
+    assessment: {
+      ...(summary || {}),
+      games: Array.isArray(rawGames) ? rawGames : (summary?.games || []),
+      questions: mappedQuestions,
+    },
   };
 };
 

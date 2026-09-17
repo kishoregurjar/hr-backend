@@ -19,14 +19,25 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
   percentage: true,
   result: true,
   assessment: {
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      durationMinutes: true,
-      passingScore: true,
-      maximumScore: true,
-      type: true,
+    include: {
+      questions: {
+        orderBy: { orderIndex: "asc" },
+        include: {
+          question: {
+            include: {
+              options: {
+                orderBy: { sequence: "asc" },
+              },
+            },
+          },
+        },
+      },
+      games: {
+        orderBy: { sequence: "asc" },
+        include: {
+          game: true,
+        },
+      },
     },
   },
 });
@@ -779,6 +790,43 @@ class AttemptRepository {
     return attemptModel.findUnique({
       where: {
         id: attemptId,
+      },
+      include: {
+        assessment: {
+          include: {
+            questions: {
+              orderBy: { orderIndex: "asc" },
+              include: {
+                question: {
+                  include: {
+                    options: {
+                      orderBy: { sequence: "asc" },
+                    },
+                  },
+                },
+              },
+            },
+            games: {
+              orderBy: { sequence: "asc" },
+              include: {
+                game: true,
+              },
+            },
+          },
+        },
+        attemptQuestions: {
+          orderBy: { sequence: "asc" },
+          include: {
+            question: {
+              include: {
+                options: {
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
+        },
+        candidate: true,
       },
     });
   }
