@@ -2188,7 +2188,7 @@ class AttemptRepository {
       id: u.id,
       email: u.email,
       firstName: u.name ? u.name.split(" ")[0] : "Candidate",
-      lastName: u.name && u.name.split(" ").length > 1 ? u.name.split(" ").slice(1).join(" ") : "User",
+      lastName: u.name && u.name.split(" ").length > 1 ? u.name.split(" ").slice(1).join(" ") : "",
       phoneNumber: null,
       createdAt: u.createdAt,
       updatedAt: u.updatedAt,
