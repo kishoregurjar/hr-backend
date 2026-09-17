@@ -5,6 +5,14 @@ const repository = require("./mailbox.repository");
 const resumeService = require("../resume/resume.service");
 const resumeRepository = require("../resume/resume.repository");
 const { prisma } = require("../../config/prisma");
+const {
+  AppError,
+  badRequest,
+  unauthorized,
+  forbidden,
+  notFound,
+  conflict,
+} = require("../../utils/app-error");
 
 function createOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -18,12 +26,10 @@ function createOAuth2Client() {
   }
 
   if (!clientId || !clientSecret || !redirectUri) {
-    const error = new Error(
-      "Google OAuth credentials missing in environment variables. Please check Railway setup."
+    throw badRequest(
+      "Google OAuth credentials missing in environment variables. Please check Railway setup.",
+      "GOOGLE_OAUTH_CONFIG_MISSING"
     );
-    error.code = "GOOGLE_OAUTH_CONFIG_MISSING";
-    error.statusCode = 400;
-    throw error;
   }
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
@@ -50,10 +56,7 @@ function getAuthUrl(userId) {
 
 async function handleCallback(code, userId) {
   if (!code) {
-    const error = new Error("Authorization code is required");
-    error.code = "AUTH_CODE_REQUIRED";
-    error.statusCode = 400;
-    throw error;
+    throw badRequest("Authorization code is required", "AUTH_CODE_REQUIRED");
   }
 
   const oauth2Client = createOAuth2Client();
@@ -65,21 +68,16 @@ async function handleCallback(code, userId) {
   const userEmail = userInfo.data.email;
 
   if (!userEmail) {
-    const error = new Error("Failed to retrieve Google user email");
-    error.code = "GOOGLE_EMAIL_FETCH_FAILED";
-    error.statusCode = 400;
-    throw error;
+    throw badRequest("Failed to retrieve Google user email", "GOOGLE_EMAIL_FETCH_FAILED");
   }
 
   if (!tokens.refresh_token) {
     const existing = await repository.findMailboxByUserId(userId);
     if (!existing || !existing.refreshToken) {
-      const error = new Error(
-        "Google did not return a refresh token. Please revoke app access in your Google account and try again."
+      throw badRequest(
+        "Google did not return a refresh token. Please revoke app access in your Google account and try again.",
+        "REFRESH_TOKEN_MISSING"
       );
-      error.code = "REFRESH_TOKEN_MISSING";
-      error.statusCode = 400;
-      throw error;
     }
     tokens.refresh_token = existing.refreshToken;
   }
@@ -141,10 +139,10 @@ const activeMailboxSyncs = new Set();
 
 async function syncMailboxForUser(userId) {
   if (activeMailboxSyncs.has(userId)) {
-    const error = new Error("Mailbox sync is already in progress for your account. Please wait a moment.");
-    error.code = "MAILBOX_SYNC_IN_PROGRESS";
-    error.statusCode = 409;
-    throw error;
+    throw conflict(
+      "Mailbox sync is already in progress for your account. Please wait a moment.",
+      "MAILBOX_SYNC_IN_PROGRESS"
+    );
   }
 
   activeMailboxSyncs.add(userId);
@@ -152,10 +150,10 @@ async function syncMailboxForUser(userId) {
   try {
     const mailbox = await repository.findMailboxByUserId(userId);
     if (!mailbox || !mailbox.refreshToken) {
-      const error = new Error("No connected Google Mailbox found");
-      error.code = "MAILBOX_NOT_CONNECTED";
-      error.statusCode = 404;
-      throw error;
+      throw notFound(
+        "No connected Google Mailbox found. Please connect your Gmail account first.",
+        "MAILBOX_NOT_CONNECTED"
+      );
     }
 
     const companyMember = await prisma.companyMember.findFirst({
@@ -340,17 +338,19 @@ async function syncMailboxForUser(userId) {
       lastError: errorMessage,
     });
 
+    if (error instanceof AppError || error?.name === "AppError") {
+      throw error;
+    }
+
     if (
       errorMessage.toLowerCase().includes("invalid_grant") ||
       errorMessage.toLowerCase().includes("token has been revoked") ||
       error.code === 401
     ) {
-      const customError = new Error(
-        "Google Mailbox authorization expired or revoked. Please click Disconnect and reconnect your Gmail account."
+      throw unauthorized(
+        "Google Mailbox authorization expired or revoked. Please click Disconnect and reconnect your Gmail account.",
+        "GMAIL_AUTH_EXPIRED"
       );
-      customError.code = "GMAIL_AUTH_EXPIRED";
-      customError.statusCode = 401;
-      throw customError;
     }
 
     if (
@@ -358,19 +358,16 @@ async function syncMailboxForUser(userId) {
       errorMessage.toLowerCase().includes("insufficient permissions") ||
       error.code === 403
     ) {
-      const customError = new Error(
-        "Gmail read permission is missing. Please click Disconnect and then Connect with Google again to grant full permissions."
+      throw forbidden(
+        "Gmail read permission is missing. Please click Disconnect and then Connect with Google again to grant full permissions.",
+        "GMAIL_PERMISSION_INSUFFICIENT"
       );
-      customError.code = "GMAIL_PERMISSION_INSUFFICIENT";
-      customError.statusCode = 403;
-      throw customError;
     }
 
-    if (!error.statusCode) {
-      error.statusCode = 400;
-    }
-
-    throw error;
+    throw badRequest(
+      errorMessage,
+      error?.code || "GMAIL_SYNC_FAILED"
+    );
   } finally {
     activeMailboxSyncs.delete(userId);
   }
