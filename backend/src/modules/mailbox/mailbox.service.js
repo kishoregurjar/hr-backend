@@ -19,10 +19,10 @@ function createOAuth2Client() {
 
   if (!clientId || !clientSecret || !redirectUri) {
     const error = new Error(
-      "Google OAuth credentials missing in environment variables"
+      "Google OAuth credentials missing in environment variables. Please check Railway setup."
     );
     error.code = "GOOGLE_OAUTH_CONFIG_MISSING";
-    error.statusCode = 500;
+    error.statusCode = 400;
     throw error;
   }
 
@@ -336,6 +336,10 @@ async function syncMailboxForUser(userId) {
       customError.code = "GMAIL_PERMISSION_INSUFFICIENT";
       customError.statusCode = 403;
       throw customError;
+    }
+
+    if (!error.statusCode) {
+      error.statusCode = 400;
     }
 
     throw error;
