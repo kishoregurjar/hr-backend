@@ -183,13 +183,13 @@ async function syncMailboxForUser(userId) {
 
     for (const msg of messages) {
       try {
-        // Quick DB check: skip only if this email was already processed AND has a valid resumeProcessingId
+        // Skip message if it was already processed (status COMPLETED) to avoid re-downloading attachments & timing out
         const existingEvent = await resumeRepository.findInboundEmailEvent(
           "google_mailbox",
           msg.id
         );
 
-        if (existingEvent && existingEvent.status === "COMPLETED" && existingEvent.resumeProcessingId) {
+        if (existingEvent && existingEvent.status === "COMPLETED") {
           continue;
         }
 
