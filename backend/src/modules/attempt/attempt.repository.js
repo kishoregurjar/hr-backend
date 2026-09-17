@@ -963,7 +963,14 @@ class AttemptRepository {
                 },
               },
             },
-            games: true,
+            games: {
+              orderBy: {
+                sequence: "asc",
+              },
+              include: {
+                game: true,
+              },
+            },
             createdBy: {
               select: {
                 id: true,
@@ -1033,6 +1040,14 @@ class AttemptRepository {
                 },
               },
             },
+            games: {
+              orderBy: {
+                sequence: "asc",
+              },
+              include: {
+                game: true,
+              },
+            },
           },
         },
         candidate: {
@@ -1077,6 +1092,14 @@ class AttemptRepository {
                     },
                   },
                 },
+              },
+            },
+            games: {
+              orderBy: {
+                sequence: "asc",
+              },
+              include: {
+                game: true,
               },
             },
           },
