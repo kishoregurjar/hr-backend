@@ -1522,16 +1522,17 @@ class AttemptService {
    * ------------------------------------------------------------
    */
   evaluateAttemptQuestion({ attemptQuestion }) {
-    const answer = attemptQuestion.answers?.[0];
-    const question = attemptQuestion.question;
+    const answer = attemptQuestion?.answers?.[0];
+    const question = attemptQuestion?.question || attemptQuestion?.questionSnapshot || {};
+    const qType = question?.type || attemptQuestion?.type || "SINGLE_CHOICE";
 
     /**
      * Objective questions.
      */
     if (
-      question.type === "SINGLE_CHOICE" ||
-      question.type === "MULTIPLE_CHOICE" ||
-      question.type === "TRUE_FALSE"
+      qType === "SINGLE_CHOICE" ||
+      qType === "MULTIPLE_CHOICE" ||
+      qType === "TRUE_FALSE"
     ) {
       const result = this.evaluateObjectiveQuestion({
         question,
@@ -1541,7 +1542,7 @@ class AttemptService {
       if (result.status === ATTEMPT_EVALUATION_STATUS.CORRECT) {
         return {
           ...result,
-          positiveMarks: Number(attemptQuestion.marks),
+          positiveMarks: Number(attemptQuestion.marks || 0),
           negativeMarks: 0,
         };
       }
@@ -1566,10 +1567,10 @@ class AttemptService {
      * evaluated by this objective engine.
      */
     if (
-      question.type === "SHORT_ANSWER" ||
-      question.type === "CODING" ||
-      question.type === "SQL" ||
-      question.type === "PUZZLE"
+      qType === "SHORT_ANSWER" ||
+      qType === "CODING" ||
+      qType === "SQL" ||
+      qType === "PUZZLE"
     ) {
       if (
         answer &&
@@ -1697,9 +1698,11 @@ class AttemptService {
 
     const count = normalizedIds.length;
 
+    const qType = question?.type || "SINGLE_CHOICE";
+
     if (
-      question.type === "SINGLE_CHOICE" ||
-      question.type === "TRUE_FALSE"
+      qType === "SINGLE_CHOICE" ||
+      qType === "TRUE_FALSE"
     ) {
       if (count !== 1) {
         throw new BadRequestError(
@@ -1709,7 +1712,7 @@ class AttemptService {
       }
     }
 
-    if (question.type === "MULTIPLE_CHOICE") {
+    if (qType === "MULTIPLE_CHOICE") {
       if (count < 1) {
         throw new BadRequestError(
           "At least one option must be selected.",
@@ -1728,12 +1731,13 @@ class AttemptService {
    */
   validateAnswerText(answerText, question) {
     const normalized = attemptMapper.normalizeAnswerText(answerText);
+    const qType = question?.type || "SHORT_ANSWER";
 
     const isSubjective =
-      question.type === "SHORT_ANSWER" ||
-      question.type === "CODING" ||
-      question.type === "SQL" ||
-      question.type === "PUZZLE";
+      qType === "SHORT_ANSWER" ||
+      qType === "CODING" ||
+      qType === "SQL" ||
+      qType === "PUZZLE";
 
     if (isSubjective) {
       if (!normalized) {
@@ -2867,10 +2871,11 @@ class AttemptService {
       );
     }
 
-    const question = attemptQuestion.question || {};
+    const question = attemptQuestion.question || attemptQuestion.questionSnapshot || {};
+    const qType = question?.type || attemptQuestion?.type || "SINGLE_CHOICE";
     const hasOptions = Array.isArray(selectedOptionIds);
     const hasText = typeof answerText === "string" && answerText.length > 0;
-    const isObjective = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(question.type);
+    const isObjective = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(qType);
 
     if (isObjective && !hasOptions) {
       throw new BadRequestError("This objective question requires option selection.", "OPTIONS_REQUIRED");
@@ -2893,7 +2898,7 @@ class AttemptService {
         throw new BadRequestError("One or more selected options are invalid for this question.", "INVALID_OPTIONS");
       }
 
-      if ((question.type === "SINGLE_CHOICE" || question.type === "TRUE_FALSE") && selectedOptionIds.length !== 1) {
+      if ((qType === "SINGLE_CHOICE" || qType === "TRUE_FALSE") && selectedOptionIds.length !== 1) {
         throw new BadRequestError("Single choice questions require exactly one selected option.", "INVALID_OPTION_COUNT");
       }
     }

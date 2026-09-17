@@ -681,13 +681,15 @@ const toQuestionPerformanceResponse = (rows) => {
   for (const row of rows) {
     const key = row.questionId;
 
+    const q = row.question || row.questionSnapshot || {};
+
     if (!map.has(key)) {
       map.set(key, {
         questionId: row.questionId,
         sequence: row.sequence,
-        title: row.question.title,
-        type: row.question.type,
-        difficulty: row.question.difficulty,
+        title: q.title || row.title || "",
+        type: q.type || row.type || "SINGLE_CHOICE",
+        difficulty: q.difficulty || row.difficulty || "MEDIUM",
         totalAttempts: 0,
         correct: 0,
         incorrect: 0,
@@ -765,20 +767,21 @@ const toHrAttemptResultResponse = (attempt) => {
       difficulty: attempt.assessment.difficulty,
     },
 
-    questions: attempt.questions.map((attemptQuestion) => {
+    questions: (attempt.questions || attempt.attemptQuestions || []).map((attemptQuestion) => {
       const answer = attemptQuestion.answers?.[0] || null;
+      const q = attemptQuestion.question || attemptQuestion.questionSnapshot || {};
 
       return {
         questionId: attemptQuestion.questionId,
         sequence: attemptQuestion.sequence,
-        marks: Number(attemptQuestion.marks),
-        negativeMarks: Number(attemptQuestion.negativeMarks),
+        marks: Number(attemptQuestion.marks || 0),
+        negativeMarks: Number(attemptQuestion.negativeMarks || 0),
 
         question: {
-          id: attemptQuestion.question.id,
-          title: attemptQuestion.question.title,
-          type: attemptQuestion.question.type,
-          difficulty: attemptQuestion.question.difficulty,
+          id: q.id || attemptQuestion.questionId,
+          title: q.title || "",
+          type: q.type || "SINGLE_CHOICE",
+          difficulty: q.difficulty || "MEDIUM",
         },
 
         answer: answer
