@@ -308,7 +308,7 @@ class AttemptService {
       }
 
       const fName = (firstName || "").trim() || "Candidate";
-      const lName = (lastName || "").trim() || "User";
+      const lName = (lastName || "").trim();
 
       candidateProfile = await tx.candidateProfile.create({
         data: {
@@ -424,7 +424,7 @@ class AttemptService {
         }
       } else if (normalizedEmail) {
         const fName = (firstName || "").trim() || "Candidate";
-        const lName = (lastName || "").trim() || "User";
+        const lName = (lastName || "").trim();
         candidateProfile = await tx.candidateProfile.create({
           data: {
             email: normalizedEmail,
