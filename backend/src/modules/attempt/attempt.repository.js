@@ -1,4 +1,4 @@
-const { prisma } = require("../../config/prisma");
+const { prisma, runTransaction } = require("../../config/prisma");
 
 /**
  * ==========================================================
@@ -2443,10 +2443,18 @@ class AttemptRepository {
 
     return updated;
   }
+
+  /**
+   * Run Database Transaction
+   */
+  async transaction(fn, options) {
+    return runTransaction(fn, options);
+  }
 }
 
 const attemptRepository = new AttemptRepository();
 module.exports = attemptRepository;
+module.exports.transaction = attemptRepository.transaction.bind(attemptRepository);
 module.exports.submitAttempt = attemptRepository.submitAttempt.bind(attemptRepository);
 module.exports.ATTEMPT_BASE_SELECT = ATTEMPT_BASE_SELECT;
 module.exports.ATTEMPT_QUESTION_SELECT = ATTEMPT_QUESTION_SELECT;
