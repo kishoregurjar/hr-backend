@@ -951,6 +951,17 @@ class AttemptRepository {
               orderBy: {
                 orderIndex: "asc",
               },
+              include: {
+                question: {
+                  include: {
+                    options: {
+                      orderBy: {
+                        sequence: "asc",
+                      },
+                    },
+                  },
+                },
+              },
             },
             games: true,
             createdBy: {
@@ -1008,7 +1019,18 @@ class AttemptRepository {
           include: {
             questions: {
               orderBy: {
-                sequence: "asc",
+                orderIndex: "asc",
+              },
+              include: {
+                question: {
+                  include: {
+                    options: {
+                      orderBy: {
+                        sequence: "asc",
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -1043,7 +1065,18 @@ class AttemptRepository {
           include: {
             questions: {
               orderBy: {
-                sequence: "asc",
+                orderIndex: "asc",
+              },
+              include: {
+                question: {
+                  include: {
+                    options: {
+                      orderBy: {
+                        sequence: "asc",
+                      },
+                    },
+                  },
+                },
               },
             },
           },
