@@ -483,7 +483,10 @@ const toCandidateCurrentAttemptResponse = (attempt, serverTime = new Date().toIS
       const questionObj = {
         id: baseQuestion.id || attemptQuestion.questionId,
         title: baseQuestion.title || snapshot.title || "",
+        content: baseQuestion.content || snapshot.content || baseQuestion.title || snapshot.title || "",
         description: baseQuestion.description || baseQuestion.content || snapshot.description || snapshot.content || null,
+        codeSnippet: baseQuestion.codeSnippet || snapshot.codeSnippet || null,
+        explanation: baseQuestion.explanation || snapshot.explanation || null,
         type: baseQuestion.type || snapshot.type || "SINGLE_CHOICE",
         difficulty: baseQuestion.difficulty || snapshot.difficulty || "MEDIUM",
         options: formattedOptions,

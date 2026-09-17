@@ -148,7 +148,9 @@ const toAttemptQuestionEntity = (assessmentQuestion, attemptId, index = 0) => {
   const questionSnapshot = {
     id: questionObj.id || assessmentQuestion.questionId,
     title: questionObj.title || "",
-    content: questionObj.content || "",
+    content: questionObj.content || questionObj.title || "",
+    codeSnippet: questionObj.codeSnippet || null,
+    explanation: questionObj.explanation || null,
     type: questionObj.type || "SINGLE_CHOICE",
     options: Array.isArray(questionObj.options)
       ? questionObj.options.map((o) => {
