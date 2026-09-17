@@ -75,11 +75,14 @@ module.exports = {
   beforeStartCommit,
   beforeAnswerCommit,
 
+  beforeSubmit: beforeSubmitEvaluation,
   beforeSubmitEvaluation,
+  afterSubmit: afterSubmitEvaluation,
   afterSubmitEvaluation,
   beforeSubmitCommit,
 
   beforeExpiryEvaluation,
+  afterExpiry: afterExpiryEvaluation,
   afterExpiryEvaluation,
   beforeExpiryCommit,
 };
