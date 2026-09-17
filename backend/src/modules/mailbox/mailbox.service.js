@@ -172,25 +172,44 @@ async function syncMailboxForUser(userId) {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
     let processedCount = 0;
+    let pageToken = null;
+    let keepFetching = true;
+    const MAX_NEW_RESUMES_PER_BATCH = 20;
 
-    const res = await gmail.users.messages.list({
-      userId: "me",
-      q: "has:attachment (filename:pdf OR filename:docx)",
-      maxResults: 10,
-    });
+    while (keepFetching && processedCount < MAX_NEW_RESUMES_PER_BATCH) {
+      const listParams = {
+        userId: "me",
+        q: "has:attachment (filename:pdf OR filename:docx)",
+        maxResults: 15,
+      };
+      if (pageToken) {
+        listParams.pageToken = pageToken;
+      }
 
-    const messages = res.data.messages || [];
+      const res = await gmail.users.messages.list(listParams);
+      const messages = res.data.messages || [];
 
-    for (const msg of messages) {
-      try {
-        // Skip message if it was already processed (status COMPLETED) to avoid re-downloading attachments & timing out
+      if (messages.length === 0) {
+        break;
+      }
+
+      for (const msg of messages) {
+        try {
+          if (processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
+            keepFetching = false;
+            break;
+          }
+
+        // Quick DB check: if message is ALREADY in DB as COMPLETED, we reached previously ingested emails!
         const existingEvent = await resumeRepository.findInboundEmailEvent(
           "google_mailbox",
           msg.id
         );
 
         if (existingEvent && existingEvent.status === "COMPLETED") {
-          continue;
+          // Since Gmail returns newest emails first, reaching a COMPLETED email means all older emails are already ingested!
+          keepFetching = false;
+          break;
         }
 
         const fullMsg = await gmail.users.messages.get({
@@ -293,6 +312,12 @@ async function syncMailboxForUser(userId) {
         );
       }
     }
+
+    pageToken = res.data.nextPageToken;
+    if (!pageToken) {
+      break;
+    }
+  }
 
     await repository.updateMailboxSyncStatus(userId, {
       lastSyncedAt: new Date(),
