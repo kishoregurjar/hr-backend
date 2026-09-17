@@ -253,6 +253,8 @@ async function syncMailboxForUser(userId) {
                     ? "application/pdf"
                     : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+                  const parsedSender = parseSender(sender);
+
                   const resumeResult = await resumeService.processResume({
                     file: {
                       buffer,
@@ -261,6 +263,7 @@ async function syncMailboxForUser(userId) {
                       size: buffer.length,
                     },
                     source: "INBOUND_EMAIL",
+                    inboundEmail: parsedSender.email || sender,
                     uploadedByUserId: userId,
                   });
 
@@ -268,7 +271,6 @@ async function syncMailboxForUser(userId) {
                   messageProcessed = true;
 
                   const extractedData = resumeResult?.extractedData || {};
-                  const parsedSender = parseSender(sender);
                   const candidateEmail = extractedData.email || parsedSender.email;
                   const candidateName = extractedData.name || parsedSender.name || "";
 
