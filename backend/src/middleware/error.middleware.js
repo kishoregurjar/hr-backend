@@ -111,19 +111,21 @@ const normalizeError = (error) => {
   }
 
   const isProd = process.env.NODE_ENV === "production";
+  const statusCode =
+    error?.statusCode >= 400 && error?.statusCode < 600
+      ? error.statusCode
+      : 500;
+  const isClientError = statusCode >= 400 && statusCode < 500;
 
   return new AppError(
-    isProd
+    isProd && !isClientError && !error?.isOperational
       ? "An unexpected server error occurred."
       : error?.message || "An unexpected server error occurred.",
     {
-      statusCode:
-        error?.statusCode >= 400 && error?.statusCode < 600
-          ? error.statusCode
-          : 500,
+      statusCode,
       code: error?.code || error?.errorCode || "INTERNAL_SERVER_ERROR",
       details: isProd ? null : error?.details || null,
-      isOperational: false,
+      isOperational: error?.isOperational ?? isClientError,
     }
   );
 };
