@@ -118,10 +118,12 @@ const saveAnswerSchema = z
     token: z
       .string()
       .trim()
-      .min(68)
-      .max(200)
-      .regex(/^inv_[a-f0-9]+$/, "Invalid invitation token format.")
       .optional(),
+    invitationToken: z.string().trim().optional(),
+    attemptId: z.string().trim().optional(),
+    candidateAccessToken: z.string().trim().optional(),
+    candidateSessionToken: z.string().trim().optional(),
+    sessionToken: z.string().trim().optional(),
 
     attemptQuestionId: z.string().trim().min(1).optional(),
     questionId: z.string().trim().min(1).optional(),
@@ -134,7 +136,7 @@ const saveAnswerSchema = z
     answerText: z.string().trim().max(10000).optional(),
     version: z.number().int().positive().optional(),
   })
-  .strict()
+  .passthrough()
   .superRefine((data, ctx) => {
     if (!data.attemptQuestionId && !data.questionId) {
       ctx.addIssue({

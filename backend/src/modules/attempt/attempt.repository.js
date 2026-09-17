@@ -636,7 +636,7 @@ class AttemptRepository {
     if (score !== undefined) updateData.score = score;
     if (percentage !== undefined) updateData.percentage = percentage;
     if (result !== undefined) {
-      updateData.result = result;
+      updateData.result = (result === "PASSED" || result === "PASS" || result === true) ? "PASS" : "FAIL";
     } else if (passed !== undefined) {
       updateData.result = passed ? "PASS" : "FAIL";
     }
@@ -2513,7 +2513,7 @@ class AttemptRepository {
   async submitAttempt({ attemptId, score, percentage, passed, result, submittedAt = new Date() }, tx) {
     const client = tx || prisma;
     const model = client.candidateAttempt || client.assessmentAttempt;
-    const resultVal = result || (typeof passed === "boolean" ? (passed ? "PASS" : "FAIL") : (passed === "PASSED" ? "PASS" : "FAIL"));
+    const resultVal = (result === "PASSED" || result === "PASS" || result === true || passed === true || passed === "PASSED" || passed === "PASS") ? "PASS" : "FAIL";
 
     const updated = await model.update({
       where: { id: attemptId },

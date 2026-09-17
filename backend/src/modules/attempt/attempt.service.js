@@ -3231,7 +3231,7 @@ class AttemptService {
           score: normalizedPercentage,
           percentage: normalizedPercentage,
           passed: isPassed,
-          result: isPassed ? ATTEMPT_RESULT_STATUS.PASSED : ATTEMPT_RESULT_STATUS.FAILED,
+          result: isPassed ? "PASS" : "FAIL",
           submittedAt: now,
         },
         tx
