@@ -633,8 +633,11 @@ class AttemptRepository {
       status: "SUBMITTED",
       submittedAt,
     };
-    if (score !== undefined) updateData.score = score;
-    if (percentage !== undefined) updateData.percentage = percentage;
+    const numScore = isNaN(Number(score)) ? 0 : Number(score);
+    const numPercentage = isNaN(Number(percentage)) ? 0 : Number(percentage);
+
+    if (score !== undefined) updateData.score = numScore;
+    if (percentage !== undefined) updateData.percentage = numPercentage;
     if (result !== undefined) {
       updateData.result = (result === "PASSED" || result === "PASS" || result === true) ? "PASS" : "FAIL";
     } else if (passed !== undefined) {
@@ -2514,13 +2517,15 @@ class AttemptRepository {
     const client = tx || prisma;
     const model = client.candidateAttempt || client.assessmentAttempt;
     const resultVal = (result === "PASSED" || result === "PASS" || result === true || passed === true || passed === "PASSED" || passed === "PASS") ? "PASS" : "FAIL";
+    const safeScore = isNaN(Number(score)) ? 0 : Number(score);
+    const safePercentage = isNaN(Number(percentage)) ? 0 : Number(percentage);
 
     const updated = await model.update({
       where: { id: attemptId },
       data: {
         status: "SUBMITTED",
-        score: Number(score || 0),
-        percentage: Number(percentage || 0),
+        score: safeScore,
+        percentage: safePercentage,
         result: resultVal,
         submittedAt,
       },
@@ -2532,13 +2537,13 @@ class AttemptRepository {
           where: { candidateAssessmentId: attemptId },
           create: {
             candidateAssessmentId: attemptId,
-            score: Number(score || 0),
-            percentage: Number(percentage || 0),
+            score: safeScore,
+            percentage: safePercentage,
             status: resultVal,
           },
           update: {
-            score: Number(score || 0),
-            percentage: Number(percentage || 0),
+            score: safeScore,
+            percentage: safePercentage,
             status: resultVal,
           },
         });

@@ -1856,6 +1856,33 @@ class AttemptService {
         );
       }
 
+      // Check if this is a game section autosave (e.g. Mahjong game result)
+      const isGameSave =
+        (typeof answerText === "string" && answerText.includes("GAME_RESULT")) ||
+        String(questionId || "").toLowerCase().includes("game");
+
+      if (isGameSave) {
+        let gameScoreObj = { score: 100, completedAt: now.toISOString() };
+        try {
+          if (typeof answerText === "string" && answerText.startsWith("{")) {
+            gameScoreObj = JSON.parse(answerText);
+          }
+        } catch {}
+
+        const existingGameResults = typeof attempt.gameResults === "object" && attempt.gameResults ? { ...attempt.gameResults } : {};
+        existingGameResults[questionId] = gameScoreObj;
+
+        const db = tx || prisma;
+        const model = db.candidateAttempt || db.assessmentAttempt;
+        if (model?.update) {
+          await model.update({
+            where: { id: attempt.id },
+            data: { gameResults: existingGameResults },
+          });
+        }
+        return { success: true, gameSaved: true, questionId };
+      }
+
       const attemptQuestion = await attemptRepository.findAttemptQuestionForAnswer(
         {
           attemptId: attempt.id,
@@ -1865,20 +1892,10 @@ class AttemptService {
       );
 
       if (!attemptQuestion) {
-        throw new NotFoundError(
-          "Question does not belong to this assessment attempt.",
-          ATTEMPT_ANSWER_ERROR_CODES.QUESTION_NOT_FOUND
-        );
+        return { success: true, saved: false, message: "Non-quiz section answer recorded." };
       }
 
-      const question = attemptQuestion.question;
-
-      if (!question) {
-        throw new NotFoundError(
-          "Question snapshot could not be resolved.",
-          ATTEMPT_ANSWER_ERROR_CODES.QUESTION_NOT_FOUND
-        );
-      }
+      const question = attemptQuestion.question || attemptQuestion.questionSnapshot || {};
 
       let normalizedOptions = [];
       let normalizedText = null;
