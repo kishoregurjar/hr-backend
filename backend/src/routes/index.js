@@ -61,9 +61,10 @@ router.use("/auth", authRoutes);
 router.use("/assessments", assessmentRoutes);
 
 /**
- * Assessment Attempt Module Routes (/api/v1/attempts)
+ * Assessment Attempt & Results Module Routes (/api/v1/attempts & /api/v1/results)
  */
 router.use("/attempts", attemptRoutes);
+router.use("/results", attemptRoutes);
 
 /**
  * Invitations Route Alias (/api/v1/invitations)
