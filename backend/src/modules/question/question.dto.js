@@ -48,6 +48,8 @@ class QuestionDto {
           isCorrect: Boolean(option.isCorrect),
           sequence: option.sequence,
         })) ?? [],
+      companyId: question.companyId || null,
+      createdById: question.createdById || null,
       createdAt: question.createdAt,
       updatedAt: question.updatedAt,
     };

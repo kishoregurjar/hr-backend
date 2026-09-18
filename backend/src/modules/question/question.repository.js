@@ -97,15 +97,19 @@ class QuestionRepository {
     });
   }
 
-  async findByTitle(title, tx) {
+  async findByTitle(title, companyId = null, tx) {
     const db = getClient(tx);
-    return db.question.findFirst({
-      where: {
-        title: {
-          equals: title.trim(),
-          mode: "insensitive",
-        },
+    const where = {
+      title: {
+        equals: title.trim(),
+        mode: "insensitive",
       },
+    };
+    if (companyId) {
+      where.OR = [{ companyId }, { companyId: null }];
+    }
+    return db.question.findFirst({
+      where,
     });
   }
 
@@ -139,7 +143,6 @@ class QuestionRepository {
       estimatedTime: _estTime,
       shuffleOptions: _shuffle,
       categoryId,
-      createdById: _cById,
       updatedById: _uById,
       ...restData
     } = questionData || {};
@@ -309,7 +312,7 @@ class QuestionRepository {
     });
   }
 
-  async listPaginated({ page = 1, limit = 10, search, type, difficulty, status, categoryId, tagId, sortBy = "createdAt", sortOrder = "desc" }, tx) {
+  async listPaginated({ page = 1, limit = 10, search, type, difficulty, status, categoryId, tagId, companyId, sortBy = "createdAt", sortOrder = "desc" }, tx) {
     const db = getClient(tx);
     const skip = (page - 1) * limit;
 
@@ -340,6 +343,20 @@ class QuestionRepository {
         { title: { contains: search.trim(), mode: "insensitive" } },
         { content: { contains: search.trim(), mode: "insensitive" } },
       ];
+    }
+
+    if (companyId) {
+      const companyFilter = [{ companyId }, { companyId: null }];
+      if (where.OR) {
+        const searchOR = where.OR;
+        delete where.OR;
+        where.AND = [
+          { OR: searchOR },
+          { OR: companyFilter },
+        ];
+      } else {
+        where.OR = companyFilter;
+      }
     }
 
     const validSortFields = ["createdAt", "updatedAt", "title", "difficulty", "status"];

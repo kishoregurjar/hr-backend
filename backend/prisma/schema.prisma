@@ -250,6 +250,7 @@ model User {
 
   // Navigation Properties
   assessments       Assessment[]       @relation("CreatedAssessments")
+  createdQuestions  Question[]         @relation("CreatedQuestions")
   candidateProfiles CandidateProfile[]
   auditLogs         AuditLog[]
 
@@ -285,6 +286,8 @@ model Category {
 
 model Question {
   id             String             @id @default(cuid())
+  companyId      String?
+  createdById    String?
   type           QuestionType
   difficulty     QuestionDifficulty @default(MEDIUM)
   status         QuestionStatus     @default(DRAFT)
@@ -296,6 +299,8 @@ model Question {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy         User?              @relation("CreatedQuestions", fields: [createdById], references: [id], onDelete: SetNull)
   options           Option[]
   assessmentLinkage AssessmentQuestion[]
   tags              QuestionTag[]
@@ -305,6 +310,8 @@ model Question {
   attemptQuestions  AttemptQuestion[]
   attemptAuditLogs  AttemptAuditLog[]
 
+  @@index([companyId])
+  @@index([createdById])
   @@index([type])
   @@index([difficulty])
   @@index([status])
@@ -750,6 +757,7 @@ model Company {
   invitations       CompanyInvitation[]
   auditLogs         AuditLog[]
   candidateProfiles CandidateProfile[]
+  questions         Question[]
 
   @@index([createdAt])
 }

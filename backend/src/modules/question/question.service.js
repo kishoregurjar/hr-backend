@@ -15,17 +15,17 @@ const { QUESTION_STATUS } = require("./question.constants");
  * ==========================================================
  */
 class QuestionService {
-  async createQuestion(payload, userId) {
+  async createQuestion(payload, userId, companyId = null) {
     const title = QuestionMapper.normalizeTitle(payload.title);
-    logger.info({ userId, title }, "Initiating question creation");
+    logger.info({ userId, companyId, title }, "Initiating question creation");
 
-    const existingQuestion = await questionRepository.findByTitle(title);
+    const existingQuestion = await questionRepository.findByTitle(title, companyId);
     if (existingQuestion) {
       throw new ConflictError("Question with this title already exists.", "QUESTION_TITLE_EXISTS");
     }
 
     const createdQuestion = await runTransaction(async (tx) => {
-      const questionData = QuestionMapper.toCreateEntity(payload, userId);
+      const questionData = QuestionMapper.toCreateEntity(payload, userId, companyId);
       const optionsData = QuestionMapper.toOptionEntities(payload.options);
       const tagIds = payload.tagIds || [];
 
@@ -38,7 +38,7 @@ class QuestionService {
     };
   }
 
-  async getQuestions(query = {}) {
+  async getQuestions(query = {}, companyId = null) {
     const page = Math.max(1, parseInt(query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 10));
     const search = query.search?.trim();
@@ -55,6 +55,7 @@ class QuestionService {
       difficulty,
       status,
       categoryId,
+      companyId: companyId || query.companyId || null,
     });
 
     const totalPages = Math.ceil(total / limit) || 1;
@@ -83,7 +84,7 @@ class QuestionService {
     };
   }
 
-  async updateQuestion(id, payload, userId) {
+  async updateQuestion(id, payload, userId, companyId = null) {
     const question = await questionRepository.findById(id);
     if (!question) {
       throw new NotFoundError("Question not found.", "QUESTION_NOT_FOUND");
@@ -91,7 +92,7 @@ class QuestionService {
 
     if (payload.title) {
       const title = QuestionMapper.normalizeTitle(payload.title);
-      const existing = await questionRepository.findByTitle(title);
+      const existing = await questionRepository.findByTitle(title, companyId || question.companyId);
       if (existing && existing.id !== id) {
         throw new ConflictError("Question with this title already exists.", "QUESTION_TITLE_EXISTS");
       }

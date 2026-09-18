@@ -14,9 +14,10 @@ const questionService = require("./question.service");
 class QuestionController {
   create = asyncHandler(async (req, res) => {
     const payload = req.validatedData || req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id;
+    const companyId = req.user?.companyId || req.user?.company?.id || req.user?.companyMember?.companyId || null;
 
-    const result = await questionService.createQuestion(payload, userId);
+    const result = await questionService.createQuestion(payload, userId, companyId);
 
     return SuccessResponse.send(
       res,
@@ -30,8 +31,9 @@ class QuestionController {
 
   list = asyncHandler(async (req, res) => {
     const query = req.validatedData || req.query;
+    const companyId = req.user?.companyId || req.user?.company?.id || req.user?.companyMember?.companyId || null;
 
-    const result = await questionService.getQuestions(query);
+    const result = await questionService.getQuestions(query, companyId);
 
     return SuccessResponse.send(
       res,
@@ -62,9 +64,10 @@ class QuestionController {
   update = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const payload = req.validatedData || req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id;
+    const companyId = req.user?.companyId || req.user?.company?.id || req.user?.companyMember?.companyId || null;
 
-    const result = await questionService.updateQuestion(id, payload, userId);
+    const result = await questionService.updateQuestion(id, payload, userId, companyId);
 
     return SuccessResponse.send(
       res,

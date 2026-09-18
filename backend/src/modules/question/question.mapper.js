@@ -18,7 +18,7 @@ class QuestionMapper {
       .toLowerCase();
   }
 
-  static toCreateEntity(data, userId) {
+  static toCreateEntity(data, userId, companyId = null) {
     return {
       title: data.title.trim().replace(/\s+/g, " "),
       description: data.description ? data.description.trim() : null,
@@ -31,8 +31,9 @@ class QuestionMapper {
       estimatedTime: data.estimatedTime || null,
       shuffleOptions: data.shuffleOptions !== undefined ? data.shuffleOptions : true,
       categoryId: data.categoryId || null,
-      createdById: userId,
-      updatedById: userId,
+      createdById: userId || null,
+      companyId: companyId || data.companyId || null,
+      updatedById: userId || null,
     };
   }
 
