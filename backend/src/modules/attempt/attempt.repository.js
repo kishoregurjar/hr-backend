@@ -595,7 +595,8 @@ class AttemptRepository {
    */
   async updateAttempt(attemptId, data, tx) {
     const db = getClient(tx);
-    return db.assessmentAttempt.update({
+    const model = db.candidateAttempt || db.assessmentAttempt;
+    return model.update({
       where: { id: attemptId },
       data,
       select: ATTEMPT_BASE_SELECT,
@@ -607,7 +608,8 @@ class AttemptRepository {
    */
   async updateStatus({ attemptId, fromStatus, toStatus, data = {} }, tx) {
     const db = getClient(tx);
-    return db.assessmentAttempt.updateMany({
+    const model = db.candidateAttempt || db.assessmentAttempt;
+    return model.updateMany({
       where: {
         id: attemptId,
         status: fromStatus,
@@ -693,7 +695,8 @@ class AttemptRepository {
    */
   async findActiveAttemptForCandidate({ assessmentId, candidateId }, tx) {
     const db = getClient(tx);
-    return db.assessmentAttempt.findFirst({
+    const model = db.candidateAttempt || db.assessmentAttempt;
+    return model.findFirst({
       where: {
         assessmentId,
         candidateId,
@@ -840,7 +843,8 @@ class AttemptRepository {
    */
   async lockAttemptForSubmission({ attemptId }, tx) {
     const db = getClient(tx);
-    return db.assessmentAttempt.findFirst({
+    const model = db.candidateAttempt || db.assessmentAttempt;
+    return model.findFirst({
       where: {
         id: attemptId,
         status: "IN_PROGRESS",
@@ -1445,7 +1449,8 @@ class AttemptRepository {
     if (typeof take === "number" && !isNaN(take)) queryOptions.take = take;
     if (orderBy) queryOptions.orderBy = orderBy;
 
-    return client.assessmentAttempt.findMany({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.findMany({
       ...queryOptions,
 
       select: {
@@ -1494,8 +1499,8 @@ class AttemptRepository {
    */
   async countAssessmentResults(where, tx) {
     const client = tx || prisma;
-
-    return client.assessmentAttempt.count({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.count({
       where,
     });
   }
@@ -1507,8 +1512,8 @@ class AttemptRepository {
    */
   async countAttemptsByStatus(where, tx) {
     const client = tx || prisma;
-
-    return client.assessmentAttempt.groupBy({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.groupBy({
       by: ["status"],
 
       where,
@@ -1526,8 +1531,8 @@ class AttemptRepository {
    */
   async aggregateSubmittedScores(where, tx) {
     const client = tx || prisma;
-
-    return client.assessmentAttempt.aggregate({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.aggregate({
       where,
 
       _count: {
@@ -1558,16 +1563,16 @@ class AttemptRepository {
    */
   async countPassedAttempts(where, tx) {
     const client = tx || prisma;
-
+    const model = client.candidateAttempt || client.assessmentAttempt;
     const [passed, failed] = await Promise.all([
-      client.assessmentAttempt.count({
+      model.count({
         where: {
           ...where,
           passed: true,
         },
       }),
 
-      client.assessmentAttempt.count({
+      model.count({
         where: {
           ...where,
           passed: false,
@@ -1637,8 +1642,8 @@ class AttemptRepository {
    */
   async findAttemptResultDetail({ assessmentId, attemptId }, tx) {
     const client = tx || prisma;
-
-    return client.assessmentAttempt.findFirst({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.findFirst({
       where: {
         id: attemptId,
 
@@ -2210,7 +2215,8 @@ class AttemptRepository {
    */
   async updateAttemptEvaluation({ id, score, percentage, passed }, tx) {
     const client = tx || prisma;
-    return client.assessmentAttempt.update({
+    const model = client.candidateAttempt || client.assessmentAttempt;
+    return model.update({
       where: { id },
       data: {
         score,

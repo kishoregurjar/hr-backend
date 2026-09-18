@@ -65,6 +65,8 @@ router.use("/assessments", assessmentRoutes);
  */
 router.use("/attempts", attemptRoutes);
 router.use("/results", attemptRoutes);
+router.use("/assessment-attempts", attemptRoutes);
+router.use("/candidate-assessments", attemptRoutes);
 
 /**
  * Invitations Route Alias (/api/v1/invitations)

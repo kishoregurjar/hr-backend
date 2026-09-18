@@ -124,7 +124,7 @@ const { createIdempotencyMiddleware } = require("../../middleware/idempotency.mi
  * Secured by Candidate Verification Session Bearer token
  */
 router.post(
-  "/submit",
+  ["/submit", "/:attemptId/submit", "/assessment-attempts/:attemptId/submit"],
   requireCandidateVerification,
   submitAttemptRateLimiter,
   validateRequest({ body: submitAttemptSchema }),
