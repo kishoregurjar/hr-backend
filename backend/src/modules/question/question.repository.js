@@ -346,17 +346,7 @@ class QuestionRepository {
     }
 
     if (companyId) {
-      const companyFilter = [{ companyId }, { companyId: null }];
-      if (where.OR) {
-        const searchOR = where.OR;
-        delete where.OR;
-        where.AND = [
-          { OR: searchOR },
-          { OR: companyFilter },
-        ];
-      } else {
-        where.OR = companyFilter;
-      }
+      where.companyId = companyId;
     }
 
     const validSortFields = ["createdAt", "updatedAt", "title", "difficulty", "status"];

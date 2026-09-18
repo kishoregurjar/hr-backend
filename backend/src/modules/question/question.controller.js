@@ -1,7 +1,22 @@
 const { StatusCodes } = require("http-status-codes");
 const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
+const { prisma } = require("../../config/prisma");
 const questionService = require("./question.service");
+
+async function resolveCompanyId(req) {
+  let companyId = req.user?.companyId || req.user?.company?.id || req.user?.companyMember?.companyId || null;
+  if (!companyId && req.user?.id) {
+    const member = await prisma.companyMember.findFirst({
+      where: { userId: req.user.id },
+      select: { companyId: true },
+    });
+    if (member?.companyId) {
+      companyId = member.companyId;
+    }
+  }
+  return companyId;
+}
 
 /**
  * ==========================================================
@@ -15,7 +30,7 @@ class QuestionController {
   create = asyncHandler(async (req, res) => {
     const payload = req.validatedData || req.body;
     const userId = req.user?.id;
-    const companyId = req.user?.companyId || req.user?.company?.id || req.user?.companyMember?.companyId || null;
+    const companyId = await resolveCompanyId(req);
 
     const result = await questionService.createQuestion(payload, userId, companyId);
 
@@ -31,7 +46,7 @@ class QuestionController {
 
   list = asyncHandler(async (req, res) => {
     const query = req.validatedData || req.query;
-    const companyId = req.user?.companyId || req.user?.company?.id || req.user?.companyMember?.companyId || null;
+    const companyId = await resolveCompanyId(req);
 
     const result = await questionService.getQuestions(query, companyId);
 
@@ -65,7 +80,7 @@ class QuestionController {
     const { id } = req.params;
     const payload = req.validatedData || req.body;
     const userId = req.user?.id;
-    const companyId = req.user?.companyId || req.user?.company?.id || req.user?.companyMember?.companyId || null;
+    const companyId = await resolveCompanyId(req);
 
     const result = await questionService.updateQuestion(id, payload, userId, companyId);
 
