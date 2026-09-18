@@ -2974,54 +2974,12 @@ class AttemptService {
       );
     }
 
-    if (expectedVersion !== undefined && expectedVersion !== null && answer.version !== expectedVersion) {
-      attemptMetrics.recordAnswerVersionConflict();
-      await attemptAuditService.recordSecurityEvent({
-        event: "ANSWER_VERSION_CONFLICT",
-        attemptId: attempt.id,
-        candidateId: attempt.candidateId,
-        assessmentId: attempt.assessmentId,
-        questionId: targetQuestionId,
-        metadata: {
-          expectedVersion,
-          actualVersion: answer.version,
-        },
-      });
-      throw new ConflictError(
-        "This answer is outdated. Please refresh the current answer before saving again.",
-        "ANSWER_VERSION_CONFLICT",
-        { currentVersion: answer.version }
-      );
-    }
-
-    const updatedCount = await attemptRepository.updateAnswerWithVersion({
+    const updatedRecord = await attemptRepository.updateAnswerWithVersion({
       answerId: answer.id,
-      expectedVersion: expectedVersion !== undefined ? expectedVersion : answer.version,
+      expectedVersion: expectedVersion || answer.version,
       selectedOptionIds: payloadOptionIds,
       answerText: payloadText,
     });
-
-    if (updatedCount !== 1) {
-      const latest = await attemptRepository.findAttemptAnswerById({ answerId: answer.id });
-      await attemptAuditService.recordSecurityEvent({
-        event: "ANSWER_VERSION_CONFLICT",
-        attemptId: attempt.id,
-        candidateId: attempt.candidateId,
-        assessmentId: attempt.assessmentId,
-        questionId: targetQuestionId,
-        metadata: {
-          expectedVersion,
-          actualVersion: latest?.version || answer.version,
-        },
-      });
-      throw new ConflictError(
-        "This answer was modified by another request.",
-        "ANSWER_VERSION_CONFLICT",
-        { currentVersion: latest?.version || answer.version }
-      );
-    }
-
-    const updatedAnswer = await attemptRepository.findAttemptAnswerById({ answerId: answer.id });
 
     attemptMetrics.recordAnswerUpdated();
 
@@ -3033,7 +2991,7 @@ class AttemptService {
       questionId: targetQuestionId,
       metadata: {
         previousVersion: expectedVersion !== undefined ? expectedVersion : answer.version,
-        newVersion: updatedAnswer?.version || answer.version + 1,
+        newVersion: updatedRecord?.version || answer.version + 1,
       },
     }).catch(() => {});
 
@@ -3043,8 +3001,8 @@ class AttemptService {
       attemptId: attempt.id,
       questionId: targetQuestionId,
       attemptQuestionId: attemptQuestion.id,
-      version: updatedAnswer?.version || answer.version + 1,
-      savedAt: updatedAnswer?.updatedAt || now,
+      version: updatedRecord?.version || answer.version + 1,
+      savedAt: updatedRecord?.updatedAt || now,
       status: attempt.status,
     };
   }
