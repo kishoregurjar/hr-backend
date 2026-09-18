@@ -204,9 +204,9 @@ class AssessmentService {
       );
     }
 
-    if (existingAssessment.status !== ASSESSMENT_STATUS.DRAFT) {
+    if (existingAssessment.status === ASSESSMENT_STATUS.ARCHIVED) {
       throw new BadRequestError(
-        "Only draft assessments can be updated.",
+        "Archived assessments cannot be updated.",
         ASSESSMENT_ERRORS.CANNOT_UPDATE || "ASSESSMENT_CANNOT_BE_UPDATED"
       );
     }
@@ -415,9 +415,9 @@ class AssessmentService {
       );
     }
 
-    if (assessment.status !== ASSESSMENT_STATUS.DRAFT) {
+    if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
       throw new BadRequestError(
-        "Questions can only be assigned to draft assessments.",
+        "Questions cannot be assigned to archived assessments.",
         ASSESSMENT_QUESTION_ERRORS.ASSESSMENT_NOT_EDITABLE || "ASSESSMENT_NOT_EDITABLE"
       );
     }
@@ -547,9 +547,9 @@ class AssessmentService {
       );
     }
 
-    if (assessment.status !== ASSESSMENT_STATUS.DRAFT) {
+    if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
       throw new BadRequestError(
-        "Questions can only be reordered while the assessment is in draft status.",
+        "Questions cannot be reordered on archived assessments.",
         ASSESSMENT_QUESTION_ERRORS.ASSESSMENT_NOT_EDITABLE || "ASSESSMENT_NOT_EDITABLE"
       );
     }
