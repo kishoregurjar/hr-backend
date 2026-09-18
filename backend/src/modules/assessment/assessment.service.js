@@ -422,43 +422,24 @@ class AssessmentService {
       );
     }
 
-    const questionIds = data.questions.map((item) => item.questionId);
-
-    const uniqueQuestionIds = new Set(questionIds);
-    if (uniqueQuestionIds.size !== questionIds.length) {
-      throw new ConflictError(
-        "The same question cannot be assigned more than once in the same request.",
-        ASSESSMENT_QUESTION_ERRORS.DUPLICATE_QUESTION || "ASSESSMENT_QUESTION_DUPLICATE"
-      );
-    }
-
-    const sequences = data.questions.map((item) => item.sequence);
-    const uniqueSequences = new Set(sequences);
-    if (uniqueSequences.size !== sequences.length) {
-      throw new ConflictError(
-        "Question sequence values must be unique within the request.",
-        ASSESSMENT_QUESTION_ERRORS.DUPLICATE_SEQUENCE || "ASSESSMENT_QUESTION_DUPLICATE_SEQUENCE"
-      );
-    }
-
     const existingAssignments = assessment.questions ?? [];
     const existingQuestionIds = new Set(existingAssignments.map((item) => item.questionId));
-    const alreadyAssigned = questionIds.filter((id) => existingQuestionIds.has(id));
-    if (alreadyAssigned.length > 0) {
-      throw new ConflictError(
-        "One or more questions are already assigned to this assessment.",
-        ASSESSMENT_QUESTION_ERRORS.DUPLICATE_QUESTION || "ASSESSMENT_QUESTION_DUPLICATE"
-      );
+
+    // Filter out questions that are already assigned to this assessment (Idempotent handling)
+    const newQuestionsToAssign = data.questions.filter(
+      (item) => !existingQuestionIds.has(item.questionId)
+    );
+
+    // If all requested questions are already assigned, return success gracefully
+    if (newQuestionsToAssign.length === 0) {
+      return {
+        message: ASSESSMENT_QUESTION_MESSAGES.ASSIGNED || "Assessment questions assigned successfully.",
+        data: AssessmentDto.toResponse(assessment),
+      };
     }
 
-    const existingSequences = new Set(existingAssignments.map((item) => item.sequence));
-    const conflictingSequences = sequences.filter((seq) => existingSequences.has(seq));
-    if (conflictingSequences.length > 0) {
-      throw new ConflictError(
-        "One or more question sequence values are already in use.",
-        ASSESSMENT_QUESTION_ERRORS.DUPLICATE_SEQUENCE || "ASSESSMENT_QUESTION_DUPLICATE_SEQUENCE"
-      );
-    }
+    const questionIds = newQuestionsToAssign.map((item) => item.questionId);
+    const sequences = newQuestionsToAssign.map((item) => item.sequence);
 
     const questions = await prisma.question.findMany({
       where: {
@@ -493,7 +474,7 @@ class AssessmentService {
       (total, item) => total + (item.marks || 0),
       0
     );
-    const incomingMarks = data.questions.reduce(
+    const incomingMarks = newQuestionsToAssign.reduce(
       (total, item) => total + (item.marks || 0),
       0
     );
@@ -506,7 +487,7 @@ class AssessmentService {
       );
     }
 
-    const assignmentData = data.questions.map((question) => ({
+    const assignmentData = newQuestionsToAssign.map((question) => ({
       questionId: question.questionId,
       sequence: question.sequence,
       marks: question.marks,
