@@ -2508,13 +2508,13 @@ class AttemptRepository {
    * Submit Attempt & Record Final Score
    */
   async submitAttempt({ attemptId, score, percentage, passed, result, submittedAt = new Date() }, tx) {
-    const client = tx || prisma;
-    const model = client.candidateAttempt || client.assessmentAttempt;
+    const db = getClient(tx);
+    const model = db.candidateAttempt || db.assessmentAttempt;
     const resultVal = (result === "PASSED" || result === "PASS" || result === true || passed === true || passed === "PASSED" || passed === "PASS") ? "PASS" : "FAIL";
     const safeScore = isNaN(Number(score)) ? 0 : Number(score);
     const safePercentage = isNaN(Number(percentage)) ? 0 : Number(percentage);
 
-    const updated = await model.update({
+    const updated = await model.updateMany({
       where: { id: attemptId },
       data: {
         status: "SUBMITTED",
@@ -2525,9 +2525,9 @@ class AttemptRepository {
       },
     });
 
-    if (client.assessmentResult) {
+    if (db.assessmentResult) {
       try {
-        await client.assessmentResult.upsert({
+        await db.assessmentResult.upsert({
           where: { candidateAssessmentId: attemptId },
           create: {
             candidateAssessmentId: attemptId,
