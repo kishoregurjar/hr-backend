@@ -684,9 +684,10 @@ class AttemptService {
       }
 
       try {
+        const effectiveCandidateId = candidate.id || candidateId;
         const result = await runTransaction(async (tx) => {
           const existing = await attemptRepository.findActiveInvitation(
-            { assessmentId, candidateId },
+            { assessmentId, candidateId: effectiveCandidateId },
             tx
           );
 
@@ -702,7 +703,7 @@ class AttemptService {
 
           const invitationData = attemptMapper.toCreateInvitationEntity({
             assessmentId,
-            candidateId,
+            candidateId: effectiveCandidateId,
             invitedByUserId,
             email: candidate.email,
             tokenHash,
@@ -3448,7 +3449,10 @@ class AttemptService {
 
     const where = {};
     if (targetCompanyId) {
-      where.companyId = targetCompanyId;
+      where.OR = [
+        { companyId: targetCompanyId },
+        { companyId: null },
+      ];
     } else {
       where.id = "no-matching-company";
     }
@@ -3461,9 +3465,12 @@ class AttemptService {
       ];
 
       where.AND = [
-        targetCompanyId ? { companyId: targetCompanyId } : { id: "no-matching-company" },
+        targetCompanyId
+          ? { OR: [{ companyId: targetCompanyId }, { companyId: null }] }
+          : { id: "no-matching-company" },
         { OR: searchFilter },
       ];
+      delete where.OR;
     }
 
     const [items, total] = await Promise.all([

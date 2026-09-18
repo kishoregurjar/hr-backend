@@ -1310,19 +1310,92 @@ class AttemptRepository {
    */
   async findCandidatesByIds(candidateIds, tx) {
     const db = getClient(tx);
-    return db.user.findMany({
+    const profiles = await db.candidateProfile.findMany({
       where: {
-        id: { in: candidateIds },
-        role: "CANDIDATE",
+        OR: [
+          { id: { in: candidateIds } },
+          { userId: { in: candidateIds } },
+        ],
       },
       select: {
         id: true,
+        userId: true,
         email: true,
-        name: true,
-        role: true,
-        status: true,
+        firstName: true,
+        lastName: true,
+        user: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
       },
     });
+
+    const userIdsNotCovered = candidateIds.filter(
+      (id) => !profiles.some((p) => p.id === id || p.userId === id)
+    );
+
+    let users = [];
+    if (userIdsNotCovered.length > 0) {
+      users = await db.user.findMany({
+        where: {
+          id: { in: userIdsNotCovered },
+          role: "CANDIDATE",
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          status: true,
+        },
+      });
+    }
+
+    const resultMap = new Map();
+
+    for (const p of profiles) {
+      const candidateObj = {
+        id: p.id,
+        email: p.email,
+        name: `${p.firstName || ""} ${p.lastName || ""}`.trim() || "Candidate",
+        firstName: p.firstName,
+        lastName: p.lastName,
+        status: p.user?.status || "ACTIVE",
+      };
+      resultMap.set(p.id, candidateObj);
+      if (p.userId) {
+        resultMap.set(p.userId, candidateObj);
+      }
+    }
+
+    for (const u of users) {
+      if (!resultMap.has(u.id)) {
+        const candidateObj = {
+          id: u.id,
+          email: u.email,
+          name: u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Candidate",
+          firstName: u.firstName,
+          lastName: u.lastName,
+          status: u.status || "ACTIVE",
+        };
+        resultMap.set(u.id, candidateObj);
+      }
+    }
+
+    const results = [];
+    const addedIds = new Set();
+    for (const id of candidateIds) {
+      const candidate = resultMap.get(id);
+      if (candidate && !addedIds.has(candidate.id)) {
+        addedIds.add(candidate.id);
+        results.push(candidate);
+      }
+    }
+
+    return results;
   }
 
   /**
