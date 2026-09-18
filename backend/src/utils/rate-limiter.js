@@ -63,10 +63,12 @@ const consumeRateLimit = async ({ key, windowSeconds, maxRequests }) => {
     return consumeMemoryRateLimit({ key, windowSeconds, maxRequests });
   }
 
+  console.time('[TIMING] Redis-RateLimit');
   const result = await redisClient.eval(RATE_LIMIT_SCRIPT, {
     keys: [key],
     arguments: [String(windowSeconds)],
   });
+  console.timeEnd('[TIMING] Redis-RateLimit');
 
   const current = Number(result[0]);
   const ttl = Number(result[1]);

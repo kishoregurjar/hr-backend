@@ -25,10 +25,12 @@ const createCompany = async (req, res, next) => {
 
 const getMyCompany = async (req, res, next) => {
   try {
+    console.time('[TIMING] BusinessLogic-getMyCompany');
     const result = await companyService.getMyCompany(
       req.companyId,
       req.companyMember.role
     );
+    console.timeEnd('[TIMING] BusinessLogic-getMyCompany');
 
     return res.status(200).json({
       success: true,

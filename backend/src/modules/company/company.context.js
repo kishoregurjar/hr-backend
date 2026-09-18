@@ -17,7 +17,9 @@ const resolveCompanyContext = async (userId, companyId) => {
   let targetCompanyId = companyId;
 
   if (!targetCompanyId) {
+    console.time('[TIMING] CompanyContext-Query1');
     const userCompany = await companyRepository.findCompanyByMemberUserId(userId);
+    console.timeEnd('[TIMING] CompanyContext-Query1');
     if (userCompany) {
       targetCompanyId = userCompany.id;
     }
@@ -31,10 +33,12 @@ const resolveCompanyContext = async (userId, companyId) => {
     );
   }
 
+  console.time('[TIMING] CompanyContext-Query2');
   const company = await companyRepository.findCompanyContext(
     targetCompanyId,
     userId
   );
+  console.timeEnd('[TIMING] CompanyContext-Query2');
 
   if (!company || !company.members || !company.members.length) {
     throw createCompanyContextError(

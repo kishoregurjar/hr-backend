@@ -20,7 +20,9 @@ const requireAuth = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const payload = verifyAccessToken(token);
 
+    console.time('[TIMING] Auth-DB');
     const user = await authRepository.findUserById(payload.sub);
+    console.timeEnd('[TIMING] Auth-DB');
     if (!user) {
       throw new UnauthorizedError("User no longer exists.", "USER_INVALID");
     }
