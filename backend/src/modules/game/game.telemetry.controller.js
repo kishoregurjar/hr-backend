@@ -12,8 +12,10 @@ class GameTelemetryController {
   recordTelemetry = asyncHandler(async (req, res) => {
     const { events } = validateTelemetryBatch(req.body);
 
+    const candidateId = req.user?.id || req.user?.userId || req.candidateSession?.candidateId || req.candidateSession?.id;
+
     const result = await service.recordTelemetry({
-      candidateId: req.user?.id || req.user?.userId,
+      candidateId,
       candidateAssessmentId: req.params.candidateAssessmentId,
       attemptId: req.params.attemptId,
       events,

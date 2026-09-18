@@ -20,8 +20,10 @@ class GameAttemptController {
     const { candidateAssessmentId, slug } = validateGameSlugParams(req.params);
     validateStartGame(req.body);
 
+    const candidateId = req.user?.id || req.user?.userId || req.candidateSession?.candidateId || req.candidateSession?.id;
+
     const result = await service.startGame({
-      candidateId: req.user?.id || req.user?.userId,
+      candidateId,
       candidateAssessmentId,
       slug,
     });
@@ -40,8 +42,10 @@ class GameAttemptController {
     const { candidateAssessmentId, attemptId } = validateAttemptIdParams(req.params);
     const { solution } = validateSubmitGame(req.body);
 
+    const candidateId = req.user?.id || req.user?.userId || req.candidateSession?.candidateId || req.candidateSession?.id;
+
     const result = await service.submitGame({
-      candidateId: req.user?.id || req.user?.userId,
+      candidateId,
       candidateAssessmentId,
       attemptId,
       solution,
