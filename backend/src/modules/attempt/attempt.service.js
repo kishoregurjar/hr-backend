@@ -2921,8 +2921,8 @@ class AttemptService {
     }
 
     const targetQuestionId = attemptQuestion.questionId;
-    const payloadOptionIds = hasOptions ? selectedOptionIds : null;
-    const payloadText = hasText ? answerText : null;
+    const payloadOptionIds = hasOptions ? selectedOptionIds.map((item) => String(item?.id || item)) : [];
+    const payloadText = hasText ? String(answerText) : null;
 
     let answer = await attemptRepository.findAttemptAnswer({
       attemptId: attempt.id,

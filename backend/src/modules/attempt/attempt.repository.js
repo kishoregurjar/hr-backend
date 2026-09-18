@@ -2031,12 +2031,10 @@ class AttemptRepository {
    */
   async findAttemptQuestion({ id, questionId, attemptId }, tx) {
     const client = tx || prisma;
+    const targetQuestionId = questionId || (id && id !== attemptId ? id : null);
     const where = { attemptId };
-    if (id) {
-      where.id = id;
-    }
-    if (questionId) {
-      where.questionId = questionId;
+    if (targetQuestionId) {
+      where.questionId = targetQuestionId;
     }
 
     return client.attemptQuestion.findFirst({
