@@ -3028,16 +3028,13 @@ class AttemptService {
    * Submit Candidate Assessment Attempt Workflow (Verification Session Integrated)
    */
   async submitCandidateAttempt({ candidateAssessmentId, candidateSession, token, responses, gameResults, score: clientScore, now = new Date() }) {
-    let effectiveCandidateAssessmentId =
-      candidateAssessmentId ||
-      candidateSession?.candidateAssessmentId ||
-      candidateSession?.candidateAttemptId;
+    const rawToken = token || candidateSession?.invitationToken || candidateSession?.token;
+    const isMockId = candidateAssessmentId && String(candidateAssessmentId).startsWith("att_");
+    let effectiveCandidateAssessmentId = !isMockId ? (candidateAssessmentId || candidateSession?.candidateAssessmentId || candidateSession?.candidateAttemptId) : null;
 
-    const sessionId = candidateSession?.sessionId;
-
-    if (!effectiveCandidateAssessmentId && token) {
+    if (!effectiveCandidateAssessmentId && rawToken) {
       try {
-        const invitation = await this.findInvitationByRawToken(token);
+        const invitation = await this.findInvitationByRawToken(rawToken);
         if (invitation) {
           const found = await attemptRepository.findActiveAttemptByCandidateAndAssessment(
             invitation.candidateId,
@@ -3048,7 +3045,7 @@ class AttemptService {
       } catch (_e) {}
     }
 
-    if (!effectiveCandidateAssessmentId && !token) {
+    if (!effectiveCandidateAssessmentId && !rawToken && !candidateSession) {
       throw new UnauthorizedError(
         "Candidate verification session or token is required.",
         "INVALID_CANDIDATE_SESSION"
@@ -3056,24 +3053,63 @@ class AttemptService {
     }
 
     return runTransaction(async (tx) => {
-      let currentAttempt = effectiveCandidateAssessmentId
-        ? await attemptRepository.findAttemptById(effectiveCandidateAssessmentId, tx)
-        : null;
+      let currentAttempt = null;
 
-      if (!currentAttempt && effectiveCandidateAssessmentId) {
-        currentAttempt = await attemptRepository.findCurrentAttempt({
-          candidateAssessmentId: effectiveCandidateAssessmentId,
-        }, tx);
+      // 1. Try finding by ID if effective candidate assessment ID is a real DB ID (not att_...)
+      if (effectiveCandidateAssessmentId && !String(effectiveCandidateAssessmentId).startsWith("att_")) {
+        try {
+          currentAttempt = await attemptRepository.findAttemptById(effectiveCandidateAssessmentId, tx);
+        } catch (_e) {}
+
+        if (!currentAttempt) {
+          try {
+            currentAttempt = await attemptRepository.findCurrentAttempt({
+              candidateAssessmentId: effectiveCandidateAssessmentId,
+            }, tx);
+          } catch (_e) {}
+        }
       }
 
-      if (!currentAttempt && token) {
-        const inv = await this.findInvitationByRawToken(token, tx);
-        if (inv) {
-          currentAttempt = await attemptRepository.findCurrentAttempt({
-            candidateId: inv.candidateId,
-            assessmentId: inv.assessmentId,
-          }, tx);
+      // 2. Try finding by raw token / invitation
+      if (!currentAttempt && rawToken) {
+        try {
+          const inv = await this.findInvitationByRawToken(rawToken, tx);
+          if (inv) {
+            currentAttempt = await attemptRepository.findCurrentAttempt({
+              candidateId: inv.candidateId,
+              assessmentId: inv.assessmentId,
+            }, tx);
+            if (!currentAttempt) {
+              currentAttempt = await attemptRepository.findActiveAttemptByCandidateAndAssessment(
+                inv.candidateId,
+                inv.assessmentId,
+                tx
+              );
+            }
+          }
+        } catch (_e) {}
+      }
+
+      // 3. Try finding by candidateSession
+      if (!currentAttempt && candidateSession) {
+        const candidateId = candidateSession.candidateId || candidateSession.id;
+        const assessmentId = candidateSession.assessmentId;
+        if (candidateId) {
+          try {
+            currentAttempt = await attemptRepository.findCurrentAttempt({
+              candidateId,
+              assessmentId,
+            }, tx);
+          } catch (_e) {}
         }
+      }
+
+      // 4. Auto-heal/start attempt in DB if missing but token is available
+      if (!currentAttempt && rawToken) {
+        try {
+          const startedRes = await this.startAttemptByToken({ token: rawToken, candidateSession });
+          currentAttempt = startedRes?.attempt || (startedRes?.id ? startedRes : null);
+        } catch (_e) {}
       }
 
       if (!currentAttempt) {
