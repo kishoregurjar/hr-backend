@@ -3112,14 +3112,16 @@ class AttemptService {
         } catch (_e) {}
       }
 
-      // 5. Fallback: Find most recent IN_PROGRESS attempt in database
+      // 5. Fallback: Find most recent IN_PROGRESS or active attempt in database
       if (!currentAttempt) {
         try {
           const attemptModel = tx.candidateAttempt || tx.assessmentAttempt || prisma.candidateAttempt;
           if (attemptModel) {
             currentAttempt = await attemptModel.findFirst({
-              where: { status: "IN_PROGRESS" },
-              orderBy: { createdAt: "desc" },
+              where: {
+                status: { in: ["IN_PROGRESS", "NOT_STARTED"] },
+              },
+              orderBy: { startedAt: "desc" },
             });
           }
         } catch (_e) {}
