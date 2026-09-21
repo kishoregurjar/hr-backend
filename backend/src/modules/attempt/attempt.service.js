@@ -1045,14 +1045,19 @@ class AttemptService {
         attempt.id
       );
 
-      if (attemptQuestionData.length === 0) {
+      const hasQuestions = Array.isArray(attemptQuestionData) && attemptQuestionData.length > 0;
+      const hasGames = Array.isArray(assessment.games) && assessment.games.length > 0;
+
+      if (!hasQuestions && !hasGames) {
         throw new ConflictError(
-          "Assessment cannot be started without questions.",
+          "Assessment cannot be started without questions or games.",
           ATTEMPT_ERRORS.INVALID_REQUEST
         );
       }
 
-      await attemptRepository.createAttemptQuestions(attemptQuestionData, tx);
+      if (hasQuestions) {
+        await attemptRepository.createAttemptQuestions(attemptQuestionData, tx);
+      }
 
       // 11. Retrieve Final Created Attempt Record
       const createdAttempt = await attemptRepository.findById(
@@ -1255,14 +1260,19 @@ class AttemptService {
         attempt.id
       );
 
-      if (attemptQuestionData.length === 0) {
+      const hasQuestions = Array.isArray(attemptQuestionData) && attemptQuestionData.length > 0;
+      const hasGames = Array.isArray(assessment.games) && assessment.games.length > 0;
+
+      if (!hasQuestions && !hasGames) {
         throw new ConflictError(
-          "Assessment cannot be started without questions.",
+          "Assessment cannot be started without questions or games.",
           "ASSESSMENT_HAS_NO_QUESTIONS"
         );
       }
 
-      await attemptRepository.createAttemptQuestions(attemptQuestionData, tx);
+      if (hasQuestions) {
+        await attemptRepository.createAttemptQuestions(attemptQuestionData, tx);
+      }
 
       // Record Attempt Audit Event in same transaction
       await attemptAuditService.recordAttemptAudit({
