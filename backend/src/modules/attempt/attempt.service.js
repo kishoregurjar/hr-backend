@@ -3523,7 +3523,7 @@ class AttemptService {
         email: item.email,
         phoneNumber: item.phoneNumber || null,
         status,
-        source: latestInvitation ? "ASSESSMENT_INVITATION" : "DIRECT_ENTRY",
+        source: item.metadata?.source || (item.metadata?.inbound ? "EMAIL_EXTRACTION" : "MANUAL"),
         invitation: latestInvitation || null,
         attempt: latestAttempt || null,
         addedDate: item.createdAt,
