@@ -38,6 +38,8 @@ const {
 
 const hrResultsCache = new Map();
 const HR_RESULTS_CACHE_TTL = 15 * 1000; // 15 seconds
+const candidatesCache = new Map();
+const CANDIDATES_CACHE_TTL = 15 * 1000; // 15 seconds
 const assessmentRepository = require("../assessment/assessment.repository");
 const {
   AppError,
@@ -3496,6 +3498,12 @@ class AttemptService {
       delete where.OR;
     }
 
+    const cacheKey = `${user.id}:${targetCompanyId || "none"}:${page}:${limit}:${search || ""}`;
+    const cached = candidatesCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     const [items, total] = await Promise.all([
       attemptRepository.listCandidatesForHR({ where, skip, take: limit }),
       attemptRepository.countCandidatesForHR({ where }),
@@ -3524,7 +3532,7 @@ class AttemptService {
       };
     });
 
-    return {
+    const result = {
       items: formattedItems,
       pagination: {
         page,
@@ -3533,6 +3541,9 @@ class AttemptService {
         totalPages: Math.ceil(total / limit) || 1,
       },
     };
+
+    candidatesCache.set(cacheKey, { data: result, expiresAt: Date.now() + CANDIDATES_CACHE_TTL });
+    return result;
   }
 
   /**
