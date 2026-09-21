@@ -95,7 +95,7 @@ const toCreateEntity = ({
   if (!candidateId) {
     throw new TypeError("candidateId is required.");
   }
-  if (!Number.isInteger(attemptNumber) || attemptNumber < 1) {
+  if (attemptNumber !== undefined && (!Number.isInteger(attemptNumber) || attemptNumber < 1)) {
     throw new TypeError("attemptNumber must be a positive integer.");
   }
   if (!(startedAt instanceof Date)) {
@@ -111,15 +111,9 @@ const toCreateEntity = ({
   return {
     assessmentId,
     candidateId,
-    attemptNumber,
     status: ATTEMPT_STATUS.IN_PROGRESS,
     startedAt,
     expiresAt,
-    submittedAt: null,
-    cancelledAt: null,
-    score: null,
-    percentage: null,
-    passed: null,
   };
 };
 

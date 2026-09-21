@@ -309,7 +309,15 @@ class AttemptRepository {
   async createAttempt(data, tx) {
     const db = getClient(tx);
     const attemptModel = db.candidateAttempt || db.assessmentAttempt;
-    const { attemptNumber: _attemptNumber, cancelledAt: _cancelledAt, passed: _passed, ...cleanData } = data || {};
+    const allowedKeys = ["assessmentId", "candidateId", "status", "startedAt", "expiresAt", "expiredAt", "submittedAt", "score", "maxScore", "percentage", "result"];
+    const cleanData = {};
+    if (data && typeof data === "object") {
+      for (const key of allowedKeys) {
+        if (data[key] !== undefined) {
+          cleanData[key] = data[key];
+        }
+      }
+    }
     return attemptModel.create({
       data: cleanData,
       select: ATTEMPT_BASE_SELECT,
