@@ -191,6 +191,26 @@ const findCompanyByMemberUserId = async (userId, tx = prisma) => {
   });
 };
 
+const findDefaultCompanyContextForUser = async (userId, tx = prisma) => {
+  return tx.company.findFirst({
+    where: {
+      members: {
+        some: {
+          userId,
+        },
+      },
+    },
+    include: {
+      members: {
+        where: {
+          userId,
+        },
+        take: 1,
+      },
+    },
+  });
+};
+
 const countOwners = async (companyId, tx = prisma) => {
   return tx.companyMember.count({
     where: {
@@ -366,6 +386,7 @@ module.exports = {
   findCompanyWithMember,
   findCompanyContext: findCompanyWithMember,
   findCompanyByMemberUserId,
+  findDefaultCompanyContextForUser,
 
   countOwners,
   transferOwnership,
