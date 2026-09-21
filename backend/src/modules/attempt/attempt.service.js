@@ -33,7 +33,11 @@ const {
   generateVerificationSessionToken,
   hashVerificationSessionToken,
   createVerificationSessionExpiryDate,
+  isVerificationSessionExpired,
 } = require("./attempt.constants");
+
+const hrResultsCache = new Map();
+const HR_RESULTS_CACHE_TTL = 15 * 1000; // 15 seconds
 const assessmentRepository = require("../assessment/assessment.repository");
 const {
   AppError,
@@ -3416,12 +3420,18 @@ class AttemptService {
       [allowedSortFields[sortBy] || "startedAt"]: sortOrder === "asc" ? "asc" : "desc",
     };
 
+    const cacheKey = `${user.id}:${page}:${limit}:${status || ""}:${search || ""}:${sortBy}:${sortOrder}`;
+    const cached = hrResultsCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     const [items, total] = await Promise.all([
       attemptRepository.listAttemptsForHR({ where, skip, take: limit, orderBy }),
       attemptRepository.countAttemptsForHR({ where }),
     ]);
 
-    return {
+    const result = {
       items,
       pagination: {
         page,
@@ -3430,6 +3440,9 @@ class AttemptService {
         totalPages: Math.ceil(total / limit) || 1,
       },
     };
+
+    hrResultsCache.set(cacheKey, { data: result, expiresAt: Date.now() + HR_RESULTS_CACHE_TTL });
+    return result;
   }
 
   /**

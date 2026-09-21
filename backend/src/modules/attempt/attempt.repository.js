@@ -19,25 +19,12 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
   percentage: true,
   result: true,
   assessment: {
-    include: {
-      questions: {
-        orderBy: { orderIndex: "asc" },
-        include: {
-          question: {
-            include: {
-              options: {
-                orderBy: { sequence: "asc" },
-              },
-            },
-          },
-        },
-      },
-      games: {
-        orderBy: { sequence: "asc" },
-        include: {
-          game: true,
-        },
-      },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      timeLimitMinutes: true,
+      totalQuestions: true,
     },
   },
 });
