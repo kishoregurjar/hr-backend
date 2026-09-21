@@ -3112,6 +3112,19 @@ class AttemptService {
         } catch (_e) {}
       }
 
+      // 5. Fallback: Find most recent IN_PROGRESS attempt in database
+      if (!currentAttempt) {
+        try {
+          const attemptModel = tx.candidateAttempt || tx.assessmentAttempt || prisma.candidateAttempt;
+          if (attemptModel) {
+            currentAttempt = await attemptModel.findFirst({
+              where: { status: "IN_PROGRESS" },
+              orderBy: { createdAt: "desc" },
+            });
+          }
+        } catch (_e) {}
+      }
+
       if (!currentAttempt) {
         throw new NotFoundError(
           "No active assessment attempt found.",
