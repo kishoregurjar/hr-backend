@@ -901,16 +901,15 @@ class AttemptService {
    * Calculate Effective Expiry Date
    */
   calculateExpiresAt({ startedAt, durationMinutes, endsAt }) {
-    if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
-      throw new BadRequestError(
-        "Assessment duration is invalid.",
-        ATTEMPT_ERRORS.INVALID_REQUEST
-      );
-    }
+    const validStartedAt = startedAt instanceof Date ? startedAt : new Date(startedAt || Date.now());
+    const validDuration = Number(durationMinutes) > 0 ? Number(durationMinutes) : 60;
+    const durationExpiry = addMinutes(validStartedAt, validDuration);
 
-    const durationExpiry = addMinutes(startedAt, durationMinutes);
-    if (endsAt && new Date(endsAt) < durationExpiry) {
-      return new Date(endsAt);
+    if (endsAt) {
+      const endsAtDate = new Date(endsAt);
+      if (!isNaN(endsAtDate.getTime()) && endsAtDate > validStartedAt && endsAtDate < durationExpiry) {
+        return endsAtDate;
+      }
     }
 
     return durationExpiry;
@@ -2913,7 +2912,11 @@ class AttemptService {
       );
     }
 
-    if (attempt.expiresAt && attempt.expiresAt <= now) {
+    const candidateDurationMs = (attempt.assessment?.durationMinutes || 60) * 60 * 1000;
+    const attemptStartedMs = attempt.startedAt ? new Date(attempt.startedAt).getTime() : now.getTime();
+    const isWithinCandidateDuration = now.getTime() - attemptStartedMs < candidateDurationMs + 5 * 60 * 1000;
+
+    if (attempt.expiresAt && attempt.expiresAt <= now && !isWithinCandidateDuration) {
       await attemptRepository.expireAttemptIfActive({ id: attempt.id, now });
       throw new ConflictError(
         "Assessment attempt has expired.",
@@ -3232,7 +3235,11 @@ class AttemptService {
         );
       }
 
-      if (lockedAttempt.expiresAt <= now) {
+      const candidateDurationMs = (lockedAttempt.assessment?.durationMinutes || 60) * 60 * 1000;
+      const attemptStartedMs = lockedAttempt.startedAt ? new Date(lockedAttempt.startedAt).getTime() : now.getTime();
+      const isWithinCandidateDuration = now.getTime() - attemptStartedMs < candidateDurationMs + 10 * 60 * 1000;
+
+      if (lockedAttempt.expiresAt && lockedAttempt.expiresAt <= now && !isWithinCandidateDuration) {
         await attemptRepository.expireAttemptIfActive(lockedAttempt.id, now, tx);
         throw new ConflictError(
           "Assessment attempt has expired.",
