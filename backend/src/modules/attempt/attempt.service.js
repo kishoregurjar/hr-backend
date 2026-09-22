@@ -2916,12 +2916,22 @@ class AttemptService {
     const attemptStartedMs = attempt.startedAt ? new Date(attempt.startedAt).getTime() : now.getTime();
     const isWithinCandidateDuration = now.getTime() - attemptStartedMs < candidateDurationMs + 5 * 60 * 1000;
 
-    if (attempt.expiresAt && attempt.expiresAt <= now && !isWithinCandidateDuration) {
-      await attemptRepository.expireAttemptIfActive({ id: attempt.id, now });
-      throw new ConflictError(
-        "Assessment attempt has expired.",
-        "ATTEMPT_EXPIRED"
-      );
+    if (attempt.expiresAt && new Date(attempt.expiresAt) <= now) {
+      if (isWithinCandidateDuration) {
+        try {
+          const freshExpiry = new Date(now.getTime() + (attempt.assessment?.durationMinutes || 60) * 60 * 1000);
+          await attemptRepository.updateAttempt(attempt.id, { expiresAt: freshExpiry });
+          attempt.expiresAt = freshExpiry;
+        } catch (_e) {
+          attempt.expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
+        }
+      } else {
+        await attemptRepository.expireAttemptIfActive({ id: attempt.id, now });
+        throw new ConflictError(
+          "Assessment attempt has expired.",
+          "ATTEMPT_EXPIRED"
+        );
+      }
     }
 
     let attemptQuestion = await attemptRepository.findAttemptQuestion({
@@ -3239,12 +3249,29 @@ class AttemptService {
       const attemptStartedMs = lockedAttempt.startedAt ? new Date(lockedAttempt.startedAt).getTime() : now.getTime();
       const isWithinCandidateDuration = now.getTime() - attemptStartedMs < candidateDurationMs + 10 * 60 * 1000;
 
-      if (lockedAttempt.expiresAt && lockedAttempt.expiresAt <= now && !isWithinCandidateDuration) {
-        await attemptRepository.expireAttemptIfActive(lockedAttempt.id, now, tx);
-        throw new ConflictError(
-          "Assessment attempt has expired.",
-          ATTEMPT_SUBMIT_ERROR_CODES.ATTEMPT_EXPIRED
-        );
+      if (lockedAttempt.status === "NOT_STARTED") {
+        try {
+          await attemptRepository.updateAttemptStatus(lockedAttempt.id, "IN_PROGRESS", tx);
+          lockedAttempt.status = "IN_PROGRESS";
+        } catch (_e) {}
+      }
+
+      if (lockedAttempt.expiresAt && new Date(lockedAttempt.expiresAt) <= now) {
+        if (isWithinCandidateDuration) {
+          try {
+            const freshExpiry = new Date(now.getTime() + (lockedAttempt.assessment?.durationMinutes || 60) * 60 * 1000);
+            await attemptRepository.updateAttempt(lockedAttempt.id, { expiresAt: freshExpiry }, tx);
+            lockedAttempt.expiresAt = freshExpiry;
+          } catch (_e) {
+            lockedAttempt.expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
+          }
+        } else {
+          await attemptRepository.expireAttemptIfActive(lockedAttempt.id, now, tx);
+          throw new ConflictError(
+            "Assessment attempt has expired.",
+            ATTEMPT_SUBMIT_ERROR_CODES.ATTEMPT_EXPIRED
+          );
+        }
       }
 
       const attempt = await attemptRepository.findAttemptForEvaluation(lockedAttempt.id, tx);
