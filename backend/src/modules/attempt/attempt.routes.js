@@ -87,6 +87,7 @@ router.post(
   ["/start-by-token", "/:assessmentId/start"],
   startAttemptRateLimiter,
   requireCandidateVerification,
+  validateRequest({ body: startAttemptByTokenSchema }),
   attemptController.startAttemptByToken
 );
 
