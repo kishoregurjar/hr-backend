@@ -263,10 +263,27 @@ class AttemptController {
    */
   getCandidateAttempt = asyncHandler(async (req, res) => {
     const { attemptId } = req.params;
+    if (!attemptId || typeof attemptId !== "string" || attemptId.startsWith("att_")) {
+      throw new BadRequestError("Valid assessment attempt ID is required.", ATTEMPT_ERRORS.INVALID_ID);
+    }
+
     const attempt = await attemptRepository.findAttemptById(attemptId);
     if (!attempt) {
       throw new NotFoundError("Assessment attempt not found.", ATTEMPT_ERRORS.NOT_FOUND);
     }
+
+    const candidateSession = req.candidateSession;
+    const sessionCandidateId = candidateSession?.candidateId;
+    const userCandidateId = req.user?.id;
+    const effectiveCandidateId = sessionCandidateId || userCandidateId;
+
+    if (effectiveCandidateId && attempt.candidateId && String(attempt.candidateId) !== String(effectiveCandidateId)) {
+      throw new ForbiddenError(
+        "You are not authorized to view this assessment attempt.",
+        "FORBIDDEN"
+      );
+    }
+
     const response = toCandidateResponse(attempt);
     return SuccessResponse.send(
       res,

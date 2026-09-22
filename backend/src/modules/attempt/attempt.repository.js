@@ -86,6 +86,9 @@ class AttemptRepository {
    * Find Attempt By ID
    */
   async findById(attemptId, options = {}, tx) {
+    if (!attemptId || typeof attemptId !== "string" || attemptId.startsWith("att_")) {
+      return null;
+    }
     const db = getClient(tx);
     const { includeQuestions = false, includeAnswers = false } = options;
     const attemptModel = db.candidateAttempt || db.assessmentAttempt;
@@ -985,6 +988,9 @@ class AttemptRepository {
    * ------------------------------------------------------------
    */
   async findInvitationByTokenHash(tokenHash, tx) {
+    if (!tokenHash || typeof tokenHash !== "string") {
+      return null;
+    }
     const db = getClient(tx);
     return db.invitation.findUnique({
       where: {
@@ -1062,6 +1068,9 @@ class AttemptRepository {
    * Find Invitation By ID
    */
   async findInvitationById(id, tx) {
+    if (!id || typeof id !== "string") {
+      return null;
+    }
     const db = getClient(tx);
     return db.invitation.findUnique({
       where: {
