@@ -36,11 +36,15 @@ const requireCandidateVerification = async (req, res, next) => {
       req.body?.invitationToken ||
       req.body?.candidateAssessmentId ||
       req.body?.attemptId ||
-      req.query?.token
+      req.query?.token ||
+      req.query?.invitationToken ||
+      req.params?.assessmentId ||
+      req.params?.candidateAssessmentId ||
+      req.params?.attemptId
     );
 
     if (!token) {
-      // If invitation token or attempt identifier is present in body/query, allow request to proceed to token-aware controller
+      // If invitation token or attempt identifier is present in body/query/params, allow request to proceed to token-aware controller
       if (hasPayloadToken) {
         return next();
       }

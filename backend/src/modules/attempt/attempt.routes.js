@@ -84,10 +84,9 @@ const { requireCandidateVerification } = require("./attempt.session.middleware")
  * Secured by Candidate Verification Session Bearer token
  */
 router.post(
-  "/start-by-token",
+  ["/start-by-token", "/:assessmentId/start"],
   startAttemptRateLimiter,
   requireCandidateVerification,
-  validateRequest({ body: startAttemptByTokenSchema }),
   attemptController.startAttemptByToken
 );
 
