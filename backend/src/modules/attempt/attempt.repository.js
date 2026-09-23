@@ -23,7 +23,7 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
       id: true,
       title: true,
       description: true,
-      timeLimitMinutes: true,
+      durationMinutes: true,
       totalQuestions: true,
     },
   },
