@@ -24,7 +24,8 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
       title: true,
       description: true,
       durationMinutes: true,
-      totalQuestions: true,
+      passingScore: true,
+      maximumScore: true,
     },
   },
 });
@@ -868,12 +869,13 @@ class AttemptRepository {
   async persistAnswerEvaluation({ answerId, evaluationStatus, marksAwarded, isCorrect }, tx) {
     if (!answerId) return null;
     const db = getClient(tx);
-    const updateData = {};
-    if (evaluationStatus !== undefined) updateData.evaluationStatus = evaluationStatus;
-    if (marksAwarded !== undefined) updateData.marksAwarded = marksAwarded;
+    const updateData = {
+      evaluatedAt: new Date()
+    };
+    if (marksAwarded !== undefined) updateData.marksObtained = marksAwarded;
     if (isCorrect !== undefined) updateData.isCorrect = isCorrect;
 
-    return db.attemptAnswer.update({
+    return db.candidateAnswer.update({
       where: { id: answerId },
       data: updateData,
     });

@@ -2920,6 +2920,23 @@ class AttemptService {
       );
     }
 
+    // Intercept GAME_RESULT payloads to prevent them from hitting the DB as AttemptQuestions
+    if (typeof answerText === "string" && answerText.includes('"GAME_RESULT"')) {
+      try {
+        const parsed = JSON.parse(answerText);
+        if (parsed.type === "GAME_RESULT") {
+          return {
+            attemptId: attempt.id,
+            questionId: questionId || parsed.sectionId,
+            attemptQuestionId: attemptQuestionId || parsed.sectionId,
+            version: 1,
+            savedAt: now,
+            status: attempt.status,
+          };
+        }
+      } catch (e) {}
+    }
+
     let attemptQuestion = await attemptRepository.findAttemptQuestion({
       id: attemptQuestionId,
       questionId,
@@ -3375,8 +3392,8 @@ class AttemptService {
         } catch (_invErr) {}
       }
 
-      if (sessionId) {
-        await attemptRepository.revokeVerificationSession({ id: sessionId, revokedAt: now }, tx);
+      if (candidateSession?.id) {
+        await attemptRepository.revokeVerificationSession({ id: candidateSession.id, revokedAt: now }, tx);
       }
 
       attemptFailureService.afterSubmit();

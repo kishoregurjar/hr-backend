@@ -12,6 +12,7 @@ const {
   buildGameListResponse,
   buildGameResponse,
 } = require("./game.super-admin.dto");
+const socketService = require("../../socket/socket.service");
 
 class GameSuperAdminController {
   listGames = asyncHandler(async (req, res) => {
@@ -43,6 +44,13 @@ class GameSuperAdminController {
     const { gameId } = validateGameIdParam(req.params);
     const payload = validateUpdateGameStatus(req.body);
     const game = await service.updateGameStatus(gameId, payload.isActive);
+    
+    // Emit real-time update to all HR clients
+    socketService.emitGlobalHR("GAME_STATUS_UPDATED", {
+      gameId: game.id,
+      isActive: game.isActive,
+    });
+
     return SuccessResponse.send(
       res,
       {
