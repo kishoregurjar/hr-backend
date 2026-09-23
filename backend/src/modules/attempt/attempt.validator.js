@@ -303,7 +303,13 @@ const startAttemptByTokenSchema = z
       .regex(/^inv_[a-f0-9]+$/, "Invalid invitation token format.")
       .optional(),
   })
-  .passthrough();
+  .refine(
+    (data) => Boolean((data.token && typeof data.token === "string" && data.token.trim()) || (data.invitationToken && typeof data.invitationToken === "string" && data.invitationToken.trim())),
+    {
+      message: "Valid invitation token is required.",
+      path: ["token"],
+    }
+  );
 
 /**
  * ==========================================================

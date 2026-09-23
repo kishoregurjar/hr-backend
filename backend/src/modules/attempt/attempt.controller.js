@@ -34,7 +34,29 @@ class AttemptController {
    * POST /api/v1/attempts/:assessmentId/start
    */
   startAttempt = asyncHandler(async (req, res) => {
-    const candidateId = req.user?.id;
+    let candidateId = req.user?.id || req.candidateSession?.candidateId;
+    const rawToken = req.body?.token || req.body?.invitationToken || req.query?.token;
+    const { assessmentId } = req.params;
+
+    if (!candidateId && (rawToken || req.candidateSession || assessmentId)) {
+      const attempt = await attemptService.startAttemptByToken({
+        token: rawToken,
+        candidateSession: req.candidateSession,
+        assessmentId,
+      });
+
+      const responseData = toCandidateResponse(attempt);
+
+      return SuccessResponse.send(
+        res,
+        {
+          message: ATTEMPT_MESSAGES.CREATED || "Assessment attempt started successfully.",
+          data: responseData,
+        },
+        StatusCodes.CREATED
+      );
+    }
+
     if (!candidateId) {
       throw new UnauthorizedError(
         "Authenticated candidate identity is required.",
@@ -42,7 +64,6 @@ class AttemptController {
       );
     }
 
-    const { assessmentId } = req.params;
     if (!assessmentId) {
       throw new BadRequestError(
         "Assessment ID is required.",
@@ -271,10 +292,27 @@ class AttemptController {
    */
   getCandidateAttempt = asyncHandler(async (req, res) => {
     const { attemptId } = req.params;
+    if (!attemptId || typeof attemptId !== "string" || attemptId.startsWith("att_")) {
+      throw new BadRequestError("Valid assessment attempt ID is required.", ATTEMPT_ERRORS.INVALID_ID);
+    }
+
     const attempt = await attemptRepository.findAttemptById(attemptId);
     if (!attempt) {
       throw new NotFoundError("Assessment attempt not found.", ATTEMPT_ERRORS.NOT_FOUND);
     }
+
+    const candidateSession = req.candidateSession;
+    const sessionCandidateId = candidateSession?.candidateId;
+    const userCandidateId = req.user?.id;
+    const effectiveCandidateId = sessionCandidateId || userCandidateId;
+
+    if (effectiveCandidateId && attempt.candidateId && String(attempt.candidateId) !== String(effectiveCandidateId)) {
+      throw new ForbiddenError(
+        "You are not authorized to view this assessment attempt.",
+        "FORBIDDEN"
+      );
+    }
+
     const response = toCandidateResponse(attempt);
     return SuccessResponse.send(
       res,

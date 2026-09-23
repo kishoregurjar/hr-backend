@@ -63,20 +63,34 @@ const consumeRateLimit = async ({ key, windowSeconds, maxRequests }) => {
     return consumeMemoryRateLimit({ key, windowSeconds, maxRequests });
   }
 
-  const result = await redisClient.eval(RATE_LIMIT_SCRIPT, {
-    keys: [key],
-    arguments: [String(windowSeconds)],
-  });
+  try {
+    const redisPromise = redisClient.eval(RATE_LIMIT_SCRIPT, {
+      keys: [key],
+      arguments: [String(windowSeconds)],
+    });
 
-  const current = Number(result[0]);
-  const ttl = Number(result[1]);
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(() => resolve(null), 200)
+    );
 
-  return {
-    allowed: current <= maxRequests,
-    current,
-    remaining: Math.max(maxRequests - current, 0),
-    retryAfter: ttl > 0 ? ttl : windowSeconds,
-  };
+    const result = await Promise.race([redisPromise, timeoutPromise]);
+
+    if (!result || !Array.isArray(result)) {
+      return consumeMemoryRateLimit({ key, windowSeconds, maxRequests });
+    }
+
+    const current = Number(result[0]);
+    const ttl = Number(result[1]);
+
+    return {
+      allowed: current <= maxRequests,
+      current,
+      remaining: Math.max(maxRequests - current, 0),
+      retryAfter: ttl > 0 ? ttl : windowSeconds,
+    };
+  } catch (error) {
+    return consumeMemoryRateLimit({ key, windowSeconds, maxRequests });
+  }
 };
 
 module.exports = {

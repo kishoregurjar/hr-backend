@@ -84,7 +84,7 @@ const { requireCandidateVerification } = require("./attempt.session.middleware")
  * Secured by Candidate Verification Session Bearer token
  */
 router.post(
-  "/start-by-token",
+  ["/start-by-token", "/:assessmentId/start"],
   startAttemptRateLimiter,
   requireCandidateVerification,
   validateRequest({ body: startAttemptByTokenSchema }),
@@ -141,8 +141,11 @@ router.post(
  * GET /api/v1/attempts/candidate/:attemptId
  * GET /api/v1/attempts/candidate-session/:attemptId
  */
-router.get("/candidate/:attemptId", attemptController.getCandidateAttempt);
-router.get("/candidate-session/:attemptId", attemptController.getCandidateAttempt);
+router.get(
+  ["/candidate/:attemptId", "/candidate-session/:attemptId", "/:attemptId"],
+  requireCandidateVerification,
+  attemptController.getCandidateAttempt
+);
 
 // Protected routes below require JWT authentication
 router.use(requireAuth);

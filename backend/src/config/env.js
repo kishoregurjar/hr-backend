@@ -19,14 +19,12 @@ const requiredEnvVariables = [
  * These are required in production only.
  * In development a warning is printed but the server still starts.
  */
-const productionOnlyVariables = [
-  "BREVO_SMTP_HOST",
-  "BREVO_SMTP_PORT",
-  "BREVO_SMTP_USER",
-  "BREVO_SMTP_PASSWORD",
-  "MAIL_FROM_EMAIL",
-  "OWNER_ACTIVATION_ENCRYPTION_KEY",
-];
+const hasSmtpHost = Boolean(process.env.BREVO_SMTP_HOST || process.env.SMTP_HOST);
+const hasSmtpPort = Boolean(process.env.BREVO_SMTP_PORT || process.env.SMTP_PORT);
+const hasSmtpUser = Boolean(process.env.BREVO_SMTP_USER || process.env.SMTP_USER);
+const hasSmtpPassword = Boolean(process.env.BREVO_SMTP_PASSWORD || process.env.SMTP_PASS);
+const hasMailFrom = Boolean(process.env.MAIL_FROM_EMAIL || process.env.EMAIL_FROM);
+const hasEncryptionKey = Boolean(process.env.OWNER_ACTIVATION_ENCRYPTION_KEY || process.env.JWT_ACCESS_SECRET);
 
 const missing = requiredEnvVariables.filter((key) => !process.env[key]);
 
@@ -38,7 +36,13 @@ if (missing.length > 0) {
 }
 
 const isProduction = process.env.NODE_ENV === "production";
-const missingProd = productionOnlyVariables.filter((key) => !process.env[key]);
+const missingProd = [];
+if (!hasSmtpHost) missingProd.push("BREVO_SMTP_HOST / SMTP_HOST");
+if (!hasSmtpPort) missingProd.push("BREVO_SMTP_PORT / SMTP_PORT");
+if (!hasSmtpUser) missingProd.push("BREVO_SMTP_USER / SMTP_USER");
+if (!hasSmtpPassword) missingProd.push("BREVO_SMTP_PASSWORD / SMTP_PASS");
+if (!hasMailFrom) missingProd.push("MAIL_FROM_EMAIL / EMAIL_FROM");
+if (!hasEncryptionKey) missingProd.push("OWNER_ACTIVATION_ENCRYPTION_KEY / JWT_ACCESS_SECRET");
 
 if (missingProd.length > 0) {
   if (isProduction) {
@@ -91,15 +95,18 @@ const env = Object.freeze({
 
   security: {
     bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS) || 12,
-    ownerActivationEncryptionKey: process.env.OWNER_ACTIVATION_ENCRYPTION_KEY,
+    ownerActivationEncryptionKey:
+      process.env.OWNER_ACTIVATION_ENCRYPTION_KEY ||
+      process.env.JWT_ACCESS_SECRET ||
+      "hirequest_owner_activation_32char_key_2026",
   },
 
   smtp: {
-    host: process.env.BREVO_SMTP_HOST,
-    port: Number(process.env.BREVO_SMTP_PORT),
-    user: process.env.BREVO_SMTP_USER,
-    password: process.env.BREVO_SMTP_PASSWORD,
-    fromEmail: process.env.MAIL_FROM_EMAIL,
+    host: process.env.BREVO_SMTP_HOST || process.env.SMTP_HOST || "smtp-relay.brevo.com",
+    port: Number(process.env.BREVO_SMTP_PORT || process.env.SMTP_PORT || 587),
+    user: process.env.BREVO_SMTP_USER || process.env.SMTP_USER,
+    password: process.env.BREVO_SMTP_PASSWORD || process.env.SMTP_PASS,
+    fromEmail: process.env.MAIL_FROM_EMAIL || process.env.EMAIL_FROM || "rshivamsingh378@gmail.com",
     fromName: process.env.MAIL_FROM_NAME || "HireQuest",
   },
 

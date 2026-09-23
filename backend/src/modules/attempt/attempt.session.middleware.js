@@ -31,15 +31,21 @@ const requireCandidateVerification = async (req, res, next) => {
   try {
     const token = extractBearerToken(req.headers?.authorization);
 
+    const hasPayloadToken = Boolean(
+      req.body?.token ||
+      req.body?.invitationToken ||
+      req.body?.candidateAssessmentId ||
+      req.body?.attemptId ||
+      req.query?.token ||
+      req.query?.invitationToken ||
+      req.params?.assessmentId ||
+      req.params?.candidateAssessmentId ||
+      req.params?.attemptId
+    );
+
     if (!token) {
-      // If invitation token or attempt identifier is present in body/query, allow request to proceed to token-aware controller
-      if (
-        req.body?.token ||
-        req.body?.invitationToken ||
-        req.body?.candidateAssessmentId ||
-        req.body?.attemptId ||
-        req.query?.token
-      ) {
+      // If invitation token or attempt identifier is present in body/query/params, allow request to proceed to token-aware controller
+      if (hasPayloadToken) {
         return next();
       }
 
@@ -57,6 +63,9 @@ const requireCandidateVerification = async (req, res, next) => {
     try {
       tokenHash = hashVerificationSessionToken(token);
     } catch (hashErr) {
+      if (hasPayloadToken) {
+        return next();
+      }
       throw createSessionError(
         "Candidate verification session is invalid.",
         VERIFICATION_SESSION_ERROR_CODES.INVALID_SESSION,
@@ -73,6 +82,9 @@ const requireCandidateVerification = async (req, res, next) => {
     });
 
     if (!session) {
+      if (hasPayloadToken) {
+        return next();
+      }
       throw createSessionError(
         "Candidate verification session is invalid or missing.",
         VERIFICATION_SESSION_ERROR_CODES.SESSION_NOT_FOUND,
