@@ -3,11 +3,11 @@
 const nodemailer = require("nodemailer");
 
 const getEmailConfig = () => {
-  const host = process.env.SMTP_HOST || "smtp-relay.brevo.com";
-  const port = Number(process.env.SMTP_PORT) || 587;
+  const host = process.env.BREVO_SMTP_HOST || process.env.SMTP_HOST || "smtp-relay.brevo.com";
+  const port = Number(process.env.BREVO_SMTP_PORT || process.env.SMTP_PORT) || 587;
   const secure = process.env.SMTP_SECURE === "true";
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const user = process.env.BREVO_SMTP_USER || process.env.SMTP_USER;
+  const pass = process.env.BREVO_SMTP_PASSWORD || process.env.SMTP_PASS;
 
   return {
     host,
@@ -53,8 +53,9 @@ const sendEmail = async ({ to, subject, text, html }) => {
 
   try {
     const transporter = getTransporter();
+    const sender = process.env.MAIL_FROM_EMAIL || process.env.EMAIL_FROM || '"HireQuest" <no-reply@hirequest.com>';
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || '"HireQuest" <no-reply@hirequest.com>',
+      from: sender,
       to,
       subject,
       text,
