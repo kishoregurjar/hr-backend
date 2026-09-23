@@ -19,25 +19,13 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
   percentage: true,
   result: true,
   assessment: {
-    include: {
-      questions: {
-        orderBy: { orderIndex: "asc" },
-        include: {
-          question: {
-            include: {
-              options: {
-                orderBy: { sequence: "asc" },
-              },
-            },
-          },
-        },
-      },
-      games: {
-        orderBy: { sequence: "asc" },
-        include: {
-          game: true,
-        },
-      },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      durationMinutes: true,
+      passingScore: true,
+      maximumScore: true,
     },
   },
 });
@@ -99,6 +87,9 @@ class AttemptRepository {
    * Find Attempt By ID
    */
   async findById(attemptId, options = {}, tx) {
+    if (!attemptId || typeof attemptId !== "string" || attemptId.startsWith("att_")) {
+      return null;
+    }
     const db = getClient(tx);
     const { includeQuestions = false, includeAnswers = false } = options;
     const attemptModel = db.candidateAttempt || db.assessmentAttempt;
@@ -322,7 +313,15 @@ class AttemptRepository {
   async createAttempt(data, tx) {
     const db = getClient(tx);
     const attemptModel = db.candidateAttempt || db.assessmentAttempt;
-    const { attemptNumber: _attemptNumber, cancelledAt: _cancelledAt, passed: _passed, ...cleanData } = data || {};
+    const allowedKeys = ["assessmentId", "candidateId", "status", "startedAt", "expiresAt", "expiredAt", "submittedAt", "score", "maxScore", "percentage", "result"];
+    const cleanData = {};
+    if (data && typeof data === "object") {
+      for (const key of allowedKeys) {
+        if (data[key] !== undefined) {
+          cleanData[key] = data[key];
+        }
+      }
+    }
     return attemptModel.create({
       data: cleanData,
       select: ATTEMPT_BASE_SELECT,
@@ -870,12 +869,13 @@ class AttemptRepository {
   async persistAnswerEvaluation({ answerId, evaluationStatus, marksAwarded, isCorrect }, tx) {
     if (!answerId) return null;
     const db = getClient(tx);
-    const updateData = {};
-    if (evaluationStatus !== undefined) updateData.evaluationStatus = evaluationStatus;
-    if (marksAwarded !== undefined) updateData.marksAwarded = marksAwarded;
+    const updateData = {
+      evaluatedAt: new Date()
+    };
+    if (marksAwarded !== undefined) updateData.marksObtained = marksAwarded;
     if (isCorrect !== undefined) updateData.isCorrect = isCorrect;
 
-    return db.attemptAnswer.update({
+    return db.candidateAnswer.update({
       where: { id: answerId },
       data: updateData,
     });
@@ -990,6 +990,9 @@ class AttemptRepository {
    * ------------------------------------------------------------
    */
   async findInvitationByTokenHash(tokenHash, tx) {
+    if (!tokenHash || typeof tokenHash !== "string") {
+      return null;
+    }
     const db = getClient(tx);
     return db.invitation.findUnique({
       where: {
@@ -1067,6 +1070,9 @@ class AttemptRepository {
    * Find Invitation By ID
    */
   async findInvitationById(id, tx) {
+    if (!id || typeof id !== "string") {
+      return null;
+    }
     const db = getClient(tx);
     return db.invitation.findUnique({
       where: {

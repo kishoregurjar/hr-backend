@@ -17,6 +17,13 @@ const {
   toJobApplicationDto,
 } = require("./resume.mapper");
 
+const {
+  RESUME_ERROR_CODES,
+  RESUME_PROCESSING_SOURCES,
+} = require("./resume.constants");
+
+const socketService = require("../../socket/socket.service");
+
 const { prisma } = require("../../config/prisma");
 
 function createApplicationError(code, message, statusCode = 400) {
@@ -595,6 +602,12 @@ async function processResume({
       };
     });
 
+    if (result.application?.jobId && result.application?.job?.companyId) {
+      socketService.emitToCompany(result.application.job.companyId, "NEW_JOB_APPLICATION", {
+        jobId: result.application.jobId,
+        applicationId: result.application.id,
+      });
+    }
 
     return {
       duplicate: false,

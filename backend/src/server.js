@@ -12,6 +12,7 @@ const {
 } = require("./modules/company/company.invitation.cleanup.worker");
 const { startOutboxWorker } = require("./modules/company/company.outbox.worker");
 const { startCompanyInvitationWorker } = require("./modules/company/company.invitation.worker");
+const socketService = require("./socket/socket.service");
 
 let server;
 
@@ -37,6 +38,9 @@ const startServer = async () => {
       `${env.app.name} server is running on port ${env.port}`
     );
   });
+
+  // Initialize Socket.IO
+  socketService.init(server);
 };
 
 startServer().catch((error) => {
