@@ -13,9 +13,134 @@ const sudokuEngine = require("./engines/sudokuEngine");
 const mahjongEngine = require("./engines/mahjongEngine");
 
 class GameService {
-  async getAllGames() {
+  async getAllGames(companyId = null) {
     const list = await gameSuperAdminService.listGames();
-    return list;
+    if (!companyId || !prisma.companyGameConfig) return list;
+
+    try {
+      const configs = await prisma.companyGameConfig.findMany({
+        where: { companyId },
+      });
+
+      const configMap = new Map();
+      configs.forEach((c) => {
+        if (c.gameId) configMap.set(c.gameId, c);
+      });
+
+      return list.map((game) => {
+        const savedConfig =
+          configMap.get(game.id) ||
+          configMap.get(game.code) ||
+          configMap.get(game.slug);
+
+        if (savedConfig) {
+          const formattedDiff =
+            savedConfig.difficulty.charAt(0).toUpperCase() +
+            savedConfig.difficulty.slice(1).toLowerCase();
+
+          return {
+            ...game,
+            difficulty: formattedDiff,
+            duration: savedConfig.duration,
+            passingScore: savedConfig.passingScore,
+            status: savedConfig.status,
+            config: {
+              ...(game.config || {}),
+              difficulty: savedConfig.difficulty.toLowerCase(),
+              duration: savedConfig.duration,
+              passingScore: savedConfig.passingScore,
+            },
+          };
+        }
+        return game;
+      });
+    } catch (e) {
+      return list;
+    }
+  }
+
+  async updateCompanyGameConfig(companyId, gameSlugOrId, configData = {}) {
+    if (!companyId) {
+      throw new BadRequestError("Company context is required to update game config.");
+    }
+
+    const metadata = getGameMetadataBySlug(gameSlugOrId);
+    let game = await gameSuperAdminService.getGame(gameSlugOrId).catch(() => null);
+    if (!game && metadata) {
+      game = await gameSuperAdminService.getGame(metadata.code || metadata.id).catch(() => null);
+    }
+    if (!game && metadata) {
+      game = { id: metadata.id, code: metadata.code, name: metadata.name };
+    }
+
+    if (!game) {
+      throw new NotFoundError(`Game not found: ${gameSlugOrId}`);
+    }
+
+    // Ensure Game record exists in DB for foreign key constraint
+    let dbGame = await prisma.game.findFirst({
+      where: {
+        OR: [{ id: game.id }, { code: game.code || metadata?.code || gameSlugOrId }],
+      },
+    });
+
+    if (!dbGame) {
+      dbGame = await prisma.game.create({
+        data: {
+          code: game.code || metadata?.code || gameSlugOrId,
+          name: game.name || metadata?.name || gameSlugOrId,
+          description: game.description || metadata?.description || null,
+          isActive: true,
+        },
+      });
+    }
+
+    const diffUpper = String(configData.difficulty || "EASY").toUpperCase();
+    const duration = parseInt(configData.duration, 10) || 10;
+    const passingScore = parseInt(configData.passingScore, 10) || 70;
+    const status = configData.status || "Active";
+
+    const updated = await prisma.companyGameConfig.upsert({
+      where: {
+        companyId_gameId: {
+          companyId,
+          gameId: dbGame.id,
+        },
+      },
+      create: {
+        companyId,
+        gameId: dbGame.id,
+        difficulty: diffUpper === "MEDIUM" ? "MEDIUM" : diffUpper === "HARD" ? "HARD" : "EASY",
+        duration,
+        passingScore,
+        status,
+        config: configData.config || null,
+      },
+      update: {
+        difficulty: diffUpper === "MEDIUM" ? "MEDIUM" : diffUpper === "HARD" ? "HARD" : "EASY",
+        duration,
+        passingScore,
+        status,
+        config: configData.config || null,
+      },
+    });
+
+    const formattedDiff =
+      updated.difficulty.charAt(0).toUpperCase() + updated.difficulty.slice(1).toLowerCase();
+
+    return {
+      ...game,
+      difficulty: formattedDiff,
+      duration: updated.duration,
+      passingScore: updated.passingScore,
+      status: updated.status,
+      config: {
+        ...(game.config || {}),
+        difficulty: updated.difficulty.toLowerCase(),
+        duration: updated.duration,
+        passingScore: updated.passingScore,
+      },
+    };
   }
 
   async getGameBySlug(slug) {

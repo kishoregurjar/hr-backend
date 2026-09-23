@@ -15,6 +15,8 @@ const gameService = require("./game.service");
 const { mapGameAttemptForCandidate, mapGameResult } = require("./game.attempt.mapper");
 const { GAME_ATTEMPT_CONSTANTS } = require("./game.attempt.constants");
 
+const { prisma } = require("../../config/prisma");
+
 function stripSolutionFromPuzzle(puzzleData) {
   if (!puzzleData || typeof puzzleData !== "object") return puzzleData;
   const copy = JSON.parse(JSON.stringify(puzzleData));
@@ -140,10 +142,34 @@ class GameAttemptService {
       let puzzleState;
       let puzzleVersion = gameDefinition ? gameDefinition.version : 1;
 
+      // Lookup saved company game config if available
+      let difficulty = "medium";
+      let companyId = candidateAssessment?.candidate?.companyId;
+      if (!companyId && assessment?.createdById) {
+        const member = await prisma.companyMember.findFirst({
+          where: { userId: assessment.createdById },
+          select: { companyId: true },
+        });
+        companyId = member?.companyId;
+      }
+
+      if (companyId && prisma.companyGameConfig) {
+        const savedConfig = await prisma.companyGameConfig.findFirst({
+          where: {
+            companyId,
+            OR: [{ gameId: game.id }, { game: { code: canonicalCode } }],
+          },
+        });
+        if (savedConfig?.difficulty) {
+          difficulty = savedConfig.difficulty.toLowerCase();
+        }
+      }
+
       if (gameDefinition && gameDefinition.engine) {
         const generatedPuzzle = await gameDefinition.engine.generatePuzzle({
           seed,
           version: gameDefinition.version,
+          difficulty,
         });
 
         puzzleState = {
@@ -153,7 +179,7 @@ class GameAttemptService {
         };
         puzzleVersion = generatedPuzzle.version;
       } else {
-        puzzleState = await gameService.generatePuzzle(metadata.slug);
+        puzzleState = await gameService.generatePuzzle(metadata.slug || slug, { difficulty });
       }
 
       // Determine expiry time (10 mins default or capped by assessment endsAt)

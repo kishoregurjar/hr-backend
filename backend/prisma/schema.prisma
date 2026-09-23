@@ -758,6 +758,7 @@ model Company {
   auditLogs         AuditLog[]
   candidateProfiles CandidateProfile[]
   questions         Question[]
+  gameConfigs       CompanyGameConfig[]
 
   @@index([createdAt])
 }
@@ -927,6 +928,7 @@ model Game {
   assessments AssessmentGame[]
   results     GameResult[]
   attempts    GameAttempt[]
+  configs     CompanyGameConfig[]
 
   @@index([isActive])
 }
@@ -1051,5 +1053,26 @@ model AssessmentResult {
   @@index([candidateAssessmentId])
   @@index([status])
 }
+
+model CompanyGameConfig {
+  id           String          @id @default(cuid())
+  companyId    String
+  gameId       String
+  difficulty   DifficultyLevel @default(EASY)
+  duration     Int             @default(10)
+  passingScore Int             @default(70)
+  status       String          @default("Active")
+  config       Json?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  game    Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, gameId])
+  @@index([companyId])
+  @@index([gameId])
+}
+
 
 

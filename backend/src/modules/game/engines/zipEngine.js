@@ -193,9 +193,14 @@ function buildWalls(path, size, wallCount, seed = 764201) {
 }
 
 function generateZip(config = {}) {
-  const size = Math.min(8, Math.max(4, Number(config.gridSize) || 8));
-  const clueCount = Math.min(15, Math.max(8, Number(config.clueCount) || 11));
-  const wallCount = Number(config.wallCount) || (size === 8 ? 24 : 12);
+  const diff = String(config.difficulty || "medium").toLowerCase();
+  const defaultSize = diff === "easy" ? 5 : diff === "hard" ? 8 : 6;
+  const defaultClues = diff === "easy" ? 6 : diff === "hard" ? 11 : 8;
+  const defaultWalls = diff === "easy" ? 6 : diff === "hard" ? 24 : 12;
+
+  const size = Math.min(8, Math.max(4, Number(config.gridSize) || defaultSize));
+  const clueCount = Math.min(15, Math.max(4, Number(config.clueCount) || defaultClues));
+  const wallCount = Number(config.wallCount) ?? defaultWalls;
   const seed = Math.floor(Math.random() * 1000000) + 1;
 
   const solutionPath = generateHamiltonianPath(size, seed);
