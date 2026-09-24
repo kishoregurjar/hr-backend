@@ -45,11 +45,16 @@ class GameSuperAdminController {
     const payload = validateUpdateGameStatus(req.body);
     const game = await service.updateGameStatus(gameId, payload.isActive);
     
-    // Emit real-time update to all HR clients
-    socketService.emitGlobalHR("GAME_STATUS_UPDATED", {
+    // Emit real-time update to all connected clients
+    const socketPayload = {
       gameId: game.id,
       isActive: game.isActive,
-    });
+    };
+    if (socketService.io) {
+      socketService.io.emit("GAME_STATUS_UPDATED", socketPayload);
+    } else {
+      socketService.emitGlobalHR("GAME_STATUS_UPDATED", socketPayload);
+    }
 
     return SuccessResponse.send(
       res,
@@ -81,13 +86,19 @@ class GameSuperAdminController {
     
     const updated = await service.updateCompanyGameStatus(companyId, gameId, targetStatus);
 
-    // Emit real-time socket event for specific company and global HR clients
-    socketService.emitGlobalHR("GAME_STATUS_UPDATED", {
+    // Emit real-time socket event to all connected clients & company rooms
+    const socketPayload = {
       companyId,
       gameId,
       status: updated.status,
       isActive: updated.status === "Active",
-    });
+    };
+    if (socketService.io) {
+      socketService.io.emit("GAME_STATUS_UPDATED", socketPayload);
+    } else {
+      socketService.emitToCompany(companyId, "GAME_STATUS_UPDATED", socketPayload);
+      socketService.emitGlobalHR("GAME_STATUS_UPDATED", socketPayload);
+    }
 
     return SuccessResponse.send(
       res,
