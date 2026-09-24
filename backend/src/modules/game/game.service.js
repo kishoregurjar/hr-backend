@@ -20,18 +20,25 @@ class GameService {
     try {
       const configs = await prisma.companyGameConfig.findMany({
         where: { companyId },
+        include: { game: true },
       });
 
       const configMap = new Map();
       configs.forEach((c) => {
-        if (c.gameId) configMap.set(c.gameId, c);
+        if (c.gameId) configMap.set(String(c.gameId).toLowerCase(), c);
+        if (c.game?.code) configMap.set(String(c.game.code).toLowerCase(), c);
+        if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
       });
 
       return list.map((game) => {
+        const gameIdKey = String(game.id || "").toLowerCase();
+        const gameCodeKey = String(game.code || "").toLowerCase();
+        const gameSlugKey = String(game.slug || "").toLowerCase();
+
         const savedConfig =
-          configMap.get(game.id) ||
-          configMap.get(game.code) ||
-          configMap.get(game.slug);
+          configMap.get(gameIdKey) ||
+          configMap.get(gameCodeKey) ||
+          configMap.get(gameSlugKey);
 
         if (savedConfig) {
           const formattedDiff =
