@@ -38,12 +38,17 @@ class GameService {
             savedConfig.difficulty.charAt(0).toUpperCase() +
             savedConfig.difficulty.slice(1).toLowerCase();
 
+          const isCompanyActive = savedConfig.status === "Active" || savedConfig.status === "ACTIVE";
+          const finalIsActive = Boolean(game.isActive) && isCompanyActive;
+
           return {
             ...game,
+            isActive: finalIsActive,
+            status: finalIsActive ? "ACTIVE" : "INACTIVE",
+            companyStatus: savedConfig.status,
             difficulty: formattedDiff,
             duration: savedConfig.duration,
             passingScore: savedConfig.passingScore,
-            status: savedConfig.status,
             config: {
               ...(game.config || {}),
               difficulty: savedConfig.difficulty.toLowerCase(),
