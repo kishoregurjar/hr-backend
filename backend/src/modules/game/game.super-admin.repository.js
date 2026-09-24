@@ -48,21 +48,37 @@ async function findGameByCode(code) {
   }
 }
 
-async function updateGameStatus(gameId, isActive, tx = prisma) {
+async function updateGameStatus(gameId, isActive, metadata = null, tx = prisma) {
   try {
     if (!tx.game) return null;
     const existing = await findGameById(gameId);
-    const targetId = existing?.id || gameId;
 
-    return await tx.game.update({
-      where: {
-        id: targetId,
+    if (existing) {
+      return await tx.game.update({
+        where: { id: existing.id },
+        data: { isActive },
+      });
+    }
+
+    const code = metadata?.code || gameId;
+    const name = metadata?.name || gameId;
+    const description = metadata?.description || null;
+
+    return await tx.game.upsert({
+      where: { code },
+      create: {
+        id: metadata?.id || gameId,
+        code,
+        name,
+        description,
+        isActive,
       },
-      data: {
+      update: {
         isActive,
       },
     });
-  } catch (_err) {
+  } catch (err) {
+    console.error("Repository updateGameStatus DB error:", err);
     return null;
   }
 }

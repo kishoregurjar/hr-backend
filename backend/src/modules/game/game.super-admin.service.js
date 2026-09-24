@@ -72,7 +72,7 @@ async function getGame(gameId) {
 }
 
 async function updateGameStatus(gameId, isActive) {
-  const dbGame = await repository.findGameById(gameId);
+  let dbGame = await repository.findGameById(gameId);
   const metadata = getGameMetadataByCode(gameId) || getGameMetadataBySlug(gameId);
 
   if (!dbGame && !metadata) {
@@ -81,7 +81,7 @@ async function updateGameStatus(gameId, isActive) {
 
   const currentIsActive = dbGame
     ? dbGame.isActive
-    : (inMemoryGameStatus.get(metadata.code) ?? inMemoryGameStatus.get(metadata.id) ?? true);
+    : (inMemoryGameStatus.get(metadata?.code) ?? inMemoryGameStatus.get(metadata?.id) ?? true);
 
   if (currentIsActive === isActive) {
     throw new ConflictError(
@@ -90,23 +90,39 @@ async function updateGameStatus(gameId, isActive) {
     );
   }
 
-  if (dbGame) {
-    const updatedGame = await repository.updateGameStatus(dbGame.id, isActive);
-    return mapper.mapGame(updatedGame, metadata);
+  // Update or upsert in database
+  dbGame = await repository.updateGameStatus(gameId, isActive, metadata);
+
+  // Update in-memory status map as sync fallback
+  const key = metadata?.code || metadata?.id || gameId;
+  inMemoryGameStatus.set(key, isActive);
+  if (metadata?.id) inMemoryGameStatus.set(metadata.id, isActive);
+  if (metadata?.code) inMemoryGameStatus.set(metadata.code, isActive);
+
+  // Cascade global status to all company configs in DB
+  try {
+    const targetGameId = dbGame?.id || metadata?.id || gameId;
+    if (prisma.companyGameConfig && targetGameId) {
+      await prisma.companyGameConfig.updateMany({
+        where: {
+          OR: [
+            { gameId: targetGameId },
+            { game: { code: metadata?.code || gameId } },
+          ],
+        },
+        data: { status: isActive ? "Active" : "Inactive" },
+      });
+    }
+  } catch (err) {
+    console.error("Failed to cascade global game status to company configs in DB:", err);
   }
 
-  // Update in-memory status
-  const key = metadata.code || metadata.id;
-  inMemoryGameStatus.set(key, isActive);
-  inMemoryGameStatus.set(metadata.id, isActive);
-  if (metadata.code) inMemoryGameStatus.set(metadata.code, isActive);
-
   return mapper.mapGame(
-    {
-      id: metadata.id,
-      code: metadata.code,
-      name: metadata.name,
-      description: metadata.description,
+    dbGame || {
+      id: metadata?.id || gameId,
+      code: metadata?.code || gameId,
+      name: metadata?.name || gameId,
+      description: metadata?.description || null,
       isActive,
       createdAt: new Date(),
       updatedAt: new Date(),
