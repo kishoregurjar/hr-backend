@@ -18,6 +18,13 @@ try {
   mammoth = null;
 }
 
+let WordExtractor;
+try {
+  WordExtractor = require("word-extractor");
+} catch (_) {
+  WordExtractor = null;
+}
+
 const {
   REGEX,
   SKILL_DICTIONARY,
@@ -203,6 +210,29 @@ async function extractDocxText(buffer) {
   }
 }
 
+async function extractDocText(buffer) {
+  try {
+    if (!WordExtractor) {
+      return normalizeText(buffer.toString("utf-8"));
+    }
+
+    const extractor = new WordExtractor();
+    const result = await extractor.extract(buffer);
+    const text = normalizeText(result.getBody());
+
+    if (!text) {
+      throw new Error("DOC_TEXT_EMPTY");
+    }
+
+    return text;
+  } catch (error) {
+    const wrapped = new Error("RESUME_TEXT_EXTRACTION_FAILED");
+    wrapped.code = "RESUME_TEXT_EXTRACTION_FAILED";
+    wrapped.cause = error;
+    throw wrapped;
+  }
+}
+
 function detectFileType({ mimetype, originalname }) {
   const extension = path.extname(originalname || "").toLowerCase();
 
@@ -214,12 +244,20 @@ function detectFileType({ mimetype, originalname }) {
     return "DOCX";
   }
 
+  if (extension === ".doc") {
+    return "DOC";
+  }
+
   if (mimetype === SUPPORTED_RESUME_TYPES.PDF.mimeType) {
     return "PDF";
   }
 
   if (mimetype === SUPPORTED_RESUME_TYPES.DOCX.mimeType) {
     return "DOCX";
+  }
+
+  if (mimetype === SUPPORTED_RESUME_TYPES.DOC.mimeType) {
+    return "DOC";
   }
 
   const error = new Error("RESUME_UNSUPPORTED_DOCUMENT");
@@ -239,7 +277,11 @@ async function extractText({ buffer, mimetype, originalname }) {
     return extractPdfText(buffer);
   }
 
-  return extractDocxText(buffer);
+  if (type === "DOCX") {
+    return extractDocxText(buffer);
+  }
+
+  return extractDocText(buffer);
 }
 
 function parseCandidateData(text) {

@@ -64,6 +64,7 @@
     "sharp": "^0.35.4",
     "socket.io": "^4.8.3",
     "uuid": "^14.0.1",
+    "word-extractor": "^1.0.4",
     "xss-clean": "^0.1.4",
     "zod": "^4.4.3"
   },

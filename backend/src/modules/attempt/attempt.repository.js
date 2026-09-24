@@ -925,6 +925,18 @@ class AttemptRepository {
             questionId: true,
             sequence: true,
             questionSnapshot: true,
+            question: {
+              select: {
+                id: true,
+                type: true,
+                options: {
+                  select: {
+                    id: true,
+                    isCorrect: true,
+                  },
+                },
+              },
+            },
             answers: {
               select: {
                 id: true,

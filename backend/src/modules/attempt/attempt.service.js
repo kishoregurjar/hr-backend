@@ -3270,7 +3270,9 @@ class AttemptService {
 
       attemptFailureService.beforeSubmitEvaluation();
 
-      const questionsList = Array.isArray(attempt.questions) ? attempt.questions : [];
+      const questionsList = Array.isArray(attempt.attemptQuestions) 
+        ? attempt.attemptQuestions 
+        : (Array.isArray(attempt.questions) ? attempt.questions : []);
 
       const evaluations = questionsList.map((attemptQuestion) => {
         const evalResult = this.evaluateAttemptQuestion({ attemptQuestion });

@@ -126,9 +126,13 @@ function getFileType(file) {
     return "DOCX";
   }
 
+  if (extension === "doc") {
+    return "DOC";
+  }
+
   throw createApplicationError(
     "UNSUPPORTED_FILE_TYPE",
-    "Only PDF and DOCX resumes are supported",
+    "Only PDF, DOCX, and DOC resumes are supported",
     415
   );
 }
@@ -200,6 +204,21 @@ function validateFileSignature(
     return true;
   }
 
+  if (fileType === "DOC") {
+    const docSignature = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    if (
+      buffer.length < docSignature.length ||
+      !buffer.subarray(0, docSignature.length).equals(docSignature)
+    ) {
+      throw createApplicationError(
+        "INVALID_FILE_SIGNATURE",
+        "Invalid DOC file",
+        415
+      );
+    }
+    return true;
+  }
+
   throw createApplicationError(
     "UNSUPPORTED_FILE_TYPE",
     "Unsupported resume file type",
@@ -208,7 +227,7 @@ function validateFileSignature(
 }
 
 function buildStorageKey({ fileHash, fileType }) {
-  const extension = fileType === "PDF" ? "pdf" : "docx";
+  const extension = fileType === "PDF" ? "pdf" : (fileType === "DOCX" ? "docx" : "doc");
 
   return `resumes/${fileHash.slice(0, 2)}/${fileHash}.${extension}`;
 }

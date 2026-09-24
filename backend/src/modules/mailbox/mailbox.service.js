@@ -173,14 +173,21 @@ async function syncMailboxForUser(userId) {
     let pageToken = null;
     let keepFetching = true;
     let pagesScanned = 0;
+    let maxInternalDate = null;
     const MAX_NEW_RESUMES_PER_BATCH = 15;
     const MAX_PAGES_PER_SYNC = 5;
 
     while (keepFetching && processedCount < MAX_NEW_RESUMES_PER_BATCH && pagesScanned < MAX_PAGES_PER_SYNC) {
       pagesScanned++;
+      let queryStr = "has:attachment (filename:pdf OR filename:docx OR filename:doc)";
+      if (mailbox.lastSyncedAt) {
+        const epoch = Math.floor(mailbox.lastSyncedAt.getTime() / 1000) - 1;
+        queryStr += ` after:${epoch}`;
+      }
+
       const listParams = {
         userId: "me",
-        q: "has:attachment (filename:pdf OR filename:docx)",
+        q: queryStr,
         maxResults: 25,
       };
       if (pageToken) {
@@ -194,6 +201,19 @@ async function syncMailboxForUser(userId) {
         break;
       }
 
+      // Fix 2: Batched dedup check
+      const messageIds = messages.map((m) => m.id);
+      const existingEvents = await resumeRepository.findInboundEmailEventsByMessageIds(
+        "google_mailbox",
+        messageIds
+      );
+
+      const completedIds = new Set(
+        existingEvents
+          .filter((e) => e.status === "COMPLETED")
+          .map((e) => e.providerMessageId)
+      );
+
       for (const msg of messages) {
         try {
           if (processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
@@ -201,20 +221,30 @@ async function syncMailboxForUser(userId) {
             break;
           }
 
-          // DB check: Skip if email was already completed to avoid re-downloading attachments
-          const existingEvent = await resumeRepository.findInboundEmailEvent(
-            "google_mailbox",
-            msg.id
-          );
-
-          if (existingEvent && existingEvent.status === "COMPLETED") {
+          // Fix 2: Use in-memory Set for skip check
+          if (completedIds.has(msg.id)) {
             continue;
           }
+
+          // Fix 3: Close race-condition window by creating the event safely BEFORE Gmail get()
+          const emailEvent = await resumeRepository.createInboundEmailEventSafely({
+            provider: "google_mailbox",
+            providerMessageId: msg.id,
+            recipientEmail: mailbox.email,
+            // senderEmail and subject omitted here since we don't have fullMsg yet.
+          });
 
           const fullMsg = await gmail.users.messages.get({
             userId: "me",
             id: msg.id,
           });
+
+          if (fullMsg.data.internalDate) {
+            const msgDate = parseInt(fullMsg.data.internalDate, 10);
+            if (!maxInternalDate || msgDate > maxInternalDate) {
+              maxInternalDate = msgDate;
+            }
+          }
 
           const payload = fullMsg.data.payload || {};
           const headers = payload.headers || [];
@@ -223,13 +253,12 @@ async function syncMailboxForUser(userId) {
           const sender =
             headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
 
-          const emailEvent = await resumeRepository.createInboundEmailEventSafely({
-            provider: "google_mailbox",
-            providerMessageId: msg.id,
-            recipientEmail: mailbox.email,
-            senderEmail: sender,
-            subject,
-          });
+          if (emailEvent && emailEvent.id) {
+            await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
+              subject,
+              senderEmail: sender,
+            });
+          }
 
           const parts = payload.parts || [];
           let messageProcessed = false;
@@ -237,7 +266,7 @@ async function syncMailboxForUser(userId) {
           for (const part of parts) {
             if (part.filename && part.body && part.body.attachmentId) {
               const ext = part.filename.toLowerCase();
-              if (ext.endsWith(".pdf") || ext.endsWith(".docx")) {
+              if (ext.endsWith(".pdf") || ext.endsWith(".docx") || ext.endsWith(".doc")) {
                 try {
                   const attachment = await gmail.users.messages.attachments.get({
                     userId: "me",
@@ -247,9 +276,9 @@ async function syncMailboxForUser(userId) {
 
                   const buffer = Buffer.from(attachment.data.data, "base64");
 
-                  const inferredMime = ext.endsWith(".pdf")
-                    ? "application/pdf"
-                    : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                  let inferredMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                  if (ext.endsWith(".pdf")) inferredMime = "application/pdf";
+                  else if (ext.endsWith(".doc")) inferredMime = "application/msword";
 
                   const parsedSender = parseSender(sender);
 
@@ -320,10 +349,13 @@ async function syncMailboxForUser(userId) {
       }
     }
 
-    await repository.updateMailboxSyncStatus(userId, {
-      lastSyncedAt: new Date(),
-      lastError: null,
-    });
+    const syncStatusUpdate = { lastError: null };
+    if (maxInternalDate) {
+      syncStatusUpdate.lastSyncedAt = new Date(maxInternalDate);
+    } else {
+      syncStatusUpdate.lastSyncedAt = new Date();
+    }
+    await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
 
     console.info(`[MailboxSync] Sync completed for ${mailbox.email}. Total new resumes ingested: ${processedCount}`);
 

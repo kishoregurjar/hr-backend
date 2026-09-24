@@ -8,11 +8,13 @@ const PARSER_VERSION = "1.0.0";
 const ALLOWED_RESUME_EXTENSIONS = Object.freeze([
   ".pdf",
   ".docx",
+  ".doc",
 ]);
 
 const ALLOWED_RESUME_MIME_TYPES = Object.freeze([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
 ]);
 
 const RESUME_FILE_FIELD_NAME = "resume";
@@ -20,6 +22,7 @@ const RESUME_FILE_FIELD_NAME = "resume";
 const RESUME_FILE_TYPES = Object.freeze({
   PDF: "PDF",
   DOCX: "DOCX",
+  DOC: "DOC",
 });
 
 const RESUME_PROCESSING_SOURCE = Object.freeze({
@@ -91,6 +94,11 @@ const SUPPORTED_RESUME_TYPES = Object.freeze({
     mimeType:
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     extensions: Object.freeze([".docx"]),
+  }),
+
+  DOC: Object.freeze({
+    mimeType: "application/msword",
+    extensions: Object.freeze([".doc"]),
   }),
 });
 

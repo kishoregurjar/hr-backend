@@ -165,6 +165,13 @@ async function createInboundEmailEvent(data, db = prisma) {
   });
 }
 
+async function updateInboundEmailEvent(id, data, db = prisma) {
+  return db.inboundEmailEvent.update({
+    where: { id },
+    data,
+  });
+}
+
 async function findInboundEmailEvent(
   provider,
   providerMessageId,
@@ -176,6 +183,20 @@ async function findInboundEmailEvent(
         provider,
         providerMessageId,
       },
+    },
+  });
+}
+
+async function findInboundEmailEventsByMessageIds(
+  provider,
+  providerMessageIds,
+  db = prisma
+) {
+  if (!providerMessageIds || providerMessageIds.length === 0) return [];
+  return db.inboundEmailEvent.findMany({
+    where: {
+      provider,
+      providerMessageId: { in: providerMessageIds },
     },
   });
 }
@@ -262,8 +283,10 @@ function createResumeRepository(options = {}) {
     createJobApplication: (data, tx) => createJobApplication(data, tx || db),
     findJobApplicationById: (id, tx) => findJobApplicationById(id, tx || db),
     createInboundEmailEvent: (data, tx) => createInboundEmailEvent(data, tx || db),
+    updateInboundEmailEvent: (id, data, tx) => updateInboundEmailEvent(id, data, tx || db),
     createInboundEmailEventSafely: (data, tx) => createInboundEmailEventSafely(data, tx || db),
     findInboundEmailEvent: (provider, msgId, tx) => findInboundEmailEvent(provider, msgId, tx || db),
+    findInboundEmailEventsByMessageIds: (provider, msgIds, tx) => findInboundEmailEventsByMessageIds(provider, msgIds, tx || db),
     markInboundEmailEventCompleted: (id, resId, tx) => markInboundEmailEventCompleted(id, resId, tx || db),
     markInboundEmailEventFailed: (id, code, msg, tx) => markInboundEmailEventFailed(id, code, msg, tx || db),
   };
@@ -285,8 +308,10 @@ module.exports = {
   createJobApplication,
   findJobApplicationById,
   createInboundEmailEvent,
+  updateInboundEmailEvent,
   createInboundEmailEventSafely,
   findInboundEmailEvent,
+  findInboundEmailEventsByMessageIds,
   markInboundEmailEventCompleted,
   markInboundEmailEventFailed,
 };

@@ -258,16 +258,16 @@ const updateMemberRole = async (
     typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
       ? companyIdOrOptions
       : {
-          companyId: companyIdOrOptions,
-          actorRole: requesterRoleArg,
-          memberId: memberIdArg,
-          role:
-            typeof payloadArg === "object" && payloadArg !== null
-              ? payloadArg.role
-              : payloadArg,
-          actorUserId: requesterUserIdArg,
-          auditContext: auditContextArg,
-        };
+        companyId: companyIdOrOptions,
+        actorRole: requesterRoleArg,
+        memberId: memberIdArg,
+        role:
+          typeof payloadArg === "object" && payloadArg !== null
+            ? payloadArg.role
+            : payloadArg,
+        actorUserId: requesterUserIdArg,
+        auditContext: auditContextArg,
+      };
 
   const {
     companyId,
@@ -360,12 +360,12 @@ const removeMember = async (
     typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
       ? companyIdOrOptions
       : {
-          companyId: companyIdOrOptions,
-          actorRole: requesterRoleArg,
-          memberId: memberIdArg,
-          actorUserId: requesterUserIdArg,
-          auditContext: auditContextArg,
-        };
+        companyId: companyIdOrOptions,
+        actorRole: requesterRoleArg,
+        memberId: memberIdArg,
+        actorUserId: requesterUserIdArg,
+        auditContext: auditContextArg,
+      };
 
   const {
     companyId,
@@ -451,15 +451,15 @@ const transferOwnership = async (
     typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
       ? companyIdOrOptions
       : {
-          companyId: companyIdOrOptions,
-          currentOwnerUserId: currentUserIdArg,
-          actorRole: currentRoleArg,
-          targetMemberId:
-            typeof payloadArg === "object" && payloadArg !== null
-              ? payloadArg.targetMemberId || payloadArg.memberId
-              : payloadArg,
-          auditContext: auditContextArg,
-        };
+        companyId: companyIdOrOptions,
+        currentOwnerUserId: currentUserIdArg,
+        actorRole: currentRoleArg,
+        targetMemberId:
+          typeof payloadArg === "object" && payloadArg !== null
+            ? payloadArg.targetMemberId || payloadArg.memberId
+            : payloadArg,
+        auditContext: auditContextArg,
+      };
 
   const {
     companyId,
