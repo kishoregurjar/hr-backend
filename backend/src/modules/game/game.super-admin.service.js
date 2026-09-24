@@ -119,9 +119,84 @@ function getInMemoryGameStatusMap() {
   return inMemoryGameStatus;
 }
 
+const { prisma } = require("../../config/prisma");
+
+async function getCompanyGameConfigs(companyId) {
+  const games = await listGames();
+  if (!companyId) return games;
+
+  const configs = await prisma.companyGameConfig.findMany({
+    where: { companyId },
+  });
+
+  const configMap = new Map();
+  configs.forEach((c) => {
+    if (c.gameId) configMap.set(c.gameId, c);
+  });
+
+  return games.map((game) => {
+    const savedConfig = configMap.get(game.id) || configMap.get(game.code);
+    return {
+      ...game,
+      companyStatus: savedConfig ? savedConfig.status : "Active",
+      isCompanyActive: savedConfig ? savedConfig.status === "Active" : true,
+    };
+  });
+}
+
+async function updateCompanyGameStatus(companyId, gameId, status) {
+  if (!companyId || !gameId) {
+    throw new BadRequestError("Company ID and Game ID are required.");
+  }
+
+  const normalizedStatus = status === "Active" || status === true ? "Active" : "Inactive";
+  
+  // Find or create Game in DB
+  let dbGame = await prisma.game.findFirst({
+    where: { OR: [{ id: gameId }, { code: gameId }] },
+  });
+
+  if (!dbGame) {
+    const metadata = getGameMetadataByCode(gameId) || getGameMetadataBySlug(gameId);
+    if (!metadata) throw new NotFoundError("Game not found");
+    
+    dbGame = await prisma.game.create({
+      data: {
+        id: metadata.id,
+        code: metadata.code,
+        name: metadata.name,
+        description: metadata.description,
+        isActive: true,
+      },
+    });
+  }
+
+  const updatedConfig = await prisma.companyGameConfig.upsert({
+    where: {
+      companyId_gameId: {
+        companyId,
+        gameId: dbGame.id,
+      },
+    },
+    create: {
+      companyId,
+      gameId: dbGame.id,
+      status: normalizedStatus,
+    },
+    update: {
+      status: normalizedStatus,
+    },
+  });
+
+  return updatedConfig;
+}
+
 module.exports = {
   listGames,
   getGame,
   updateGameStatus,
   getInMemoryGameStatusMap,
+  getCompanyGameConfigs,
+  updateCompanyGameStatus,
 };
+

@@ -60,6 +60,45 @@ class GameSuperAdminController {
       StatusCodes.OK
     );
   });
+
+  getCompanyGames = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const games = await service.getCompanyGameConfigs(companyId);
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Company games retrieved successfully",
+        data: games,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  updateCompanyGameStatus = asyncHandler(async (req, res) => {
+    const { companyId, gameId } = req.params;
+    const { status, isActive } = req.body;
+    const targetStatus = status !== undefined ? status : (isActive ? "Active" : "Inactive");
+    
+    const updated = await service.updateCompanyGameStatus(companyId, gameId, targetStatus);
+
+    // Emit real-time socket event for specific company and global HR clients
+    socketService.emitGlobalHR("GAME_STATUS_UPDATED", {
+      companyId,
+      gameId,
+      status: updated.status,
+      isActive: updated.status === "Active",
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: `Company game status updated successfully to ${updated.status}`,
+        data: updated,
+      },
+      StatusCodes.OK
+    );
+  });
 }
 
 module.exports = new GameSuperAdminController();
+
