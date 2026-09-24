@@ -46,7 +46,7 @@ function getAuthUrl(userId) {
 
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
-    prompt: "consent",
+    prompt: "select_account consent",
     scope: scopes,
     state: userId,
   });
