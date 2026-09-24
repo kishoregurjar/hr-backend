@@ -127,19 +127,34 @@ async function getCompanyGameConfigs(companyId) {
 
   const configs = await prisma.companyGameConfig.findMany({
     where: { companyId },
+    include: { game: true },
   });
 
   const configMap = new Map();
   configs.forEach((c) => {
-    if (c.gameId) configMap.set(c.gameId, c);
+    if (c.gameId) configMap.set(String(c.gameId).toLowerCase(), c);
+    if (c.game?.code) configMap.set(String(c.game.code).toLowerCase(), c);
+    if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
   });
 
   return games.map((game) => {
-    const savedConfig = configMap.get(game.id) || configMap.get(game.code);
+    const gameIdKey = String(game.id || "").toLowerCase();
+    const gameCodeKey = String(game.code || "").toLowerCase();
+    const gameSlugKey = String(game.slug || "").toLowerCase();
+
+    const savedConfig =
+      configMap.get(gameIdKey) ||
+      configMap.get(gameCodeKey) ||
+      configMap.get(gameSlugKey);
+
+    const isCompanyActive = savedConfig ? (savedConfig.status === "Active" || savedConfig.status === "ACTIVE") : true;
+    const finalIsActive = Boolean(game.isActive) && isCompanyActive;
+
     return {
       ...game,
+      isActive: finalIsActive,
+      isCompanyActive,
       companyStatus: savedConfig ? savedConfig.status : "Active",
-      isCompanyActive: savedConfig ? savedConfig.status === "Active" : true,
     };
   });
 }
@@ -191,6 +206,63 @@ async function updateCompanyGameStatus(companyId, gameId, status) {
   return updatedConfig;
 }
 
+async function bulkUpdateCompanyGameStatus(companyIds, gameId, status) {
+  if (!Array.isArray(companyIds) || companyIds.length === 0 || !gameId) {
+    throw new BadRequestError("Valid companyIds array and gameId are required.");
+  }
+
+  const normalizedStatus = status === "Active" || status === true ? "Active" : "Inactive";
+
+  // Find or create Game in DB
+  let dbGame = await prisma.game.findFirst({
+    where: { OR: [{ id: gameId }, { code: gameId }] },
+  });
+
+  if (!dbGame) {
+    const metadata = getGameMetadataByCode(gameId) || getGameMetadataBySlug(gameId);
+    if (!metadata) throw new NotFoundError("Game not found");
+
+    dbGame = await prisma.game.create({
+      data: {
+        id: metadata.id,
+        code: metadata.code,
+        name: metadata.name,
+        description: metadata.description,
+        isActive: true,
+      },
+    });
+  }
+
+  // Execute bulk upsert inside Prisma transaction
+  const results = await prisma.$transaction(
+    companyIds.map((cId) =>
+      prisma.companyGameConfig.upsert({
+        where: {
+          companyId_gameId: {
+            companyId: cId,
+            gameId: dbGame.id,
+          },
+        },
+        create: {
+          companyId: cId,
+          gameId: dbGame.id,
+          status: normalizedStatus,
+        },
+        update: {
+          status: normalizedStatus,
+        },
+      })
+    )
+  );
+
+  return {
+    gameId: dbGame.id,
+    companyIds,
+    status: normalizedStatus,
+    updatedCount: results.length,
+  };
+}
+
 module.exports = {
   listGames,
   getGame,
@@ -198,5 +270,7 @@ module.exports = {
   getInMemoryGameStatusMap,
   getCompanyGameConfigs,
   updateCompanyGameStatus,
+  bulkUpdateCompanyGameStatus,
 };
+
 

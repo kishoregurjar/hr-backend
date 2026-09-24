@@ -20,6 +20,7 @@ router.use(requireSuperAdmin);
 
 router.get("/companies/:companyId/games", controller.getCompanyGames);
 router.patch("/companies/:companyId/games/:gameId/status", controller.updateCompanyGameStatus);
+router.patch("/companies/bulk/status", controller.bulkUpdateCompanyGameStatus);
 
 router.get("/", controller.listGames);
 router.get("/:gameId", controller.getGame);

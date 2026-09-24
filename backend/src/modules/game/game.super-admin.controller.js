@@ -109,7 +109,37 @@ class GameSuperAdminController {
       StatusCodes.OK
     );
   });
+
+  bulkUpdateCompanyGameStatus = asyncHandler(async (req, res) => {
+    const { companyIds, gameId, status, isActive } = req.body;
+    const targetStatus = status !== undefined ? status : (isActive ? "Active" : "Inactive");
+
+    const result = await service.bulkUpdateCompanyGameStatus(companyIds, gameId, targetStatus);
+
+    // Emit real-time socket event to all connected clients & company rooms
+    const socketPayload = {
+      companyIds,
+      gameId,
+      status: result.status,
+      isActive: result.status === "Active",
+    };
+    if (socketService.io) {
+      socketService.io.emit("GAME_STATUS_UPDATED", socketPayload);
+    } else {
+      socketService.emitGlobalHR("GAME_STATUS_UPDATED", socketPayload);
+    }
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: `Game status updated for ${result.updatedCount} companies to ${result.status}`,
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
 }
 
 module.exports = new GameSuperAdminController();
+
 
