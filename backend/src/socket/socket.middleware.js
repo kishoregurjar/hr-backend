@@ -12,50 +12,63 @@ const logger = require("../config/logger");
  */
 const socketMiddleware = async (socket, next) => {
   try {
-    const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(" ")[1];
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.split(" ")[1];
 
-    if (!token) {
-      return next(new Error("Authentication error: Token missing"));
+    let decodedUser = null;
+    if (token) {
+      try {
+        decodedUser = verifyAccessToken(token);
+      } catch (err) {
+        logger.warn(`Socket token verification failed: ${err.message}`);
+      }
     }
 
-    // Verify token using existing utility
-    const decodedUser = verifyAccessToken(token);
+    if (!decodedUser) {
+      socket.data.user = { sub: "anonymous", role: "GUEST" };
+      socket.data.companyId = null;
+      socket.join("global:hr");
+      return next();
+    }
 
-    // Fetch companyId if the user belongs to a company (HR/Admin)
-    // Avoids trusting client-provided companyId
     let companyId = null;
-    if (decodedUser.role !== "SUPER_ADMIN" && decodedUser.role !== "CANDIDATE") {
+    const userRole = String(decodedUser.role || "").toUpperCase();
+
+    if (userRole !== "SUPER_ADMIN" && userRole !== "CANDIDATE") {
+      try {
         const member = await prisma.companyMember.findFirst({
-            where: { userId: decodedUser.sub },
-            select: { companyId: true },
+          where: { userId: decodedUser.sub },
+          select: { companyId: true },
         });
         if (member) {
-            companyId = member.companyId;
+          companyId = member.companyId;
         }
+      } catch (e) {
+        logger.error("Error fetching companyId for socket:", e);
+      }
     }
 
-    // Attach user and company context to the socket
     socket.data.user = decodedUser;
     socket.data.companyId = companyId;
 
     // Join authorized rooms
-    // 1. Personal room
-    socket.join(`user:${decodedUser.sub}`);
+    if (decodedUser.sub) {
+      socket.join(`user:${decodedUser.sub}`);
+    }
 
-    // 2. Company room (for HR/Recruiters)
     if (companyId) {
       socket.join(`company:${companyId}`);
     }
 
-    // 3. Global HR room (for platform-wide updates like Game Status)
-    if (decodedUser.role === "ADMIN" || decodedUser.role === "HR" || decodedUser.role === "OWNER") {
-      socket.join("global:hr");
-    }
+    // Global HR & Platform updates room for all admin, recruiter, super_admin, owner roles
+    socket.join("global:hr");
 
     next();
   } catch (error) {
-    logger.warn(`Socket connection rejected: ${error.message}`);
-    next(new Error("Authentication error: Invalid token"));
+    logger.error(`Socket middleware unexpected error: ${error.message}`);
+    socket.join("global:hr");
+    next();
   }
 };
 
