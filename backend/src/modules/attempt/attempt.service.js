@@ -304,13 +304,10 @@ class AttemptService {
       });
 
       if (candidateProfile) {
-        if (!candidateProfile.companyId && targetCompanyId) {
-          candidateProfile = await tx.candidateProfile.update({
-            where: { id: candidateProfile.id },
-            data: { companyId: targetCompanyId },
-          });
-        }
-        return candidateProfile;
+        throw new ConflictError(
+          `Candidate with email '${normalizedEmail}' already exists in your candidate directory.`,
+          "CANDIDATE_ALREADY_EXISTS"
+        );
       }
 
       const fName = (firstName || "").trim() || "Candidate";
