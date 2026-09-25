@@ -26,7 +26,11 @@ class GameService {
       const configMap = new Map();
       configs.forEach((c) => {
         if (c.gameId) configMap.set(String(c.gameId).toLowerCase(), c);
-        if (c.game?.code) configMap.set(String(c.game.code).toLowerCase(), c);
+        if (c.game?.code) {
+          const codeStr = String(c.game.code).toLowerCase();
+          configMap.set(codeStr, c);
+          configMap.set(codeStr.replace(/_/g, "-"), c);
+        }
         if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
       });
 
@@ -38,6 +42,7 @@ class GameService {
         const savedConfig =
           configMap.get(gameIdKey) ||
           configMap.get(gameCodeKey) ||
+          configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameSlugKey);
 
         if (savedConfig) {

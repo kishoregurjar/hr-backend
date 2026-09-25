@@ -157,7 +157,11 @@ class GameAttemptService {
         const savedConfig = await prisma.companyGameConfig.findFirst({
           where: {
             companyId,
-            OR: [{ gameId: game.id }, { game: { code: canonicalCode } }],
+            OR: [
+              { gameId: game.id },
+              { game: { code: { equals: canonicalCode, mode: "insensitive" } } },
+              { game: { code: { equals: slug, mode: "insensitive" } } },
+            ],
           },
         });
         if (savedConfig?.difficulty) {
