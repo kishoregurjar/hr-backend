@@ -2,12 +2,11 @@
 
 const { prisma } = require("../config/prisma");
 
-function extractEmail(str) {
-  if (!str) return null;
-  const match = str.match(/<([^>]+)>/);
-  if (match && match[1]) return match[1].trim().toLowerCase();
-  if (typeof str === "string" && str.includes("@")) return str.trim().toLowerCase();
-  return null;
+function extractAllEmails(text) {
+  if (!text) return [];
+  const str = typeof text === "object" ? JSON.stringify(text) : String(text);
+  const matches = str.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  return matches.map((e) => e.trim().toLowerCase());
 }
 
 async function migrateCandidateSources() {
@@ -24,18 +23,21 @@ async function migrateCandidateSources() {
 
     resumeProfiles.forEach((r) => {
       if (r.candidateId) emailCandidateIds.add(r.candidateId);
-      const rawEmail = typeof r.extractedData === "object" ? r.extractedData?.email : null;
-      const parsedEmail = extractEmail(rawEmail);
-      if (parsedEmail) emailAddresses.add(parsedEmail);
+      const emails = extractAllEmails(r.extractedData);
+      emails.forEach((e) => emailAddresses.add(e));
     });
 
     const inboundEvents = await prisma.inboundEmailEvent.findMany({
-      select: { senderEmail: true, recipientEmail: true },
+      select: { senderEmail: true, recipientEmail: true, subject: true },
     });
 
     inboundEvents.forEach((evt) => {
-      const parsedSender = extractEmail(evt.senderEmail);
-      if (parsedSender) emailAddresses.add(parsedSender);
+      const sEmails = extractAllEmails(evt.senderEmail);
+      sEmails.forEach((e) => emailAddresses.add(e));
+      const rEmails = extractAllEmails(evt.recipientEmail);
+      rEmails.forEach((e) => emailAddresses.add(e));
+      const subjEmails = extractAllEmails(evt.subject);
+      subjEmails.forEach((e) => emailAddresses.add(e));
     });
 
     // 2. Fetch all candidates to process safely in JS without Prisma JSON filter errors

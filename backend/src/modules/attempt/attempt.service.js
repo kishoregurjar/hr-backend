@@ -440,6 +440,7 @@ class AttemptService {
             firstName: fName,
             lastName: lName,
             companyId: effectiveCompanyId,
+            metadata: { source: "EMAIL_EXTRACTION", inbound: true },
           },
         });
       }
