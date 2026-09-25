@@ -2306,7 +2306,6 @@ class AttemptRepository {
         phoneNumber: true,
         metadata: true,
         resumeProcessing: {
-          take: 1,
           select: {
             id: true,
           },
