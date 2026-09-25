@@ -2304,6 +2304,13 @@ class AttemptRepository {
         firstName: true,
         lastName: true,
         phoneNumber: true,
+        metadata: true,
+        resumeProcessing: {
+          take: 1,
+          select: {
+            id: true,
+          },
+        },
         companyId: true,
         company: {
           select: {
