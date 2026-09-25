@@ -3654,9 +3654,7 @@ class AttemptService {
         status,
         source:
           item.metadata?.source ||
-          (item.metadata?.inbound || item.resumeProcessing?.id || (Array.isArray(item.resumeProcessing) && item.resumeProcessing.length > 0)
-            ? "EMAIL_EXTRACTION"
-            : "MANUAL"),
+          (item.metadata?.inbound ? "EMAIL_EXTRACTION" : "MANUAL"),
         invitation: latestInvitation || null,
         attempt: latestAttempt || null,
         addedDate: item.createdAt,
