@@ -93,7 +93,7 @@ class AttemptController {
    * POST /api/v1/candidates
    */
   createCandidate = asyncHandler(async (req, res) => {
-    const { email, firstName, lastName, phoneNumber } = req.body || {};
+    const { email, firstName, lastName, phoneNumber, source } = req.body || {};
     let companyId = req.company?.id || req.user?.companyId || null;
     if (!companyId && req.user?.id) {
       const member = await prisma.companyMember.findFirst({
@@ -109,6 +109,7 @@ class AttemptController {
       lastName,
       phoneNumber,
       companyId,
+      source: source || "MANUAL",
     });
 
     return SuccessResponse.send(

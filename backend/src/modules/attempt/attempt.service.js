@@ -276,7 +276,7 @@ class AttemptService {
   /**
    * Dedicated Candidate Creation Workflow (No Invitation / No Email Sent)
    */
-  async createCandidate({ email, firstName, lastName, phoneNumber, companyId = null, userId = null }) {
+  async createCandidate({ email, firstName, lastName, phoneNumber, companyId = null, userId = null, source = "MANUAL" }) {
     if (typeof email !== "string" || !email.trim()) {
       throw new BadRequestError(
         "Candidate email is required.",
@@ -323,6 +323,9 @@ class AttemptService {
           lastName: lName,
           phoneNumber: phoneNumber ? phoneNumber.trim() : null,
           companyId: targetCompanyId || null,
+          metadata: {
+            source: source || "MANUAL",
+          },
         },
       });
 
@@ -3649,7 +3652,11 @@ class AttemptService {
         email: item.email,
         phoneNumber: item.phoneNumber || null,
         status,
-        source: item.metadata?.source || (item.metadata?.inbound ? "EMAIL_EXTRACTION" : "MANUAL"),
+        source:
+          item.metadata?.source ||
+          (item.metadata?.inbound || (Array.isArray(item.resumeProcessing) && item.resumeProcessing.length > 0)
+            ? "EMAIL_EXTRACTION"
+            : "MANUAL"),
         invitation: latestInvitation || null,
         attempt: latestAttempt || null,
         addedDate: item.createdAt,

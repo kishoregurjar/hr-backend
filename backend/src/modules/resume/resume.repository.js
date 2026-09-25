@@ -90,6 +90,7 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
       lastName,
       ...(phoneNumber && { phoneNumber }),
       ...(effectiveCompanyId && { companyId: effectiveCompanyId }),
+      metadata: { source: "EMAIL_EXTRACTION", inbound: true },
     },
     create: {
       userId: user.id || null,
@@ -98,6 +99,7 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
       firstName: firstName || email.split("@")[0],
       lastName,
       phoneNumber,
+      metadata: { source: "EMAIL_EXTRACTION", inbound: true },
     },
   });
 }
