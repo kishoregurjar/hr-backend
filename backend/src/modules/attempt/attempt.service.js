@@ -1111,7 +1111,10 @@ class AttemptService {
 
       // 1. Find invitation using candidateSession or tokenHash
       let invitation = null;
-      if (candidateSession?.candidateAssessmentId) {
+      if (tokenHash) {
+        invitation = await attemptRepository.findInvitationByTokenHash(tokenHash, tx);
+      }
+      if (!invitation && candidateSession?.candidateAssessmentId) {
         invitation = await attemptRepository.findInvitationById(candidateSession.candidateAssessmentId, tx);
       }
       if (!invitation && candidateSession?.candidateId && candidateSession?.assessmentId) {
@@ -1122,9 +1125,6 @@ class AttemptService {
           },
           tx
         );
-      }
-      if (!invitation && tokenHash) {
-        invitation = await attemptRepository.findInvitationByTokenHash(tokenHash, tx);
       }
 
       if (!invitation) {
