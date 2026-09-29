@@ -2330,13 +2330,12 @@ class AttemptRepository {
         updatedAt: true,
         invitations: {
           take: 1,
-          orderBy: { createdAt: "desc" },
+          orderBy: { sentAt: "desc" },
           select: {
             id: true,
             status: true,
             expiresAt: true,
             sentAt: true,
-            createdAt: true,
             assessment: {
               select: {
                 id: true,
