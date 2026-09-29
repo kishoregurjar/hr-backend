@@ -2330,6 +2330,7 @@ class AttemptRepository {
         updatedAt: true,
         invitations: {
           take: 1,
+          orderBy: { sentAt: "desc" },
           select: {
             id: true,
             status: true,
@@ -2353,6 +2354,8 @@ class AttemptRepository {
             maxScore: true,
             percentage: true,
             result: true,
+            startedAt: true,
+            createdAt: true,
           },
         },
       },
