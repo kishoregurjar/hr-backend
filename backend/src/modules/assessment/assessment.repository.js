@@ -19,6 +19,12 @@ const ASSESSMENT_LIST_SELECT = Object.freeze({
   createdById: true,
   createdAt: true,
   updatedAt: true,
+  questions: {
+    select: { questionId: true },
+  },
+  games: {
+    select: { gameId: true },
+  },
 });
 
 const ASSESSMENT_DETAIL_SELECT = Object.freeze({
