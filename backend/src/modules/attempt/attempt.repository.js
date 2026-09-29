@@ -100,18 +100,18 @@ class AttemptRepository {
         ...ATTEMPT_BASE_SELECT,
         ...(includeQuestions
           ? {
-              attemptQuestions: {
-                orderBy: { sequence: "asc" },
-                select: ATTEMPT_QUESTION_SELECT,
-              },
-            }
+            attemptQuestions: {
+              orderBy: { sequence: "asc" },
+              select: ATTEMPT_QUESTION_SELECT,
+            },
+          }
           : {}),
         ...(includeAnswers
           ? {
-              answers: {
-                select: ATTEMPT_ANSWER_SELECT,
-              },
-            }
+            answers: {
+              select: ATTEMPT_ANSWER_SELECT,
+            },
+          }
           : {}),
       },
     });
@@ -1206,6 +1206,7 @@ class AttemptRepository {
       },
       data: {
         status: "OPENED",
+        openedAt: now,
       },
     });
 
@@ -1264,7 +1265,10 @@ class AttemptRepository {
     const db = getClient(tx);
     return db.invitation.update({
       where: { id },
-      data: { status: "OPENED" },
+      data: {
+        status: "OPENED",
+        openedAt: new Date(),
+      },
     });
   }
 
@@ -2642,7 +2646,7 @@ class AttemptRepository {
             status: resultVal,
           },
         });
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     return updated;
