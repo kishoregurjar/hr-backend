@@ -3645,8 +3645,8 @@ class AttemptService {
 
       let status = "NEW";
       if (latestInvitation && latestAttempt) {
-        const invTime = new Date(latestInvitation.sentAt || latestInvitation.createdAt || 0).getTime();
-        const attTime = new Date(latestAttempt.startedAt || latestAttempt.createdAt || 0).getTime();
+        const invTime = new Date(latestInvitation.sentAt || 0).getTime();
+        const attTime = new Date(latestAttempt.startedAt || 0).getTime();
 
         if (invTime > attTime) {
           status = latestInvitation.status || "INVITED";
