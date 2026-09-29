@@ -826,7 +826,8 @@ class AttemptService {
   /**
    * Find & Validate Candidate Invitation By Raw Magic Token
    */
-  async findInvitationByRawToken(rawToken, tx) {
+  async findInvitationByRawToken(rawToken, tx, options = {}) {
+    const { rejectUsed = true } = options;
     if (typeof rawToken !== "string" || rawToken.trim().length === 0) {
       throw new BadRequestError(
         "Invalid invitation token.",
@@ -848,14 +849,14 @@ class AttemptService {
       );
     }
 
-    if (invitation.expiresAt <= new Date()) {
+    if (rejectUsed && invitation.expiresAt <= new Date()) {
       throw new ConflictError(
         "Invitation token has expired.",
         INVITATION_ERROR_CODES.TOKEN_EXPIRED
       );
     }
 
-    if (invitation.status === "COMPLETED" || invitation.status === "EXPIRED") {
+    if (rejectUsed && (invitation.status === "COMPLETED" || invitation.status === "EXPIRED")) {
       throw new ConflictError(
         "Invitation token is no longer valid.",
         INVITATION_ERROR_CODES.TOKEN_ALREADY_USED
