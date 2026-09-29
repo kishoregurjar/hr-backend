@@ -126,9 +126,13 @@ function getFileType(file) {
     return "DOCX";
   }
 
+  if (extension === "doc") {
+    return "DOC";
+  }
+
   throw createApplicationError(
     "UNSUPPORTED_FILE_TYPE",
-    "Only PDF and DOCX resumes are supported",
+    "Only PDF, DOCX, and DOC resumes are supported",
     415
   );
 }
@@ -200,6 +204,21 @@ function validateFileSignature(
     return true;
   }
 
+  if (fileType === "DOC") {
+    const docSignature = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    if (
+      buffer.length < docSignature.length ||
+      !buffer.subarray(0, docSignature.length).equals(docSignature)
+    ) {
+      throw createApplicationError(
+        "INVALID_FILE_SIGNATURE",
+        "Invalid DOC file",
+        415
+      );
+    }
+    return true;
+  }
+
   throw createApplicationError(
     "UNSUPPORTED_FILE_TYPE",
     "Unsupported resume file type",
@@ -208,13 +227,14 @@ function validateFileSignature(
 }
 
 function buildStorageKey({ fileHash, fileType }) {
-  const extension = fileType === "PDF" ? "pdf" : "docx";
+  const extension = fileType === "PDF" ? "pdf" : (fileType === "DOCX" ? "docx" : "doc");
 
   return `resumes/${fileHash.slice(0, 2)}/${fileHash}.${extension}`;
 }
 
-async function createCandidateIfRequired({ extractedData, fallbackEmail, tx }) {
-  const email = normalizeEmail(extractedData?.email || fallbackEmail);
+async function createCandidateIfRequired({ extractedData, fallbackEmail, tx, companyId = null, source = null, emailSubject = null, emailBody = null }) {
+  const extractedEmailValid = normalizeEmail(extractedData?.email);
+  const email = extractedEmailValid || normalizeEmail(fallbackEmail);
 
   if (!email) {
     throw createApplicationError(
@@ -222,6 +242,17 @@ async function createCandidateIfRequired({ extractedData, fallbackEmail, tx }) {
       "Candidate email could not be extracted from resume",
       422
     );
+  }
+
+  const isFallback = !extractedEmailValid && !!normalizeEmail(fallbackEmail);
+  const safeExtractedData = { ...(extractedData || {}) };
+  if (isFallback) {
+    safeExtractedData.email = email;
+  }
+  if (source === "INBOUND_EMAIL") {
+    safeExtractedData.source = "EMAIL_EXTRACTION";
+    if (emailSubject) safeExtractedData.emailSubject = emailSubject;
+    if (emailBody) safeExtractedData.emailBody = emailBody;
   }
 
   const existingCandidate = await repository.findCandidateByEmail(email, tx);
@@ -235,7 +266,7 @@ async function createCandidateIfRequired({ extractedData, fallbackEmail, tx }) {
       );
     }
 
-    await repository.ensureCandidateProfile(existingCandidate, extractedData, tx);
+    await repository.ensureCandidateProfile(existingCandidate, safeExtractedData, companyId, tx);
 
     return {
       candidate: existingCandidate,
@@ -248,7 +279,7 @@ async function createCandidateIfRequired({ extractedData, fallbackEmail, tx }) {
 
   const candidateData = buildCandidateCreateData({
     extractedData: {
-      ...extractedData,
+      ...safeExtractedData,
       email,
     },
     passwordHash,
@@ -256,7 +287,7 @@ async function createCandidateIfRequired({ extractedData, fallbackEmail, tx }) {
 
   try {
     const candidate = await repository.createCandidate(candidateData, tx);
-    await repository.ensureCandidateProfile(candidate, extractedData, tx);
+    await repository.ensureCandidateProfile(candidate, safeExtractedData, companyId, tx);
 
     return {
       candidate,
@@ -270,7 +301,7 @@ async function createCandidateIfRequired({ extractedData, fallbackEmail, tx }) {
       );
 
       if (concurrentCandidate) {
-        await repository.ensureCandidateProfile(concurrentCandidate, extractedData, tx);
+        await repository.ensureCandidateProfile(concurrentCandidate, safeExtractedData, companyId, tx);
         return {
           candidate: concurrentCandidate,
           created: false,
@@ -419,6 +450,9 @@ async function processResume({
   subjectCode = null,
   storageService = defaultInMemoryStorageService,
   uploadedByUserId = null,
+  companyId = null,
+  emailSubject = null,
+  emailBody = null,
 }) {
   validateUploadedFile(file);
 
@@ -457,7 +491,7 @@ async function processResume({
 
   const existingResume = await repository.findResumeByHash(fileHash);
 
-  if (existingResume) {
+  if (existingResume && existingResume.status !== "FAILED") {
     const appDto = Array.isArray(existingResume.applications) && existingResume.applications.length > 0
       ? toJobApplicationDto(existingResume.applications[0])
       : toJobApplicationDto(existingResume.application);
@@ -470,12 +504,12 @@ async function processResume({
     };
   }
 
-  const storageKey = buildStorageKey({
+  const storageKey = existingResume ? existingResume.storageKey : buildStorageKey({
     fileHash,
     fileType,
   });
 
-  const resumeProcessing = await repository.createResumeProcessing(
+  const resumeProcessing = existingResume ? existingResume : await repository.createResumeProcessing(
     buildResumeProcessingCreateData({
       source,
       fileType,
@@ -505,8 +539,8 @@ async function processResume({
     try {
       parsed = await parserService.parseResume({
         buffer: file.buffer,
-        fileType,
-        fileName: file.originalname,
+        mimetype: file.mimetype,
+        originalname: file.originalname,
       });
     } catch (error) {
       const sanitized = sanitizeProcessingError(error);
@@ -526,7 +560,7 @@ async function processResume({
       await repository.updateResumeProcessing(
         resumeProcessing.id,
         buildResumeProcessingReviewRequiredData({
-          extractedData: parsed.extractedData || null,
+          extractedData: parsed.extractedData || parsed.candidate || null,
           confidenceScore: parsed.confidenceScore || null,
           errorCode: parsed.errorCode || "RESUME_REVIEW_REQUIRED",
           errorMessage: "Resume requires manual review",
@@ -544,26 +578,82 @@ async function processResume({
 
     const extractedData = parsed.extractedData || parsed.candidate || {};
 
+    const extractedText = parsed.text || "";
+    const jdRegex = /\b(job description|we are hiring|apply now|ctc|stipend|eligibility criteria|internship duration|job title)\b/gi;
+
+    const matches = extractedText.match(jdRegex) || [];
+    const uniqueMatches = new Set(matches.map(m => m.toLowerCase()));
+
+    if (uniqueMatches.size >= 2) {
+      await repository.updateResumeProcessing(
+        resumeProcessing.id,
+        buildResumeProcessingFailedData({
+          errorCode: "NOT_A_RESUME",
+          errorMessage: "jd_language_detected",
+        })
+      );
+      const error = new Error("jd_language_detected");
+      error.code = "NOT_A_RESUME";
+      throw error;
+    }
+
+    const score = [
+      Boolean(extractedData.email),
+      Boolean(extractedData.phone),
+      Boolean(extractedData.skills && extractedData.skills.length > 0),
+      Boolean(extractedText && extractedText.length >= 200)
+    ].filter(Boolean).length;
+
+    if (!extractedData.skills || extractedData.skills.length < 2) {
+      await repository.updateResumeProcessing(
+        resumeProcessing.id,
+        buildResumeProcessingFailedData({
+          errorCode: "NOT_A_TECH_RESUME",
+          errorMessage: "Fewer than 2 valid technical skills found in resume",
+        })
+      );
+      const error = new Error("Fewer than 2 valid technical skills found in resume");
+      error.code = "NOT_A_TECH_RESUME";
+      throw error;
+    }
+
+    if (score < 2) {
+      await repository.updateResumeProcessing(
+        resumeProcessing.id,
+        buildResumeProcessingFailedData({
+          errorCode: "NOT_A_RESUME",
+          errorMessage: "missing_resume_signals",
+        })
+      );
+      const error = new Error("missing_resume_signals");
+      error.code = "NOT_A_RESUME";
+      throw error;
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const candidateResult = await createCandidateIfRequired({
         extractedData,
         fallbackEmail: inboundEmail,
         tx,
+        companyId,
+        source,
+        emailSubject,
+        emailBody,
       });
 
       const job = isInbound
         ? await resolveInboundJob({
-            inboundEmail,
-            subjectCode,
-            repository: {
-              findJobByInboundEmail: (email) => repository.findJobByInboundEmail(email, tx),
-              findJobByCode: (code) => repository.findJobByCode(code, tx),
-            },
-          })
+          inboundEmail,
+          subjectCode,
+          repository: {
+            findJobByInboundEmail: (email) => repository.findJobByInboundEmail(email, tx),
+            findJobByCode: (code) => repository.findJobByCode(code, tx),
+          },
+        })
         : await resolveDirectUploadJob({
-            jobId,
-            tx,
-          });
+          jobId,
+          tx,
+        });
 
 
       const application = await createApplicationIfRequired({
@@ -577,17 +667,17 @@ async function processResume({
 
       const targetStatus = (!job && isInbound)
         ? buildResumeProcessingReviewRequiredData({
-            candidateId: candidateResult.candidate.id,
-            extractedData,
-            confidenceScore: parsed.confidenceScore || null,
-            errorCode: "JOB_NOT_RESOLVED",
-            errorMessage: "Inbound email job could not be automatically resolved",
-          })
+          candidateId: candidateResult.candidate.id,
+          extractedData,
+          confidenceScore: parsed.confidenceScore || null,
+          errorCode: "JOB_NOT_RESOLVED",
+          errorMessage: "Inbound email job could not be automatically resolved",
+        })
         : buildResumeProcessingCompletedData({
-            candidateId: candidateResult.candidate.id,
-            extractedData,
-            confidenceScore: parsed.confidenceScore || null,
-          });
+          candidateId: candidateResult.candidate.id,
+          extractedData,
+          confidenceScore: parsed.confidenceScore || null,
+        });
 
       const completedResume = await repository.updateResumeProcessing(
         resumeProcessing.id,
@@ -607,6 +697,11 @@ async function processResume({
         jobId: result.application.jobId,
         applicationId: result.application.id,
       });
+    }
+
+    const targetCompanyId = result.candidate?.companyId || companyId;
+    if (targetCompanyId) {
+       socketService.emitToCompany(targetCompanyId, "CANDIDATES_REFRESH_REQUIRED", { candidateId: result.candidate.id });
     }
 
     return {

@@ -12,7 +12,7 @@ async function processMailboxSync() {
   let successCount = 0;
   for (const mailbox of activeMailboxes) {
     try {
-      await mailboxService.syncMailboxForUser(mailbox.userId);
+      await mailboxService.syncMailboxForUser(mailbox.userId, 180000);
       successCount++;
     } catch (error) {
       console.error({

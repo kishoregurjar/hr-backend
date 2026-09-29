@@ -17,6 +17,19 @@ const socketService = require("./socket/socket.service");
 let server;
 
 const startServer = async () => {
+  const dbUrl = process.env.DATABASE_URL || "";
+  let dbHost = "unknown";
+  try {
+    if (dbUrl) {
+      const url = new URL(dbUrl);
+      dbHost = url.host;
+    }
+  } catch (e) {
+    dbHost = "invalid url";
+  }
+  console.log(`[CONFIG] DATABASE_URL host: ${dbHost}`);
+  console.log(`[CONFIG] GOOGLE_REDIRECT_URI: ${process.env.GOOGLE_REDIRECT_URI || "not set"}`);
+
   await connectRedis();
 
   startMailboxSyncJob();

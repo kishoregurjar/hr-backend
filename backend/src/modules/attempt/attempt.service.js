@@ -398,7 +398,7 @@ class AttemptService {
       // 3. Verify or auto-create candidate profile by email/id/name with active company binding
       let candidateProfile = null;
       const normalizedEmail = typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
-      
+
       let effectiveCompanyId = assessment.companyId || null;
       if (!effectiveCompanyId && invitedByUserId) {
         const hrMember = await tx.companyMember.findFirst({
@@ -1884,7 +1884,7 @@ class AttemptService {
           if (typeof answerText === "string" && answerText.startsWith("{")) {
             gameScoreObj = JSON.parse(answerText);
           }
-        } catch {}
+        } catch { }
 
         const existingGameResults = typeof attempt.gameResults === "object" && attempt.gameResults ? { ...attempt.gameResults } : {};
         existingGameResults[questionId] = gameScoreObj;
@@ -2791,7 +2791,7 @@ class AttemptService {
         metadata: {
           attemptNumber: attempt.attemptNumber,
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     const sanitizedAttempt = attemptDto.toCandidateCurrentAttemptResponse(attempt, now);
@@ -2833,7 +2833,7 @@ class AttemptService {
     if (targetCandidateAssessmentId && !String(targetCandidateAssessmentId).startsWith("att_")) {
       try {
         attempt = await attemptRepository.findAttemptById(targetCandidateAssessmentId);
-      } catch (_e) {}
+      } catch (_e) { }
 
       if (!attempt) {
         try {
@@ -2842,7 +2842,7 @@ class AttemptService {
             candidateId: effectiveCandidateId,
             assessmentId: effectiveAssessmentId,
           });
-        } catch (_e) {}
+        } catch (_e) { }
       }
     }
 
@@ -2862,7 +2862,7 @@ class AttemptService {
             );
           }
         }
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     // 3. Try finding by candidateSession
@@ -2873,7 +2873,7 @@ class AttemptService {
             candidateId: effectiveCandidateId,
             assessmentId: effectiveAssessmentId,
           });
-        } catch (_e) {}
+        } catch (_e) { }
       }
     }
 
@@ -2889,7 +2889,7 @@ class AttemptService {
             orderBy: { startedAt: "desc" },
           });
         }
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     if (!attempt) {
@@ -2903,7 +2903,7 @@ class AttemptService {
       try {
         await attemptRepository.updateAttemptStatus(attempt.id, "IN_PROGRESS");
         attempt.status = "IN_PROGRESS";
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     if (attempt.status !== "IN_PROGRESS") {
@@ -2935,7 +2935,7 @@ class AttemptService {
             status: attempt.status,
           };
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     let attemptQuestion = await attemptRepository.findAttemptQuestion({
@@ -2960,7 +2960,7 @@ class AttemptService {
             },
           },
         });
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     if (!attemptQuestion) {
@@ -3040,7 +3040,7 @@ class AttemptService {
           metadata: {
             version: 1,
           },
-        }).catch(() => {});
+        }).catch(() => { });
         return {
           attemptId: attempt.id,
           questionId: targetQuestionId,
@@ -3086,7 +3086,7 @@ class AttemptService {
         previousVersion: expectedVersion !== undefined ? expectedVersion : answer.version,
         newVersion: updatedRecord?.version || answer.version + 1,
       },
-    }).catch(() => {});
+    }).catch(() => { });
 
     attemptFailureService.beforeAnswerCommit();
 
@@ -3118,7 +3118,7 @@ class AttemptService {
           );
           if (found) effectiveCandidateAssessmentId = found.id;
         }
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     if (!effectiveCandidateAssessmentId && !rawToken && !candidateSession) {
@@ -3135,14 +3135,14 @@ class AttemptService {
       if (effectiveCandidateAssessmentId && !String(effectiveCandidateAssessmentId).startsWith("att_")) {
         try {
           currentAttempt = await attemptRepository.findAttemptById(effectiveCandidateAssessmentId, tx);
-        } catch (_e) {}
+        } catch (_e) { }
 
         if (!currentAttempt) {
           try {
             currentAttempt = await attemptRepository.findCurrentAttempt({
               candidateAssessmentId: effectiveCandidateAssessmentId,
             }, tx);
-          } catch (_e) {}
+          } catch (_e) { }
         }
       }
 
@@ -3163,7 +3163,7 @@ class AttemptService {
               );
             }
           }
-        } catch (_e) {}
+        } catch (_e) { }
       }
 
       // 3. Try finding by candidateSession
@@ -3176,7 +3176,7 @@ class AttemptService {
               candidateId,
               assessmentId,
             }, tx);
-          } catch (_e) {}
+          } catch (_e) { }
         }
       }
 
@@ -3185,7 +3185,7 @@ class AttemptService {
         try {
           const startedRes = await this.startAttemptByToken({ token: rawToken, candidateSession });
           currentAttempt = startedRes?.attempt || (startedRes?.id ? startedRes : null);
-        } catch (_e) {}
+        } catch (_e) { }
       }
 
       // 5. Fallback: Find most recent IN_PROGRESS or active attempt in database
@@ -3200,7 +3200,7 @@ class AttemptService {
               orderBy: { startedAt: "desc" },
             });
           }
-        } catch (_e) {}
+        } catch (_e) { }
       }
 
       if (!currentAttempt) {
@@ -3271,7 +3271,9 @@ class AttemptService {
 
       attemptFailureService.beforeSubmitEvaluation();
 
-      const questionsList = Array.isArray(attempt.questions) ? attempt.questions : [];
+      const questionsList = Array.isArray(attempt.attemptQuestions)
+        ? attempt.attemptQuestions
+        : (Array.isArray(attempt.questions) ? attempt.questions : []);
 
       const evaluations = questionsList.map((attemptQuestion) => {
         const evalResult = this.evaluateAttemptQuestion({ attemptQuestion });
@@ -3390,7 +3392,7 @@ class AttemptService {
               status: "COMPLETED",
             },
           });
-        } catch (_invErr) {}
+        } catch (_invErr) { }
       }
 
       if (candidateSession?.id) {
@@ -3518,7 +3520,9 @@ class AttemptService {
       );
     }
 
-    const { page = 1, limit = 20, status, search, sortBy = "createdAt", sortOrder = "desc" } = query;
+    const page = parseInt(query.page, 10) || 1;
+    const limit = parseInt(query.limit, 10) || 20;
+    const { status, search, sortBy = "createdAt", sortOrder = "desc" } = query;
     const skip = (page - 1) * limit;
 
     const where = {};
@@ -3596,15 +3600,14 @@ class AttemptService {
       }
     }
 
-    const { page = 1, limit = 20, search } = query;
+    const page = parseInt(query.page, 10) || 1;
+    const limit = parseInt(query.limit, 10) || 20;
+    const search = query.search;
     const skip = (page - 1) * limit;
 
     const where = {};
     if (targetCompanyId) {
-      where.OR = [
-        { companyId: targetCompanyId },
-        { companyId: null },
-      ];
+      where.companyId = targetCompanyId;
     } else {
       where.id = "no-matching-company";
     }
@@ -3618,7 +3621,7 @@ class AttemptService {
 
       where.AND = [
         targetCompanyId
-          ? { OR: [{ companyId: targetCompanyId }, { companyId: null }] }
+          ? { companyId: targetCompanyId }
           : { id: "no-matching-company" },
         { OR: searchFilter },
       ];
@@ -3650,9 +3653,11 @@ class AttemptService {
         email: item.email,
         phoneNumber: item.phoneNumber || null,
         status,
-        source:
-          item.metadata?.source ||
-          (item.metadata?.inbound ? "EMAIL_EXTRACTION" : "MANUAL"),
+        source: item.metadata?.source || (item.metadata?.inbound ? "EMAIL_EXTRACTION" : "MANUAL"),
+        skills: item.metadata?.skills || [],
+        extractedSkills: item.metadata?.extractedSkills || [],
+        emailSubject: item.metadata?.emailSubject || null,
+        emailBody: item.metadata?.emailBody || null,
         invitation: latestInvitation || null,
         attempt: latestAttempt || null,
         addedDate: item.createdAt,
@@ -3673,6 +3678,13 @@ class AttemptService {
 
     candidatesCache.set(cacheKey, { data: result, expiresAt: Date.now() + CANDIDATES_CACHE_TTL });
     return result;
+  }
+
+  /**
+   * Clear Candidates Cache
+   */
+  clearCandidatesCache() {
+    candidatesCache.clear();
   }
 
   /**

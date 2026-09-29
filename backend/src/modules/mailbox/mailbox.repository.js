@@ -44,12 +44,14 @@ async function upsertUserMailbox(
   });
 }
 
-async function updateMailboxSyncStatus(userId, { lastSyncedAt, lastError }, db = prisma) {
+async function updateMailboxSyncStatus(userId, { lastSyncedAt, lastError, backfillComplete, backfillPageToken }, db = prisma) {
   return db.userMailbox.update({
     where: { userId },
     data: {
       ...(lastSyncedAt ? { lastSyncedAt } : {}),
       ...(lastError !== undefined ? { lastError } : {}),
+      ...(backfillComplete !== undefined ? { backfillComplete } : {}),
+      ...(backfillPageToken !== undefined ? { backfillPageToken } : {}),
     },
   });
 }

@@ -791,6 +791,9 @@ model UserMailbox {
   isSyncActive   Boolean   @default(true)
   lastSyncedAt   DateTime?
   lastError      String?
+  backfillComplete Boolean @default(false)
+  backfillPageToken String?
+
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
