@@ -3644,7 +3644,21 @@ class AttemptService {
       const latestInvitation = item.invitations?.[0];
       const latestAttempt = item.attempts?.[0];
 
-      const status = latestAttempt?.status || latestInvitation?.status || "NEW";
+      let status = "NEW";
+      if (latestInvitation && latestAttempt) {
+        const invTime = new Date(latestInvitation.sentAt || 0).getTime();
+        const attTime = new Date(latestAttempt.startedAt || 0).getTime();
+
+        if (invTime > attTime) {
+          status = latestInvitation.status || "INVITED";
+        } else {
+          status = latestAttempt.status || "NEW";
+        }
+      } else if (latestAttempt) {
+        status = latestAttempt.status || "NEW";
+      } else if (latestInvitation) {
+        status = latestInvitation.status || "INVITED";
+      }
 
       return {
         id: item.id,

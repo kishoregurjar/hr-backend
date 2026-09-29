@@ -4,6 +4,7 @@ const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const { ATTEMPT_MESSAGES, ATTEMPT_ERRORS } = require("./attempt.constants");
 const assessmentRepository = require("../assessment/assessment.repository");
+const attemptRepository = require("./attempt.repository");
 const attemptService = require("./attempt.service");
 const idempotencyService = require("../../services/idempotency.service");
 const {
@@ -17,7 +18,7 @@ const {
   toAssessmentAnalyticsResponse,
   toHRAttemptDetailResponse,
 } = require("./attempt.dto");
-const { UnauthorizedError, BadRequestError } = require("../../common/errors");
+const { UnauthorizedError, BadRequestError, NotFoundError } = require("../../common/errors");
 const socketService = require("../../socket/socket.service");
 
 /**
