@@ -2355,7 +2355,6 @@ class AttemptRepository {
             percentage: true,
             result: true,
             startedAt: true,
-            createdAt: true,
           },
         },
       },

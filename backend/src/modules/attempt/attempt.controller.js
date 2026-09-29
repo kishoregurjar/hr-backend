@@ -18,7 +18,7 @@ const {
   toAssessmentAnalyticsResponse,
   toHRAttemptDetailResponse,
 } = require("./attempt.dto");
-const { UnauthorizedError, BadRequestError } = require("../../common/errors");
+const { UnauthorizedError, BadRequestError, NotFoundError } = require("../../common/errors");
 const socketService = require("../../socket/socket.service");
 
 /**
