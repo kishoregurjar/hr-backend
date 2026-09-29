@@ -41,7 +41,7 @@ function normalizeText(text) {
 }
 
 function normalizeEmail(email) {
-  return email ? email.trim().toLowerCase() : null;
+  return email ? email.replace(/\s+/g, "").toLowerCase() : null;
 }
 
 function normalizePhone(phone) {
@@ -59,30 +59,53 @@ function normalizePhone(phone) {
 }
 
 function extractEmail(text) {
-  const matches = text.match(REGEX.EMAIL);
-
+  const topLines = text.split("\n").slice(0, 30).join("\n");
+  let matches = topLines.match(REGEX.EMAIL);
   if (!matches?.length) {
-    return null;
+    matches = text.match(REGEX.EMAIL);
+  }
+  
+  if (!matches?.length) {
+    return [];
   }
 
-  return normalizeEmail(matches[0]);
+  return Array.from(new Set(matches.map(normalizeEmail).filter(Boolean)));
 }
 
 function extractPhone(text) {
-  const matches = text.match(REGEX.PHONE);
-
+  const topLines = text.split("\n").slice(0, 30).join("\n");
+  let matches = topLines.match(REGEX.PHONE);
   if (!matches?.length) {
-    return null;
+    matches = text.match(REGEX.PHONE);
+  }
+  
+  if (!matches?.length) {
+    return [];
   }
 
+  const validPhones = new Set();
   for (const candidate of matches) {
     const phone = normalizePhone(candidate);
     if (phone) {
-      return phone;
+      const raw = candidate.trim();
+      const hasCountryCode = raw.startsWith("+") || raw.startsWith("00");
+      const hasFormatting = /[\s.()-]/.test(raw);
+      const isIndianLocal = /^[6789]\d{9}$/.test(phone);
+      const isUSLocal = /^1?[2-9]\d{9}$/.test(phone);
+
+      if (hasCountryCode || hasFormatting || isIndianLocal || isUSLocal) {
+        if (!hasFormatting && !hasCountryCode && phone.length === 10) {
+          if (isUSLocal || isIndianLocal) {
+            validPhones.add(phone);
+          }
+        } else {
+          validPhones.add(phone);
+        }
+      }
     }
   }
 
-  return null;
+  return Array.from(validPhones);
 }
 
 function extractName(text, email) {
@@ -90,34 +113,23 @@ function extractName(text, email) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(0, 15);
+    .slice(0, 20);
+
+  const emailRegex = new RegExp(REGEX.EMAIL.source, "i");
+  const phoneRegex = new RegExp(REGEX.PHONE.source, "i");
 
   for (const line of lines) {
-    if (line.length < 2 || line.length > 100) {
-      continue;
-    }
-
-    if (REGEX.EMAIL.test(line) || REGEX.PHONE.test(line)) {
-      continue;
-    }
-
-    if (/^(resume|cv|curriculum vitae)$/i.test(line)) {
-      continue;
-    }
-
-    if (/^(summary|profile|objective|experience|skills|education)$/i.test(line)) {
-      continue;
-    }
-
-    if (email && line.toLowerCase().includes(email.toLowerCase())) {
-      continue;
-    }
+    if (line.length < 2 || line.length > 50) continue;
+    if (emailRegex.test(line) || phoneRegex.test(line)) continue;
+    if (/^(resume|cv|curriculum vitae|page \d)$/i.test(line)) continue;
+    if (/^(summary|profile|objective|experience|skills|education|contact|about|portfolio)$/i.test(line)) continue;
+    if (email && line.toLowerCase().includes(email.toLowerCase())) continue;
+    if (/\b(developer|engineer|manager|director|consultant|designer|student|university|college|inc|llc|ltd|pvt)\b/i.test(line)) continue;
 
     const words = line.split(/\s+/);
-
     if (
       words.length >= 2 &&
-      words.length <= 6 &&
+      words.length <= 5 &&
       words.every((word) => /^[A-Za-z.'-]+$/.test(word))
     ) {
       return line;
@@ -130,21 +142,51 @@ function extractName(text, email) {
 function extractSkills(text) {
   const normalizedText = text.toLowerCase();
   const found = new Map();
+  
+  const commonWords = ["Go", "C", "R", "Rust", "Java", "Ruby", "Objective-C", "REST", "Git"];
 
   for (const skill of SKILL_DICTIONARY) {
     const escapedSkill = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const isCommonWord = commonWords.includes(skill);
 
-    const regex = new RegExp(
-      `(^|[^a-z0-9+#.])${escapedSkill}(?=$|[^a-z0-9+#.])`,
-      "i"
-    );
+    const isPunctuationStart = /^[^\w]/.test(skill);
+    const isPunctuationEnding = /[^\w]$/.test(skill);
+    const startBoundary = isPunctuationStart ? "(^|\\s|[\\(\\[\\{])" : "\\b";
+    const endBoundary = isPunctuationEnding ? "(?=$|\\s|[.,;\\)\\]\\}])" : "\\b";
 
-    if (regex.test(normalizedText)) {
+    let regex;
+    if (isCommonWord) {
+      regex = new RegExp(`${startBoundary}${escapedSkill}${endBoundary}`);
+    } else {
+      regex = new RegExp(`${startBoundary}${escapedSkill}${endBoundary}`, "i");
+    }
+
+    if (regex.test(isCommonWord ? text : normalizedText)) {
       found.set(skill.toLowerCase(), skill);
     }
   }
 
-  return [...found.values()].sort((a, b) => a.localeCompare(b));
+  const aliasMap = {
+    "node": "Node.js", "node.js": "Node.js",
+    "react": "React.js", "react.js": "React.js",
+    "javascript": "JavaScript", "js": "JavaScript",
+    "express": "Express.js", "express.js": "Express.js",
+    "vue": "Vue.js", "vue.js": "Vue.js",
+    "rest": "REST APIs", "rest api": "REST APIs", "rest apis": "REST APIs",
+    "html": "HTML5", "html5": "HTML5",
+    "css": "CSS3", "css3": "CSS3",
+    "tailwind": "Tailwind CSS", "tailwind css": "Tailwind CSS",
+    "redux": "Redux Toolkit", "redux toolkit": "Redux Toolkit",
+    "golang": "Go", "go": "Go",
+  };
+
+  const finalSkills = new Set();
+  for (const skill of found.values()) {
+    const lower = skill.toLowerCase();
+    finalSkills.add(aliasMap[lower] || skill);
+  }
+
+  return [...finalSkills].sort((a, b) => a.localeCompare(b));
 }
 
 function extractExperienceYears(text) {
@@ -173,14 +215,24 @@ async function extractPdfText(buffer) {
     }
 
     const result = await pdfParse(buffer);
-    const text = normalizeText(result.text);
+    let text = normalizeText(result.text);
 
-    if (!text) {
-      throw new Error("PDF_TEXT_EMPTY");
+    // OCR Fallback: If text is missing or demonstrably insufficient (e.g. image-based PDF)
+    if (!text || text.length < 50) {
+      // In a real environment with Ghostscript installed, we would use pdf2pic and tesseract.js here.
+      // Example:
+      // const images = await convertPdfToImages(buffer);
+      // text = await performOcrOnImages(images);
+      
+      // For now, if we still have no text, we throw to let the caller handle it.
+      if (!text) {
+        throw new Error("PDF_TEXT_EMPTY");
+      }
     }
 
     return text;
   } catch (error) {
+    console.error("[DIAGNOSTIC] extractPdfText failed:", error);
     const wrapped = new Error("RESUME_TEXT_EXTRACTION_FAILED");
     wrapped.code = "RESUME_TEXT_EXTRACTION_FAILED";
     wrapped.cause = error;
@@ -293,11 +345,17 @@ function parseCandidateData(text) {
     throw error;
   }
 
-  const email = extractEmail(normalizedText);
-  const phone = extractPhone(normalizedText);
+  const emails = extractEmail(normalizedText);
+  const phones = extractPhone(normalizedText);
+  
+  const email = emails.length > 0 ? emails[0] : null;
+  const phone = phones.length > 0 ? phones[0] : null;
+  
   const name = extractName(normalizedText, email);
   const skills = extractSkills(normalizedText);
   const totalExperienceYears = extractExperienceYears(normalizedText);
+
+  const isAmbiguous = emails.length > 1 || phones.length > 1 || !name;
 
   return {
     name,
@@ -305,6 +363,9 @@ function parseCandidateData(text) {
     phone,
     skills,
     totalExperienceYears,
+    _rawEmails: emails,
+    _rawPhones: phones,
+    _isAmbiguous: isAmbiguous
   };
 }
 
@@ -324,10 +385,27 @@ async function parseResume({ buffer, mimetype, originalname }) {
   const text = await extractText({ buffer, mimetype, originalname });
   const candidate = parseCandidateData(text);
 
+  let status = "PARSED";
+  let errorCode = null;
+
+  if (candidate._isAmbiguous) {
+    status = "REVIEW_REQUIRED";
+    if (!candidate.name) errorCode = "NAME_EXTRACTION_FAILED";
+    else if (candidate._rawEmails.length > 1) errorCode = "MULTIPLE_EMAILS_FOUND";
+    else if (candidate._rawPhones.length > 1) errorCode = "MULTIPLE_PHONES_FOUND";
+  }
+
+  // Remove internal properties
+  delete candidate._rawEmails;
+  delete candidate._rawPhones;
+  delete candidate._isAmbiguous;
+
   return {
     fileHash,
     text,
     candidate,
+    status,
+    errorCode
   };
 }
 

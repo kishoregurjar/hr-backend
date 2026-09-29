@@ -60,18 +60,13 @@ function buildCandidateCreateData({
     throw error;
   }
 
-  const { firstName, lastName } = splitName(
-    extractedData?.name
-  );
+  const name = String(extractedData?.name || "Candidate").trim();
 
   return {
     email,
     password: passwordHash,
-    firstName,
-    lastName,
+    name,
     role: "CANDIDATE",
-    emailVerified: false,
-    isActive: true,
   };
 }
 

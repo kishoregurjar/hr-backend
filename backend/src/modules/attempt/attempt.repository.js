@@ -2309,7 +2309,7 @@ class AttemptRepository {
       where,
       skip,
       take,
-      orderBy: orderBy || { createdAt: "desc" },
+      orderBy: orderBy || { updatedAt: "desc" },
       select: {
         id: true,
         email: true,
@@ -2317,6 +2317,7 @@ class AttemptRepository {
         lastName: true,
         phoneNumber: true,
         companyId: true,
+        metadata: true,
         company: {
           select: {
             id: true,

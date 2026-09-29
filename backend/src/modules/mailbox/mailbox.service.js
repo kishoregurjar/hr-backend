@@ -5,6 +5,7 @@ const repository = require("./mailbox.repository");
 const resumeService = require("../resume/resume.service");
 const resumeRepository = require("../resume/resume.repository");
 const { prisma } = require("../../config/prisma");
+const attemptService = require("../attempt/attempt.service");
 const {
   AppError,
   badRequest,
@@ -137,7 +138,7 @@ function parseSender(senderStr) {
 
 const activeMailboxSyncs = new Set();
 
-async function syncMailboxForUser(userId) {
+async function syncMailboxForUser(userId, maxDurationMs = 20000) {
   if (activeMailboxSyncs.has(userId)) {
     throw conflict(
       "Mailbox sync is already in progress for your account. Please wait a moment.",
@@ -170,17 +171,32 @@ async function syncMailboxForUser(userId) {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
     let processedCount = 0;
-    let pageToken = null;
+    let pageToken = mailbox.backfillComplete ? null : (mailbox.backfillPageToken || null);
     let keepFetching = true;
     let pagesScanned = 0;
     let maxInternalDate = null;
     const MAX_NEW_RESUMES_PER_BATCH = 15;
     const MAX_PAGES_PER_SYNC = 5;
+    const startTime = Date.now();
+    let hitTimeCap = false;
 
-    while (keepFetching && processedCount < MAX_NEW_RESUMES_PER_BATCH && pagesScanned < MAX_PAGES_PER_SYNC) {
+    const shouldContinueFetching = () => {
+      if (!keepFetching) return false;
+      if (mailbox.backfillComplete) {
+        return processedCount < MAX_NEW_RESUMES_PER_BATCH && pagesScanned < MAX_PAGES_PER_SYNC;
+      }
+      return true;
+    };
+
+    while (shouldContinueFetching()) {
+      if (Date.now() - startTime >= maxDurationMs) {
+        hitTimeCap = true;
+        break;
+      }
+
       pagesScanned++;
       let queryStr = "has:attachment (filename:pdf OR filename:docx OR filename:doc)";
-      if (mailbox.lastSyncedAt) {
+      if (mailbox.backfillComplete && mailbox.lastSyncedAt) {
         const epoch = Math.floor(mailbox.lastSyncedAt.getTime() / 1000) - 1;
         queryStr += ` after:${epoch}`;
       }
@@ -216,7 +232,7 @@ async function syncMailboxForUser(userId) {
 
       for (const msg of messages) {
         try {
-          if (processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
+          if (mailbox.backfillComplete && processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
             keepFetching = false;
             break;
           }
@@ -261,6 +277,42 @@ async function syncMailboxForUser(userId) {
           }
 
           const parts = payload.parts || [];
+
+          let plainTextBody = "";
+          let htmlBody = "";
+          
+          function extractBodyRecursive(part) {
+            if (!part) return;
+            if (part.mimeType === "text/plain" && part.body?.data) {
+              plainTextBody += Buffer.from(part.body.data, "base64url").toString("utf-8");
+            } else if (part.mimeType === "text/html" && part.body?.data) {
+              htmlBody += Buffer.from(part.body.data, "base64url").toString("utf-8");
+            }
+            if (part.parts) {
+              part.parts.forEach(extractBodyRecursive);
+            }
+          }
+          
+          if (payload.mimeType?.startsWith("text/")) {
+              extractBodyRecursive(payload);
+          } else {
+              parts.forEach(extractBodyRecursive);
+          }
+
+          let finalEmailBody = plainTextBody.trim();
+          if (!finalEmailBody && htmlBody) {
+             finalEmailBody = htmlBody.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                                      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                                      .replace(/<\/div>|<\/p>|<br\s*\/?>/gi, '\n')
+                                      .replace(/<[^>]+>/g, '')
+                                      .replace(/\n\s*\n/g, '\n\n')
+                                      .replace(/&nbsp;/g, ' ')
+                                      .trim();
+          }
+          if (finalEmailBody.length > 5000) {
+            finalEmailBody = finalEmailBody.substring(0, 5000) + "\n...[Message truncated]";
+          }
+
           let messageProcessed = false;
 
           for (const part of parts) {
@@ -292,21 +344,25 @@ async function syncMailboxForUser(userId) {
                     source: "INBOUND_EMAIL",
                     inboundEmail: parsedSender.email || sender,
                     uploadedByUserId: userId,
+                    companyId: userCompanyId,
+                    emailSubject: subject,
+                    emailBody: finalEmailBody,
                   });
 
-                  processedCount++;
+                  if (!resumeResult?.duplicate) {
+                    processedCount++;
+                  }
                   messageProcessed = true;
 
-                  const extractedData = resumeResult?.extractedData || {};
-                  const candidateEmail = extractedData.email || parsedSender.email;
-                  const candidateName = extractedData.name || parsedSender.name || "";
-
-                  if (candidateEmail) {
-                    await resumeRepository.ensureCandidateProfile(
-                      { id: null, email: candidateEmail, name: candidateName },
-                      extractedData,
-                      userCompanyId
-                    );
+                  if (resumeResult?.candidateId && !resumeResult?.duplicate) {
+                    await prisma.candidateProfile.updateMany({
+                      where: { userId: resumeResult.candidateId, companyId: null },
+                      data: { companyId: userCompanyId }
+                    });
+                    
+                    if (typeof attemptService.clearCandidatesCache === "function") {
+                      attemptService.clearCandidatesCache();
+                    }
                   }
 
                   if (emailEvent?.id) {
@@ -343,18 +399,30 @@ async function syncMailboxForUser(userId) {
         }
       }
 
-      pageToken = res.data.nextPageToken;
+      pageToken = res.data.nextPageToken || null;
       if (!pageToken) {
         break;
       }
     }
 
     const syncStatusUpdate = { lastError: null };
+    
+    const existingLastSynced = mailbox.lastSyncedAt ? mailbox.lastSyncedAt.getTime() : 0;
     if (maxInternalDate) {
-      syncStatusUpdate.lastSyncedAt = new Date(maxInternalDate);
-    } else {
+      syncStatusUpdate.lastSyncedAt = new Date(Math.max(existingLastSynced, maxInternalDate));
+    } else if (!mailbox.lastSyncedAt) {
       syncStatusUpdate.lastSyncedAt = new Date();
     }
+
+    if (!mailbox.backfillComplete) {
+      if (pageToken) {
+        syncStatusUpdate.backfillPageToken = pageToken;
+      } else {
+        syncStatusUpdate.backfillComplete = true;
+        syncStatusUpdate.backfillPageToken = null;
+      }
+    }
+
     await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
 
     console.info(`[MailboxSync] Sync completed for ${mailbox.email}. Total new resumes ingested: ${processedCount}`);

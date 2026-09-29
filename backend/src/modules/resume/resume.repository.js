@@ -77,27 +77,81 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
   const email = user.email.trim().toLowerCase();
   const rawName = extractedData?.name || user.name || "";
   const parts = rawName.trim().split(" ");
-  const firstName = parts[0] || email.split("@")[0];
-  const lastName = parts.slice(1).join(" ") || "";
+  const fallbackFirstName = user.firstName ? user.firstName : "Candidate";
+  const fallbackLastName = user.lastName ? user.lastName : "";
+  const firstName = parts[0] || fallbackFirstName;
+  const lastName = parts.slice(1).join(" ") || fallbackLastName;
   const phoneNumber = extractedData?.phone || null;
   const effectiveCompanyId = companyId || user.companyId || extractedData?.companyId || null;
+
+  const skills = Array.isArray(extractedData?.skills) ? extractedData.skills : null;
+
+  const existingCandidate = await db.candidateProfile.findUnique({
+    where: { email },
+    select: { firstName: true, lastName: true, metadata: true, companyId: true }
+  });
+
+  const existingMetadata = (existingCandidate && existingCandidate.metadata && typeof existingCandidate.metadata === 'object')
+    ? existingCandidate.metadata
+    : {};
+
+  let finalSkills = existingMetadata.skills || [];
+  if (Array.isArray(skills) && skills.length > 0) {
+    // merge skills to preserve existing ones for search/filtering
+    finalSkills = Array.from(new Set([...finalSkills, ...skills]));
+  }
+
+  const cleanExtracted = { ...extractedData };
+  delete cleanExtracted.email;
+  delete cleanExtracted.phone;
+  delete cleanExtracted.name;
+  delete cleanExtracted.companyId;
+  delete cleanExtracted.skills;
+
+  const oldExtractedSkills = existingMetadata.extractedSkills || existingMetadata.latestExtractedSkills;
+  
+  const updatedMetadata = {
+    ...existingMetadata,
+    ...cleanExtracted,
+    skills: finalSkills,
+    extractedSkills: Array.isArray(skills) && skills.length > 0 ? skills : (oldExtractedSkills || []),
+  };
+
+  delete updatedMetadata.latestExtractedSkills;
+
+  const isExtractedNameValid = extractedData?.name && extractedData.name.trim().length > 0 && extractedData.name.trim().toLowerCase() !== "candidate";
+  const finalFirstName = isExtractedNameValid ? firstName : (existingCandidate?.firstName && existingCandidate.firstName !== "Candidate" ? existingCandidate.firstName : firstName);
+  const finalLastName = isExtractedNameValid ? lastName : (existingCandidate?.lastName ? existingCandidate.lastName : lastName);
+
+  let companyIdToUpdate = undefined;
+  if (existingCandidate) {
+    if (!existingCandidate.companyId && effectiveCompanyId) {
+      companyIdToUpdate = effectiveCompanyId;
+    }
+  }
 
   return db.candidateProfile.upsert({
     where: { email },
     update: {
       userId: user.id || undefined,
-      firstName: firstName || email.split("@")[0],
-      lastName,
+      firstName: finalFirstName,
+      lastName: finalLastName,
       ...(phoneNumber && { phoneNumber }),
-      ...(effectiveCompanyId && { companyId: effectiveCompanyId }),
+      ...(companyIdToUpdate && { companyId: companyIdToUpdate }),
+      metadata: updatedMetadata,
     },
     create: {
       userId: user.id || null,
       companyId: effectiveCompanyId,
       email,
-      firstName: firstName || email.split("@")[0],
+      firstName,
       lastName,
       phoneNumber,
+      metadata: {
+        ...cleanExtracted,
+        skills: skills || [],
+        extractedSkills: skills || [],
+      },
     },
   });
 }
@@ -107,7 +161,7 @@ async function createCandidate(data, db = prisma) {
     data,
   });
 
-  await ensureCandidateProfile(user, {}, db);
+  await ensureCandidateProfile(user, {}, null, db);
 
   return user;
 }
