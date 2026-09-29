@@ -154,10 +154,23 @@ class GameAttemptService {
       }
 
       if (companyId && prisma.companyGameConfig) {
+        const altCode1 = String(canonicalCode || "").replace(/_/g, "-");
+        const altCode2 = String(canonicalCode || "").replace(/-/g, "_");
+        const altSlug1 = String(slug || "").replace(/_/g, "-");
+        const altSlug2 = String(slug || "").replace(/-/g, "_");
+
         const savedConfig = await prisma.companyGameConfig.findFirst({
           where: {
             companyId,
-            OR: [{ gameId: game.id }, { game: { code: canonicalCode } }],
+            OR: [
+              { gameId: game.id },
+              { game: { code: { equals: canonicalCode, mode: "insensitive" } } },
+              { game: { code: { equals: altCode1, mode: "insensitive" } } },
+              { game: { code: { equals: altCode2, mode: "insensitive" } } },
+              { game: { code: { equals: slug, mode: "insensitive" } } },
+              { game: { code: { equals: altSlug1, mode: "insensitive" } } },
+              { game: { code: { equals: altSlug2, mode: "insensitive" } } },
+            ],
           },
         });
         if (savedConfig?.difficulty) {

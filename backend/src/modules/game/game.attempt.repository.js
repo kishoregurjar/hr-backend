@@ -16,6 +16,11 @@ async function findCandidateAssessment(candidateAssessmentId, candidateId) {
           id: candidateAssessmentId,
         },
         include: {
+          candidate: {
+            select: {
+              companyId: true,
+            },
+          },
           assessment: {
             select: {
               id: true,
@@ -23,6 +28,7 @@ async function findCandidateAssessment(candidateAssessmentId, candidateId) {
               startsAt: true,
               endsAt: true,
               durationMinutes: true,
+              createdById: true,
             },
           },
         },

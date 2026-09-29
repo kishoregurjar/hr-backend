@@ -2316,6 +2316,7 @@ class AttemptRepository {
         firstName: true,
         lastName: true,
         phoneNumber: true,
+        metadata: true,
         companyId: true,
         metadata: true,
         company: {

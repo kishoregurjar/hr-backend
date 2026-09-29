@@ -19,7 +19,7 @@ const requireAuth = require("../../middleware/requireAuth");
 
 router.use("/", attemptRoutes);
 router.use("/", telemetryRoutes);
-router.get("/", gameController.listGames);
+router.get("/", requireAuth, gameController.listGames);
 router.patch("/:slug/config", requireAuth, gameController.updateGameConfig);
 router.get("/:slug", gameController.getGame);
 router.get("/:slug/puzzle", gameController.getPuzzle);

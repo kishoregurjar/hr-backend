@@ -276,7 +276,7 @@ class AttemptService {
   /**
    * Dedicated Candidate Creation Workflow (No Invitation / No Email Sent)
    */
-  async createCandidate({ email, firstName, lastName, phoneNumber, companyId = null, userId = null }) {
+  async createCandidate({ email, firstName, lastName, phoneNumber, companyId = null, userId = null, source = "MANUAL" }) {
     if (typeof email !== "string" || !email.trim()) {
       throw new BadRequestError(
         "Candidate email is required.",
@@ -304,13 +304,10 @@ class AttemptService {
       });
 
       if (candidateProfile) {
-        if (!candidateProfile.companyId && targetCompanyId) {
-          candidateProfile = await tx.candidateProfile.update({
-            where: { id: candidateProfile.id },
-            data: { companyId: targetCompanyId },
-          });
-        }
-        return candidateProfile;
+        throw new ConflictError(
+          `Candidate with email '${normalizedEmail}' already exists in your candidate directory.`,
+          "CANDIDATE_ALREADY_EXISTS"
+        );
       }
 
       const fName = (firstName || "").trim() || "Candidate";
@@ -323,6 +320,9 @@ class AttemptService {
           lastName: lName,
           phoneNumber: phoneNumber ? phoneNumber.trim() : null,
           companyId: targetCompanyId || null,
+          metadata: {
+            source: source || "MANUAL",
+          },
         },
       });
 
@@ -437,6 +437,7 @@ class AttemptService {
             firstName: fName,
             lastName: lName,
             companyId: effectiveCompanyId,
+            metadata: { source: "EMAIL_EXTRACTION", inbound: true },
           },
         });
       }
@@ -1110,7 +1111,10 @@ class AttemptService {
 
       // 1. Find invitation using candidateSession or tokenHash
       let invitation = null;
-      if (candidateSession?.candidateAssessmentId) {
+      if (tokenHash) {
+        invitation = await attemptRepository.findInvitationByTokenHash(tokenHash, tx);
+      }
+      if (!invitation && candidateSession?.candidateAssessmentId) {
         invitation = await attemptRepository.findInvitationById(candidateSession.candidateAssessmentId, tx);
       }
       if (!invitation && candidateSession?.candidateId && candidateSession?.assessmentId) {
@@ -1121,9 +1125,6 @@ class AttemptService {
           },
           tx
         );
-      }
-      if (!invitation && tokenHash) {
-        invitation = await attemptRepository.findInvitationByTokenHash(tokenHash, tx);
       }
 
       if (!invitation) {
