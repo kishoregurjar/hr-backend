@@ -925,6 +925,18 @@ class AttemptRepository {
             questionId: true,
             sequence: true,
             questionSnapshot: true,
+            question: {
+              select: {
+                id: true,
+                type: true,
+                options: {
+                  select: {
+                    id: true,
+                    isCorrect: true,
+                  },
+                },
+              },
+            },
             answers: {
               select: {
                 id: true,
@@ -2297,7 +2309,7 @@ class AttemptRepository {
       where,
       skip,
       take,
-      orderBy: orderBy || { createdAt: "desc" },
+      orderBy: orderBy || { updatedAt: "desc" },
       select: {
         id: true,
         email: true,
@@ -2306,6 +2318,7 @@ class AttemptRepository {
         phoneNumber: true,
         metadata: true,
         companyId: true,
+        metadata: true,
         company: {
           select: {
             id: true,

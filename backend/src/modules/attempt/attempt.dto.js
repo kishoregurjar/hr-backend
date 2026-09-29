@@ -820,7 +820,8 @@ const toHRAttemptListResponse = (attempt) => {
     createdAt: attempt.createdAt || null,
     score: attempt.score !== null && attempt.score !== undefined ? Number(attempt.score) : null,
     percentage: attempt.percentage !== null && attempt.percentage !== undefined ? Number(attempt.percentage) : null,
-    passed: attempt.passed ?? null,
+    result: attempt.result ?? null,
+    passed: attempt.result === "PASS" ? true : (attempt.result === "FAIL" ? false : (attempt.passed ?? null)),
     candidate: candidate
       ? {
           id: candidate.id,
@@ -875,7 +876,8 @@ const toHRAttemptDetailResponse = (attempt) => {
     expiresAt: attempt.expiresAt,
     score: attempt.score !== null && attempt.score !== undefined ? Number(attempt.score) : null,
     percentage: attempt.percentage !== null && attempt.percentage !== undefined ? Number(attempt.percentage) : null,
-    passed: attempt.passed ?? null,
+    result: attempt.result ?? null,
+    passed: attempt.result === "PASS" ? true : (attempt.result === "FAIL" ? false : (attempt.passed ?? null)),
     candidate: candidate
       ? {
           id: candidate.id,

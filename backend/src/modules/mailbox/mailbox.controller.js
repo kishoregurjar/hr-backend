@@ -72,7 +72,7 @@ async function getMailboxStatus(req, res, next) {
 async function syncMailboxNow(req, res, next) {
   try {
     const user = getAuthenticatedUser(req);
-    const result = await service.syncMailboxForUser(user.id);
+    const result = await service.syncMailboxForUser(user.id, 20000);
 
     return res.status(200).json({
       success: true,

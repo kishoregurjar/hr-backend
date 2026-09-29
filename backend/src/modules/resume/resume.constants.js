@@ -8,11 +8,13 @@ const PARSER_VERSION = "1.0.0";
 const ALLOWED_RESUME_EXTENSIONS = Object.freeze([
   ".pdf",
   ".docx",
+  ".doc",
 ]);
 
 const ALLOWED_RESUME_MIME_TYPES = Object.freeze([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
 ]);
 
 const RESUME_FILE_FIELD_NAME = "resume";
@@ -20,6 +22,7 @@ const RESUME_FILE_FIELD_NAME = "resume";
 const RESUME_FILE_TYPES = Object.freeze({
   PDF: "PDF",
   DOCX: "DOCX",
+  DOC: "DOC",
 });
 
 const RESUME_PROCESSING_SOURCE = Object.freeze({
@@ -92,6 +95,11 @@ const SUPPORTED_RESUME_TYPES = Object.freeze({
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     extensions: Object.freeze([".docx"]),
   }),
+
+  DOC: Object.freeze({
+    mimeType: "application/msword",
+    extensions: Object.freeze([".doc"]),
+  }),
 });
 
 const ALLOWED_MIME_TYPES = ALLOWED_RESUME_MIME_TYPES;
@@ -114,39 +122,39 @@ const RESUME_SOURCE = Object.freeze({
 const ERROR_CODES = RESUME_ERROR_CODES;
 
 const REGEX = Object.freeze({
-  EMAIL: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
-  PHONE: /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,5}[\s.-]?\d{4}\b/g,
+  EMAIL: /[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\s*\.\s*[a-zA-Z]{2,}/gi,
+  PHONE: /(?:\+?\d{1,3}[\s.-]*)?(?:\(?\d{2,4}\)?[\s.-]*)?\d{3,5}[\s.-]*\d{4,5}\b/g,
   YEARS_EXPERIENCE: /(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)(?:\s+of)?\s*(?:professional\s+)?experience/gi,
   EXPERIENCE_SECTION: /\b(?:professional\s+experience|work\s+experience|experience|employment\s+history)\b/i,
   SKILLS_SECTION: /\b(?:technical\s+skills|skills|technologies|tech\s+stack|technical\s+expertise)\b/i,
 });
 
 const SKILL_DICTIONARY = Object.freeze([
-  "Node.js",
-  "Express.js",
+  "Node.js", "Node",
+  "Express.js", "Express",
   "TypeScript",
-  "JavaScript",
-  "React",
-  "React.js",
+  "JavaScript", "JS",
+  "React", "React.js",
   "Next.js",
   "Angular",
-  "Vue.js",
+  "Vue.js", "Vue",
   "Python",
   "Java",
   "C++",
   "C#",
-  "Go",
+  "Go", "Golang",
   "Rust",
   "PHP",
   "Laravel",
   "PostgreSQL",
   "MySQL",
+  "MSSQL",
   "MongoDB",
+  "Mongoose",
   "Redis",
   "SQL",
   "Prisma",
   "Sequelize",
-  "Mongoose",
   "Docker",
   "Kubernetes",
   "AWS",
@@ -155,17 +163,26 @@ const SKILL_DICTIONARY = Object.freeze([
   "Git",
   "GitHub",
   "GitLab",
-  "REST",
-  "REST API",
+  "REST", "REST APIs", "REST API",
   "GraphQL",
   "Kafka",
   "RabbitMQ",
-  "HTML",
-  "CSS",
-  "Tailwind CSS",
+  "HTML", "HTML5",
+  "CSS", "CSS3",
+  "Tailwind CSS", "Tailwind",
+  "Dart",
+  "Flutter",
+  "Redux", "Redux Toolkit",
+  "EJS",
   "Jest",
   "Mocha",
   "Playwright",
+  ".NET",
+  "React Native",
+  "Firebase",
+  "Terraform",
+  "Ansible",
+  "GitHub Actions",
 ]);
 
 module.exports = {
