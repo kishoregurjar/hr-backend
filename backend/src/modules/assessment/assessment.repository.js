@@ -362,7 +362,13 @@ class AssessmentRepository {
       where.type = options.type;
     }
 
-    if (options.createdById) {
+    if (options.companyId) {
+      where.createdBy = {
+        companyMembers: {
+          some: { companyId: options.companyId },
+        },
+      };
+    } else if (options.createdById) {
       where.createdById = options.createdById;
     }
 
