@@ -108,6 +108,10 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
   delete cleanExtracted.companyId;
   delete cleanExtracted.skills;
 
+  if (cleanExtracted.totalExperienceYears == null) {
+    delete cleanExtracted.totalExperienceYears;
+  }
+
   const oldExtractedSkills = existingMetadata.extractedSkills || existingMetadata.latestExtractedSkills;
   
   const updatedMetadata = {
@@ -120,8 +124,12 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
   delete updatedMetadata.latestExtractedSkills;
 
   const isExtractedNameValid = extractedData?.name && extractedData.name.trim().length > 0 && extractedData.name.trim().toLowerCase() !== "candidate";
-  const finalFirstName = isExtractedNameValid ? firstName : (existingCandidate?.firstName && existingCandidate.firstName !== "Candidate" ? existingCandidate.firstName : firstName);
-  const finalLastName = isExtractedNameValid ? lastName : (existingCandidate?.lastName ? existingCandidate.lastName : lastName);
+  const hasExistingValidFirstName = existingCandidate?.firstName && existingCandidate.firstName !== "Candidate";
+  const hasExistingValidLastName = existingCandidate?.lastName && existingCandidate.lastName.trim().length > 0;
+  
+  // Prefer existing valid names over newly extracted ones to prevent overwriting with uncertain parsed data
+  const finalFirstName = hasExistingValidFirstName ? existingCandidate.firstName : (isExtractedNameValid ? firstName : fallbackFirstName);
+  const finalLastName = hasExistingValidLastName ? existingCandidate.lastName : (isExtractedNameValid ? lastName : fallbackLastName);
 
   let companyIdToUpdate = undefined;
   if (existingCandidate) {

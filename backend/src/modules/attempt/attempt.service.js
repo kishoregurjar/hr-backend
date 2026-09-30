@@ -3671,6 +3671,7 @@ class AttemptService {
         source: item.metadata?.source || (item.metadata?.inbound ? "EMAIL_EXTRACTION" : "MANUAL"),
         skills: item.metadata?.skills || [],
         extractedSkills: item.metadata?.extractedSkills || [],
+        experience: item.metadata?.totalExperienceYears || null,
         emailSubject: item.metadata?.emailSubject || null,
         emailBody: item.metadata?.emailBody || null,
         invitation: latestInvitation || null,

@@ -118,17 +118,36 @@ function extractName(text, email) {
   const emailRegex = new RegExp(REGEX.EMAIL.source, "i");
   const phoneRegex = new RegExp(REGEX.PHONE.source, "i");
 
-  for (const line of lines) {
+  // Common section headings and their compound variations
+  const headingRegex = /\b(summary|profile|objective|experience|skills|competencies|projects|academic|education|certifications|contact|portfolio|about)\b/i;
+  const roleRegex = /\b(developer|engineer|manager|director|consultant|designer|student|university|college|inc|llc|ltd|pvt|lead|architect|analyst)\b/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (line.length < 2 || line.length > 50) continue;
     if (emailRegex.test(line) || phoneRegex.test(line)) continue;
-    if (/^(resume|cv|curriculum vitae|page \d)$/i.test(line)) continue;
-    if (/^(summary|profile|objective|experience|skills|education|contact|about|portfolio)$/i.test(line)) continue;
-    if (email && line.toLowerCase().includes(email.toLowerCase())) continue;
-    if (/\b(developer|engineer|manager|director|consultant|designer|student|university|college|inc|llc|ltd|pvt)\b/i.test(line)) continue;
+    if (/^(resume|cv|curriculum vitae|page \d+)$/i.test(line)) continue;
+    
+    // Robust exclusion for headings and role descriptions
+    if (headingRegex.test(line)) continue;
+    if (roleRegex.test(line)) continue;
+    
+    // Exclude if it perfectly matches email prefix or domain (avoiding false positives)
+    if (email) {
+      const emailLower = email.toLowerCase();
+      if (line.toLowerCase().includes(emailLower)) continue;
+    }
+    
+    // Exclude common links
+    if (/linkedin\.com|github\.com/i.test(line)) continue;
 
     const words = line.split(/\s+/);
+    
+    // A single word name is only acceptable if it appears very early (e.g. first 3 non-empty lines)
+    const minWords = (i < 3) ? 1 : 2;
+
     if (
-      words.length >= 2 &&
+      words.length >= minWords &&
       words.length <= 5 &&
       words.every((word) => /^[A-Za-z.'-]+$/.test(word))
     ) {
