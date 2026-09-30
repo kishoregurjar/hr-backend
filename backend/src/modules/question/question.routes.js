@@ -31,6 +31,12 @@ router.post(
 );
 
 router.post(
+  "/bulk",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  controller.bulkCreate
+);
+
+router.post(
   "/:id/publish",
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(questionIdParamSchema),
