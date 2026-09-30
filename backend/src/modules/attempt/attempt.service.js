@@ -3528,7 +3528,19 @@ class AttemptService {
 
     const where = {};
     if (user.role === "HR") {
-      where.assessment = { createdById: user.id };
+      const userMember = await prisma.companyMember.findFirst({
+        where: { userId: user.id },
+        select: { companyId: true },
+      });
+      if (userMember?.companyId) {
+        where.assessment = {
+          createdBy: {
+            companyMembers: {
+              some: { companyId: userMember.companyId },
+            },
+          },
+        };
+      }
     }
     if (status) {
       where.status = status;
@@ -3762,11 +3774,19 @@ class AttemptService {
       );
     }
 
-    if (user.role === "HR" && attempt.assessment?.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have permission to access this assessment attempt.",
-        "ACCESS_DENIED"
-      );
+    if (user?.role === "HR" && attempt.assessment?.createdById) {
+      if (user.id !== attempt.assessment.createdById) {
+        const [userMember, creatorMember] = await Promise.all([
+          prisma.companyMember.findFirst({ where: { userId: user.id }, select: { companyId: true } }),
+          prisma.companyMember.findFirst({ where: { userId: attempt.assessment.createdById }, select: { companyId: true } }),
+        ]);
+        if (!userMember?.companyId || !creatorMember?.companyId || userMember.companyId !== creatorMember.companyId) {
+          throw new ForbiddenError(
+            "You do not have permission to access this assessment attempt.",
+            "ACCESS_DENIED"
+          );
+        }
+      }
     }
 
     return attempt;
