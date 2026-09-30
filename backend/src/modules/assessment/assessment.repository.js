@@ -19,6 +19,25 @@ const ASSESSMENT_LIST_SELECT = Object.freeze({
   createdById: true,
   createdAt: true,
   updatedAt: true,
+  questions: {
+    select: {
+      questionId: true,
+      points: true,
+    },
+  },
+  games: {
+    select: {
+      gameId: true,
+      weight: true,
+      game: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
+    },
+  },
 });
 
 const ASSESSMENT_DETAIL_SELECT = Object.freeze({
@@ -343,7 +362,13 @@ class AssessmentRepository {
       where.type = options.type;
     }
 
-    if (options.createdById) {
+    if (options.companyId) {
+      where.createdBy = {
+        companyMembers: {
+          some: { companyId: options.companyId },
+        },
+      };
+    } else if (options.createdById) {
       where.createdById = options.createdById;
     }
 
@@ -387,29 +412,30 @@ class AssessmentRepository {
    */
   async addQuestions(tx, assessmentId, questionsData = []) {
     const db = getClient(tx);
-    const operations = questionsData.map((item) =>
-      db.assessmentQuestion.upsert({
-        where: {
-          assessmentId_questionId: {
-            assessmentId,
-            questionId: item.questionId,
-          },
-        },
-        create: {
-          assessmentId,
-          questionId: item.questionId,
-          orderIndex: item.sequence !== undefined ? item.sequence : (item.orderIndex || 0),
-          points: item.marks !== undefined ? item.marks : (item.points || 1),
-          negativePoints: item.negativeMarks !== undefined ? item.negativeMarks : (item.negativePoints || 0.0),
-        },
-        update: {
-          orderIndex: item.sequence !== undefined ? item.sequence : (item.orderIndex || 0),
-          points: item.marks !== undefined ? item.marks : (item.points || 1),
-          negativePoints: item.negativeMarks !== undefined ? item.negativeMarks : (item.negativePoints || 0.0),
-        },
-      })
-    );
-    return Promise.all(operations);
+    if (!Array.isArray(questionsData) || questionsData.length === 0) {
+      return [];
+    }
+
+    const records = questionsData
+      .map((item, idx) => ({
+        assessmentId,
+        questionId: typeof item === "object" ? item.questionId || item.id : item,
+        orderIndex: item.sequence !== undefined ? item.sequence : (item.orderIndex || idx),
+        points: item.marks !== undefined ? item.marks : (item.points || 1),
+        negativePoints: item.negativeMarks !== undefined ? item.negativeMarks : (item.negativePoints || 0.0),
+      }))
+      .filter((item) => Boolean(item.questionId));
+
+    if (records.length === 0) return [];
+
+    await db.assessmentQuestion.createMany({
+      data: records,
+      skipDuplicates: true,
+    });
+
+    return db.assessmentQuestion.findMany({
+      where: { assessmentId },
+    });
   }
 
   /**
@@ -481,62 +507,53 @@ class AssessmentRepository {
       return [];
     }
 
-    const cleanGameIds = gameIds.filter(Boolean);
+    const cleanGameIds = gameIds
+      .map((g) => (typeof g === "object" ? g.gameId || g.id : String(g)))
+      .filter(Boolean);
+
+    if (cleanGameIds.length === 0) return [];
+
+    const rawIdStrings = cleanGameIds.map((id) => String(id).trim());
+
+    const existingGames = await db.game.findMany({
+      where: {
+        OR: [
+          { id: { in: rawIdStrings } },
+          { code: { in: rawIdStrings.map((id) => id.toLowerCase()) } },
+          { code: { in: rawIdStrings.map((id) => id.toUpperCase()) } },
+        ],
+        deletedAt: null,
+      },
+    });
+
+    const gameMap = new Map();
+    existingGames.forEach((g) => {
+      gameMap.set(g.id, g.id);
+      gameMap.set(g.code, g.id);
+      gameMap.set(g.code.toLowerCase(), g.id);
+      gameMap.set(g.code.toUpperCase(), g.id);
+    });
+
     const records = [];
-
-    for (let idx = 0; idx < cleanGameIds.length; idx++) {
-      const rawId = String(cleanGameIds[idx]).trim();
-      let targetGameId = null;
-
-      const existingGame = await db.game.findFirst({
-        where: {
-          OR: [
-            { id: rawId },
-            { code: rawId },
-            { code: rawId.toLowerCase() },
-            { code: rawId.toUpperCase() },
-          ],
-          deletedAt: null,
-        },
-      });
-
-      if (existingGame) {
-        targetGameId = existingGame.id;
-      } else {
-        const code = rawId.toLowerCase();
-        const formattedName = code
-          .split(/[-_]/)
-          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(" ");
-
-        const createdGame = await db.game.upsert({
-          where: { code },
-          create: {
-            code,
-            name: formattedName,
-            description: `${formattedName} Cognitive Game`,
-            isActive: true,
-          },
-          update: {
-            isActive: true,
-          },
-        });
-        targetGameId = createdGame.id;
-      }
-
-      if (targetGameId) {
+    rawIdStrings.forEach((rawId, idx) => {
+      const targetId =
+        gameMap.get(rawId) ||
+        gameMap.get(rawId.toLowerCase()) ||
+        gameMap.get(rawId.toUpperCase());
+      if (targetId) {
         records.push({
           assessmentId,
-          gameId: targetGameId,
+          gameId: targetId,
           sequence: idx + 1,
           weight: 1.0,
         });
       }
-    }
+    });
 
     if (records.length > 0) {
       await db.assessmentGame.createMany({
         data: records,
+        skipDuplicates: true,
       });
     }
 

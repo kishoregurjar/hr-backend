@@ -44,6 +44,23 @@ class QuestionController {
     );
   });
 
+  bulkCreate = asyncHandler(async (req, res) => {
+    const questions = req.body.questions || req.body;
+    const userId = req.user?.id;
+    const companyId = await resolveCompanyId(req);
+
+    const result = await questionService.bulkCreateQuestions(questions, userId, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Bulk questions processed successfully.",
+        data: result.data,
+      },
+      StatusCodes.CREATED
+    );
+  });
+
   list = asyncHandler(async (req, res) => {
     const query = req.validatedData || req.query;
     const companyId = await resolveCompanyId(req);
