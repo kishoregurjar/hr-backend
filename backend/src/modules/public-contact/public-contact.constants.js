@@ -1,0 +1,20 @@
+"use strict";
+
+const PUBLIC_CONTACT_STATUS = {
+  OPEN: "OPEN",
+  IN_PROGRESS: "IN_PROGRESS",
+  RESOLVED: "RESOLVED",
+};
+
+const PUBLIC_CONTACT_LIMITS = {
+  FULL_NAME: { MIN: 2, MAX: 100 },
+  EMAIL: { MAX: 150 },
+  SUBJECT: { MIN: 3, MAX: 200 },
+  MESSAGE: { MIN: 10, MAX: 5000 },
+  ADMIN_REPLY: { MIN: 5, MAX: 5000 },
+};
+
+module.exports = {
+  PUBLIC_CONTACT_STATUS,
+  PUBLIC_CONTACT_LIMITS,
+};
