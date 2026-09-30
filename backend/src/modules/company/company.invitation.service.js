@@ -26,6 +26,7 @@ const { createEmailDelivery } = require("./company.email.repository");
 const auditService = require("./company.audit.service");
 const { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } = require("./company.audit.constants");
 const authRepository = require("../auth/auth.repository");
+const socketService = require("../../socket/socket.service");
 
 const {
   createCompanyInvitationSchema,
@@ -498,6 +499,13 @@ const acceptInvitation = async (
       tx
     );
 
+    try {
+      socketService.emitToCompany(invitation.companyId, "COMPANY_MEMBER_JOINED", {
+        companyId: invitation.companyId,
+        role: invitation.role,
+      });
+    } catch (_socketErr) {}
+
     return {
       alreadyMember: false,
       companyId: invitation.companyId,
@@ -827,6 +835,8 @@ const acceptAndRegisterInvitation = async (payload, auditContext = {}) => {
         },
         select: USER_SELECT,
       });
+    }
+
     if (!isNewUser && user.role !== "HR" && user.role !== "SUPER_ADMIN") {
       user = await tx.user.update({
         where: { id: user.id },
@@ -886,6 +896,13 @@ const acceptAndRegisterInvitation = async (payload, auditContext = {}) => {
       },
       tx
     );
+
+    try {
+      socketService.emitToCompany(invitation.companyId, "COMPANY_MEMBER_JOINED", {
+        companyId: invitation.companyId,
+        role: invitation.role,
+      });
+    } catch (_socketErr) {}
 
     // ── Step 6: Generate JWT tokens ──────────────────────────────────────────
     // user object has: { id, email, name, role, status }
