@@ -16,6 +16,8 @@ const companyInvitationRoutes = require("../modules/company/company.invitation.r
 const companyLogoRoutes = require("../modules/company/company.logo.routes");
 const dashboardRoutes = require("../modules/dashboard");
 const superAdminRoutes = require("../modules/super-admin");
+const { supportRoutes } = require("../modules/support");
+const { publicContactRoutes } = require("../modules/public-contact");
 
 const router = express.Router();
 
@@ -124,5 +126,15 @@ router.use("/company", companyLogoRoutes);
  * Super Admin Management Routes (/api/v1/super-admin)
  */
 router.use("/super-admin", superAdminRoutes);
+
+/**
+ * HR Support Request Routes (/api/v1/support)
+ */
+router.use("/support", supportRoutes);
+
+/**
+ * Public Contact Inquiry Routes (/api/v1/contact)
+ */
+router.use("/contact", publicContactRoutes);
 
 module.exports = router;
