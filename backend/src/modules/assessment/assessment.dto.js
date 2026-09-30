@@ -141,24 +141,31 @@ class AssessmentDto {
         ) ?? [],
 
       games:
-        assessment.games?.map((item) => ({
-          gameId: item.gameId,
-          orderIndex: item.sequence !== undefined ? item.sequence : item.orderIndex,
-          sequence: item.sequence !== undefined ? item.sequence : item.orderIndex,
-          weight: item.weight,
-          game: item.game
-            ? {
-              id: item.game.id,
-              code: item.game.code,
-              name: item.game.name,
-              slug: item.game.code,
-              title: item.game.name,
-              description: item.game.description,
-              category: "Cognitive",
-              isActive: item.game.isActive,
-            }
-            : null,
-        })) ?? [],
+        assessment.games?.map((item) => {
+          const gameDiff = item.game?.difficulty || item.difficulty || assessment.difficulty || "HARD";
+          const formattedDiff = String(gameDiff).charAt(0).toUpperCase() + String(gameDiff).slice(1).toLowerCase();
+
+          return {
+            gameId: item.gameId,
+            orderIndex: item.sequence !== undefined ? item.sequence : item.orderIndex,
+            sequence: item.sequence !== undefined ? item.sequence : item.orderIndex,
+            weight: item.weight,
+            difficulty: formattedDiff,
+            game: item.game
+              ? {
+                id: item.game.id,
+                code: item.game.code,
+                name: item.game.name,
+                slug: item.game.code,
+                title: item.game.name,
+                description: item.game.description,
+                category: "Cognitive",
+                difficulty: formattedDiff,
+                isActive: item.game.isActive,
+              }
+              : null,
+          };
+        }) ?? [],
 
       selectedGameIds:
         assessment.games?.map((item) => item.gameId).filter(Boolean) ?? [],
