@@ -574,6 +574,10 @@ class AttemptController {
       }
     }
 
+    if (invitation.assessment) {
+      await attemptService.enrichAssessmentWithCompanyGameConfig(invitation.assessment, company?.id);
+    }
+
     const companyName = company?.name || null;
     const companyLogo = company?.logoUrl || null;
 
