@@ -827,6 +827,8 @@ const acceptAndRegisterInvitation = async (payload, auditContext = {}) => {
         },
         select: USER_SELECT,
       });
+    }
+
     if (!isNewUser && user.role !== "HR" && user.role !== "SUPER_ADMIN") {
       user = await tx.user.update({
         where: { id: user.id },
