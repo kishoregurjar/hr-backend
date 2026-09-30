@@ -75,9 +75,15 @@ class AssessmentService {
       title: AssessmentMapper.normalizeTitle(data.title),
     };
 
+    const userCompanyMember = await prisma.companyMember.findFirst({
+      where: { userId: createdById },
+      select: { companyId: true },
+    });
+    const companyId = userCompanyMember?.companyId;
+
     const existingAssessment = await assessmentRepository.findByTitle(
       normalizedData.title,
-      { includeDeleted: false }
+      { includeDeleted: false, companyId }
     );
 
     if (existingAssessment) {
@@ -220,9 +226,15 @@ class AssessmentService {
       normalizedData.title !== undefined &&
       normalizedData.title.toLowerCase() !== existingAssessment.title.toLowerCase()
     ) {
+      const userCompanyMember = await prisma.companyMember.findFirst({
+        where: { userId: existingAssessment.createdById },
+        select: { companyId: true },
+      });
+      const companyId = userCompanyMember?.companyId;
+
       const duplicate = await assessmentRepository.findByTitle(
         normalizedData.title,
-        { includeDeleted: false }
+        { includeDeleted: false, companyId }
       );
 
       if (duplicate && duplicate.id !== assessmentId) {

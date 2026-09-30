@@ -213,8 +213,8 @@ class AttemptController {
     // We can emit to a general room for this assessment. Let's rely on the companyId 
     // associated with the assessment. We can fetch it if needed or if it's nested in attempt.
     // For now, let's assume attempt object has assessment with companyId.
-    const companyId = attempt?.assessment?.createdById 
-      ? attempt.assessment.companyId 
+    const companyId = attempt?.assessment?.createdById
+      ? attempt.assessment.companyId
       : null; // Fallback, we'll need to fetch properly if not present in the attempt object returned
 
     // If companyId is not in attempt, we can query it quickly or we can just pass it.
@@ -394,7 +394,7 @@ class AttemptController {
         incorrectCount: result.incorrectCount,
         unansweredCount: result.unansweredCount,
       };
-      
+
       // Emit real-time update to the company
       prisma.assessment.findUnique({
         where: { id: result.assessmentId || result.candidateAssessmentId || attemptId }, // Need to ensure assessmentId is available
@@ -556,7 +556,7 @@ class AttemptController {
    */
   verifyInvitation = asyncHandler(async (req, res) => {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
-    const invitation = await attemptService.findInvitationByRawToken(rawToken);
+    const invitation = await attemptService.findInvitationByRawToken(rawToken, undefined, { rejectUsed: false });
 
     // Resolve company from candidate OR assessment creator's companyMember
     let company =

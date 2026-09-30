@@ -48,17 +48,17 @@ class AssessmentDto {
 
     const options = Array.isArray(question?.options)
       ? question.options.map((option) => {
-          const val = option.optionText ?? option.text ?? option.content ?? option.label ?? "";
-          return {
-            id: option.id,
-            text: val,
-            optionText: val,
-            content: val,
-            label: val,
-            isCorrect: Boolean(option.isCorrect),
-            sequence: option.sequence ?? null,
-          };
-        })
+        const val = option.optionText ?? option.text ?? option.content ?? option.label ?? "";
+        return {
+          id: option.id,
+          text: val,
+          optionText: val,
+          content: val,
+          label: val,
+          isCorrect: Boolean(option.isCorrect),
+          sequence: option.sequence ?? null,
+        };
+      })
       : [];
 
     return {
@@ -84,22 +84,22 @@ class AssessmentDto {
 
       question: question
         ? {
-            id: question.id,
+          id: question.id,
 
-            title: question.title,
+          title: question.title,
 
-            content: question.content || question.description || "",
+          content: question.content || question.description || "",
 
-            description: question.content || question.description || "",
+          description: question.content || question.description || "",
 
-            type: question.type,
+          type: question.type,
 
-            difficulty: question.difficulty,
+          difficulty: question.difficulty,
 
-            status: question.status,
+          status: question.status,
 
-            options,
-          }
+          options,
+        }
         : null,
     };
   }
@@ -148,15 +148,15 @@ class AssessmentDto {
           weight: item.weight,
           game: item.game
             ? {
-                id: item.game.id,
-                code: item.game.code,
-                name: item.game.name,
-                slug: item.game.code,
-                title: item.game.name,
-                description: item.game.description,
-                category: "Cognitive",
-                isActive: item.game.isActive,
-              }
+              id: item.game.id,
+              code: item.game.code,
+              name: item.game.name,
+              slug: item.game.code,
+              title: item.game.name,
+              description: item.game.description,
+              category: "Cognitive",
+              isActive: item.game.isActive,
+            }
             : null,
         })) ?? [],
 
@@ -193,6 +193,12 @@ class AssessmentDto {
       type: assessment.type,
 
       status: assessment.status,
+
+      questions: assessment.questions || [],
+                                   
+      games: assessment.games || [],     
+                                      
+      selectedGameIds: assessment.games?.map(g => g.gameId) || [],
 
       startsAt: assessment.startsAt || null,
 

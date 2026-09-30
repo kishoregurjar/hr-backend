@@ -158,7 +158,7 @@ class AssessmentRepository {
    */
   async findByTitle(title, options = {}, tx) {
     const db = getClient(tx);
-    const { excludeId = undefined } = options;
+    const { excludeId = undefined, companyId = undefined } = options;
 
     const where = {
       title: {
@@ -170,6 +170,16 @@ class AssessmentRepository {
     if (excludeId) {
       where.id = {
         not: excludeId,
+      };
+    }
+
+    if (companyId) {
+      where.createdBy = {
+        companyMembers: {
+          some: {
+            companyId,
+          },
+        },
       };
     }
 
