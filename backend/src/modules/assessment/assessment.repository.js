@@ -20,10 +20,23 @@ const ASSESSMENT_LIST_SELECT = Object.freeze({
   createdAt: true,
   updatedAt: true,
   questions: {
-    select: { questionId: true },
+    select: {
+      questionId: true,
+      points: true,
+    },
   },
   games: {
-    select: { gameId: true },
+    select: {
+      gameId: true,
+      weight: true,
+      game: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
+    },
   },
 });
 

@@ -204,6 +204,32 @@ class AssessmentDto {
 
       endsAt: assessment.endsAt || null,
 
+      questions:
+        assessment.questions?.map((item) => ({
+          questionId: item.questionId || item.id,
+          points: item.points,
+        })) ?? [],
+
+      questionCount: assessment.questions?.length ?? 0,
+
+      games:
+        assessment.games?.map((item) => ({
+          gameId: item.gameId,
+          weight: item.weight,
+          game: item.game
+            ? {
+                id: item.game.id,
+                code: item.game.code,
+                name: item.game.name,
+              }
+            : null,
+        })) ?? [],
+
+      gameCount: assessment.games?.length ?? 0,
+
+      selectedGameIds:
+        assessment.games?.map((item) => item.gameId).filter(Boolean) ?? [],
+
       createdAt: assessment.createdAt,
 
       updatedAt: assessment.updatedAt,
