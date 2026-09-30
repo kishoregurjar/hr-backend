@@ -412,6 +412,14 @@ const acceptInvitation = async (
       );
     }
 
+    if (user.role !== "HR" && user.role !== "SUPER_ADMIN") {
+      await tx.user.update({
+        where: { id: user.id },
+        data: { role: "HR" },
+      });
+      user.role = "HR";
+    }
+
     const existingMember = await companyRepository.findMember(
       invitation.companyId,
       user.id,
@@ -817,6 +825,12 @@ const acceptAndRegisterInvitation = async (payload, auditContext = {}) => {
           status: "ACTIVE",
           role: "HR",
         },
+        select: USER_SELECT,
+      });
+    if (!isNewUser && user.role !== "HR" && user.role !== "SUPER_ADMIN") {
+      user = await tx.user.update({
+        where: { id: user.id },
+        data: { role: "HR" },
         select: USER_SELECT,
       });
     }

@@ -1,0 +1,51 @@
+"use strict";
+
+const SUPPORT_CONSTANTS = Object.freeze({
+  STATUS: {
+    OPEN: "OPEN",
+    IN_PROGRESS: "IN_PROGRESS",
+    RESOLVED: "RESOLVED",
+  },
+
+  SUBJECT: {
+    MIN_LENGTH: 3,
+    MAX_LENGTH: 200,
+  },
+
+  MESSAGE: {
+    MIN_LENGTH: 10,
+    MAX_LENGTH: 5000,
+  },
+
+  REPLY: {
+    MIN_LENGTH: 5,
+    MAX_LENGTH: 5000,
+  },
+
+  PAGINATION: {
+    DEFAULT_PAGE: 1,
+    DEFAULT_LIMIT: 20,
+    MAX_LIMIT: 100,
+  },
+
+  SORT_FIELDS: {
+    CREATED_AT: "createdAt",
+    UPDATED_AT: "updatedAt",
+    STATUS: "status",
+  },
+
+  SORT_ORDERS: {
+    ASC: "asc",
+    DESC: "desc",
+  },
+
+  ERROR_CODES: {
+    REQUEST_NOT_FOUND: "SUPPORT_REQUEST_NOT_FOUND",
+    ACCESS_DENIED: "SUPPORT_ACCESS_DENIED",
+    INVALID_STATUS_TRANSITION: "INVALID_STATUS_TRANSITION",
+    REPLY_REQUIRED: "REPLY_REQUIRED",
+    DUPLICATE_SUBMISSION: "DUPLICATE_SUBMISSION",
+  },
+});
+
+module.exports = { SUPPORT_CONSTANTS };

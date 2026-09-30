@@ -193,11 +193,35 @@ class AssessmentService {
     };
   }
 
+  async isUserInSameCompany(userId, targetUserId) {
+    if (!userId || !targetUserId) return false;
+    if (userId === targetUserId) return true;
+
+    const members = await prisma.companyMember.findMany({
+      where: { userId: { in: [userId, targetUserId] } },
+      select: { userId: true, companyId: true },
+    });
+
+    const userCompany = members.find((m) => m.userId === userId)?.companyId;
+    const targetCompany = members.find((m) => m.userId === targetUserId)?.companyId;
+
+    return Boolean(userCompany && targetCompany && userCompany === targetCompany);
+  }
+
   /**
-   * List Assessments (Paginated, Searchable, Sorted, Filtered & Ownership Scoped)
+   * List Assessments (Paginated, Searchable, Sorted, Filtered & Company Scoped)
    */
   async getAssessments(query = {}, user = {}) {
-    const createdById = user.role === "HR" ? user.id : query.createdById;
+    let companyId;
+    let createdById = query.createdById;
+
+    if (user?.id) {
+      const userMember = await prisma.companyMember.findFirst({
+        where: { userId: user.id },
+        select: { companyId: true },
+      });
+      companyId = userMember?.companyId;
+    }
 
     const result = await assessmentRepository.listPaginated({
       page: query.page,
@@ -208,7 +232,8 @@ class AssessmentService {
       difficulty: query.difficulty,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
-      createdById,
+      companyId,
+      createdById: companyId ? undefined : createdById,
     });
 
     return {
@@ -241,11 +266,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     const enrichedAssessment = await this._enrichWithCompanyGameConfig(assessment);
@@ -275,11 +303,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && existingAssessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to update this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, existingAssessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to update this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     if (existingAssessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -408,11 +439,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to delete this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to delete this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     if (
@@ -461,11 +495,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to restore this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to restore this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     const restoredAssessment = await runTransaction(async (tx) => {
@@ -494,11 +531,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to modify this assessment.",
-        ASSESSMENT_QUESTION_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to modify this assessment.",
+          ASSESSMENT_QUESTION_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -607,11 +647,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to modify this assessment.",
-        ASSESSMENT_QUESTION_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to modify this assessment.",
+          ASSESSMENT_QUESTION_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -941,11 +984,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to unpublish this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to unpublish this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     if (assessment.status !== ASSESSMENT_STATUS.PUBLISHED) {
@@ -1163,11 +1209,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to archive this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to archive this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -1224,11 +1273,14 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && sourceAssessment.createdById !== user.id) {
-      throw new ForbiddenError(
-        "You do not have access to duplicate this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
-      );
+    if (user?.role === "HR") {
+      const isAuthorized = await this.isUserInSameCompany(user.id, sourceAssessment.createdById);
+      if (!isAuthorized) {
+        throw new ForbiddenError(
+          "You do not have access to duplicate this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
     }
 
     if (sourceAssessment.deletedAt) {
