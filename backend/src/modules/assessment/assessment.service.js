@@ -32,6 +32,74 @@ const { QUESTION_STATUS } = require("../question/question.constants");
  */
 class AssessmentService {
   /**
+   * Enrich assessment games with company owner's configured difficulty level
+   */
+  async _enrichWithCompanyGameConfig(assessment) {
+    if (!assessment || !Array.isArray(assessment.games) || !prisma.companyGameConfig) {
+      return assessment;
+    }
+
+    try {
+      const member = await prisma.companyMember.findFirst({
+        where: { userId: assessment.createdById },
+        select: { companyId: true },
+      });
+
+      if (!member?.companyId) return assessment;
+
+      const configs = await prisma.companyGameConfig.findMany({
+        where: { companyId: member.companyId },
+        include: { game: true },
+      });
+
+      const configMap = new Map();
+      configs.forEach((c) => {
+        if (c.gameId) configMap.set(String(c.gameId).toLowerCase(), c);
+        if (c.game?.code) {
+          const codeStr = String(c.game.code).toLowerCase();
+          configMap.set(codeStr, c);
+          configMap.set(codeStr.replace(/_/g, "-"), c);
+          configMap.set(codeStr.replace(/-/g, "_"), c);
+        }
+        if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
+      });
+
+      assessment.games = assessment.games.map((ag) => {
+        const gameIdKey = String(ag.gameId || ag.game?.id || "").toLowerCase();
+        const gameCodeKey = String(ag.game?.code || "").toLowerCase();
+
+        const conf =
+          configMap.get(gameIdKey) ||
+          configMap.get(gameCodeKey) ||
+          configMap.get(gameCodeKey.replace(/_/g, "-")) ||
+          configMap.get(gameCodeKey.replace(/-/g, "_"));
+
+        if (conf?.difficulty) {
+          const diffFormatted =
+            conf.difficulty.charAt(0).toUpperCase() +
+            conf.difficulty.slice(1).toLowerCase();
+
+          return {
+            ...ag,
+            difficulty: diffFormatted,
+            game: ag.game
+              ? {
+                  ...ag.game,
+                  difficulty: diffFormatted,
+                }
+              : null,
+          };
+        }
+        return ag;
+      });
+    } catch (_err) {
+      // safe fallback
+    }
+
+    return assessment;
+  }
+
+  /**
    * Internal Helper to execute State-Machine transitions with Database Concurrency Protection
    */
   async executeTransition({ tx, currentStatus, targetStatus, assessmentId, data = {} }) {
@@ -117,9 +185,11 @@ class AssessmentService {
       return assessmentRepository.findById(created.id, { detailed: true }, tx);
     });
 
+    const enrichedAssessment = await this._enrichWithCompanyGameConfig(createdAssessment);
+
     return {
       message: ASSESSMENT_MESSAGES.CREATED,
-      data: AssessmentDto.toResponse(createdAssessment),
+      data: AssessmentDto.toResponse(enrichedAssessment),
     };
   }
 
@@ -206,9 +276,11 @@ class AssessmentService {
       }
     }
 
+    const enrichedAssessment = await this._enrichWithCompanyGameConfig(assessment);
+
     return {
       message: ASSESSMENT_MESSAGES.FETCHED,
-      data: AssessmentDto.toResponse(assessment),
+      data: AssessmentDto.toResponse(enrichedAssessment),
     };
   }
 
@@ -343,9 +415,11 @@ class AssessmentService {
       return assessmentRepository.findById(assessmentId, { detailed: true }, tx);
     });
 
+    const enrichedAssessment = await this._enrichWithCompanyGameConfig(updatedAssessment);
+
     return {
       message: ASSESSMENT_MESSAGES.UPDATED || "Assessment updated successfully.",
-      data: AssessmentDto.toResponse(updatedAssessment),
+      data: AssessmentDto.toResponse(enrichedAssessment),
     };
   }
 

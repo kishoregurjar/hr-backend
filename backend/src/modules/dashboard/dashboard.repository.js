@@ -7,11 +7,17 @@ const { prisma } = require("../../config/prisma");
  */
 async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
   // 1. Fetch assessments created by the user first to obtain valid assessment IDs
-  const userAssessments = userId
+  const userAssessments = companyId
     ? await db.assessment.findMany({
-        where: { createdById: userId },
-        select: { id: true, status: true },
-      })
+      where: {
+        createdBy: {
+          companyMembers: {
+            some: { companyId },
+          },
+        },
+      },
+      select: { id: true, status: true },
+    })
     : [];
 
   const assessmentIds = userAssessments.map((a) => a.id);
@@ -23,14 +29,14 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
   // 2. Fetch user's connected mailbox to scope email parsed resumes
   const userMailbox = userId
     ? await db.userMailbox.findUnique({
-        where: { userId },
-        select: {
-          email: true,
-          isSyncActive: true,
-          lastSyncedAt: true,
-          lastError: true,
-        },
-      })
+      where: { userId },
+      select: {
+        email: true,
+        isSyncActive: true,
+        lastSyncedAt: true,
+        lastError: true,
+      },
+    })
     : null;
 
   // 3. Parallel query execution with 100% valid Prisma where clauses
@@ -51,82 +57,82 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
     // Parsed Resumes Count (Scoped to user's connected mailbox)
     userMailbox?.email
       ? db.inboundEmailEvent.count({
-          where: {
-            recipientEmail: userMailbox.email,
-            status: "COMPLETED",
-          },
-        })
+        where: {
+          recipientEmail: userMailbox.email,
+          status: "COMPLETED",
+        },
+      })
       : 0,
 
     // Total Assessment Invitations
     assessmentIds.length > 0
       ? db.invitation.count({
-          where: { assessmentId: { in: assessmentIds } },
-        })
+        where: { assessmentId: { in: assessmentIds } },
+      })
       : 0,
 
     // Pending Invitations
     assessmentIds.length > 0
       ? db.invitation.count({
-          where: {
-            assessmentId: { in: assessmentIds },
-            status: "PENDING",
-          },
-        })
+        where: {
+          assessmentId: { in: assessmentIds },
+          status: "PENDING",
+        },
+      })
       : 0,
 
     // Completed Invitations (Valid InvitationStatus enum: COMPLETED)
     assessmentIds.length > 0
       ? db.invitation.count({
-          where: {
-            assessmentId: { in: assessmentIds },
-            status: "COMPLETED",
-          },
-        })
+        where: {
+          assessmentId: { in: assessmentIds },
+          status: "COMPLETED",
+        },
+      })
       : 0,
 
     // Total Attempts
     assessmentIds.length > 0
       ? db.candidateAttempt.count({
-          where: { assessmentId: { in: assessmentIds } },
-        })
+        where: { assessmentId: { in: assessmentIds } },
+      })
       : 0,
 
     // In Progress Attempts (Valid CandidateAssessmentStatus enum: IN_PROGRESS)
     assessmentIds.length > 0
       ? db.candidateAttempt.count({
-          where: {
-            assessmentId: { in: assessmentIds },
-            status: "IN_PROGRESS",
-          },
-        })
+        where: {
+          assessmentId: { in: assessmentIds },
+          status: "IN_PROGRESS",
+        },
+      })
       : 0,
 
     // Submitted Attempts (Valid CandidateAssessmentStatus enum: SUBMITTED)
     assessmentIds.length > 0
       ? db.candidateAttempt.count({
-          where: {
-            assessmentId: { in: assessmentIds },
-            status: "SUBMITTED",
-          },
-        })
+        where: {
+          assessmentId: { in: assessmentIds },
+          status: "SUBMITTED",
+        },
+      })
       : 0,
 
     // Recent Candidates (Strictly filtered by companyId)
     companyId
       ? db.candidateProfile.findMany({
-          where: { companyId },
-          take: 5,
-          orderBy: { createdAt: "desc" },
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phoneNumber: true,
-            createdAt: true,
-          },
-        })
+        where: { companyId },
+        take: 5,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phoneNumber: true,
+          createdAt: true,
+        },
+      })
       : [],
   ]);
 
