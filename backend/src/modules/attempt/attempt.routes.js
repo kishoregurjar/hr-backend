@@ -335,4 +335,16 @@ router.get(
   attemptController.getHRAttemptDetail
 );
 
+/**
+ * Send Interview Invitation Emails to Qualified Candidates (HR / Super Admin)
+ * POST /api/v1/results/send-interview-invite or /api/v1/attempts/send-interview-invite
+ */
+router.post(
+  ["/send-interview-invite", "/results/send-interview-invite"],
+  adminRateLimiter,
+  requireAuth,
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  attemptController.sendInterviewInvite
+);
+
 module.exports = router;

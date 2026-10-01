@@ -332,14 +332,16 @@ class AttemptService {
     const now = new Date();
 
     if (requestedExpiresAt) {
-      if (!(requestedExpiresAt instanceof Date) || isNaN(requestedExpiresAt.getTime())) {
+      const expiryDate = requestedExpiresAt instanceof Date ? requestedExpiresAt : new Date(requestedExpiresAt);
+
+      if (isNaN(expiryDate.getTime())) {
         throw new BadRequestError(
           "Invalid invitation expiry date.",
           ATTEMPT_ERRORS.INVALID_EXPIRY
         );
       }
 
-      if (requestedExpiresAt <= now) {
+      if (expiryDate <= now) {
         throw new BadRequestError(
           "Invitation expiry must be in the future.",
           ATTEMPT_ERRORS.INVALID_EXPIRY
@@ -350,14 +352,14 @@ class AttemptService {
         now.getTime() + INVITATION_MAX_EXPIRY_HOURS * 60 * 60 * 1000
       );
 
-      if (requestedExpiresAt > maximumExpiry) {
+      if (expiryDate > maximumExpiry) {
         throw new BadRequestError(
           `Invitation expiry cannot exceed ${INVITATION_MAX_EXPIRY_HOURS} hours.`,
           ATTEMPT_ERRORS.INVALID_EXPIRY
         );
       }
 
-      return requestedExpiresAt;
+      return expiryDate;
     }
 
     return new Date(
@@ -1019,6 +1021,9 @@ class AttemptService {
   getAssessmentQuestions(assessment) {
     const questions = assessment.questions || [];
     if (!Array.isArray(questions) || questions.length === 0) {
+      if (Array.isArray(assessment?.games) && assessment.games.length > 0) {
+        return [];
+      }
       throw new ConflictError(
         "Assessment does not contain any assigned questions.",
         ATTEMPT_ERRORS.INVALID_REQUEST
@@ -1203,7 +1208,7 @@ class AttemptService {
     const normalizedToken = typeof token === "string" && token.trim() ? token.trim() : null;
     const tokenHash = normalizedToken ? attemptMapper.hashInvitationToken(normalizedToken) : null;
 
-    return runTransaction(async (tx) => {
+    const startedAttempt = await runTransaction(async (tx) => {
       const now = new Date();
 
       // 1. Find invitation using candidateSession or tokenHash
@@ -1423,6 +1428,12 @@ class AttemptService {
 
       return createdAttempt;
     });
+
+    if (startedAttempt?.assessment) {
+      await this.enrichAssessmentWithCompanyGameConfig(startedAttempt.assessment);
+    }
+
+    return startedAttempt;
   }
 
   /**
@@ -4038,6 +4049,237 @@ class AttemptService {
         timeout: 10000,
       }
     );
+  }
+
+  /**
+   * ------------------------------------------------------------
+   * Send Interview Invitation Emails to Qualified Candidates
+   * ------------------------------------------------------------
+   */
+  async sendInterviewInvitation({
+    candidates = [],
+    roundName = "Technical Interview - Round 2",
+    scheduledAt = null,
+    meetingLink = "",
+    customMessage = "",
+    companyName: requestedCompanyName = null,
+    hrUser = null,
+  }) {
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      throw new BadRequestError("At least one candidate must be selected for interview invitation.");
+    }
+
+    if (!scheduledAt) {
+      throw new BadRequestError("Interview schedule date and time is required.");
+    }
+
+    const scheduleDateObj = new Date(scheduledAt);
+    if (isNaN(scheduleDateObj.getTime())) {
+      throw new BadRequestError("Invalid interview schedule date format.");
+    }
+
+    // Dynamically resolve the company name for the sending HR
+    let companyName = requestedCompanyName;
+    if (!companyName && hrUser?.id) {
+      const member = await prisma.companyMember.findFirst({
+        where: { userId: hrUser.id },
+        include: { company: true },
+      });
+      if (member?.company?.name) {
+        companyName = member.company.name;
+      }
+    }
+
+    // Secondary fallback: lookup assessment creator company
+    if (!companyName && candidates?.[0]?.assessmentTitle) {
+      const sampleAssessment = await prisma.assessment.findFirst({
+        where: { title: candidates[0].assessmentTitle },
+        include: {
+          createdBy: {
+            include: {
+              companyMembers: {
+                include: { company: true },
+              },
+            },
+          },
+        },
+      });
+      companyName = sampleAssessment?.createdBy?.companyMembers?.[0]?.company?.name || null;
+    }
+
+    if (!companyName) {
+      companyName = "Hiring Team";
+    }
+
+    const formattedDate = scheduleDateObj.toLocaleString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const sentResults = [];
+
+    for (const cand of candidates) {
+      const recipientEmail = cand.email || cand.candidateEmail;
+      const candidateName = cand.candidateName || cand.name || "Candidate";
+      const score = cand.percentage || cand.score || 0;
+      const assessmentTitle = cand.assessmentTitle || "Cognitive & Technical Assessment";
+
+      if (!recipientEmail || typeof recipientEmail !== "string") {
+        continue;
+      }
+
+      const subject = `Congratulations! Invitation for ${roundName} | ${companyName}`;
+
+      const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 24px; }
+    .card { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    .header { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 32px 28px; text-align: center; color: #ffffff; }
+    .header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; color: #ffffff; }
+    .header p { margin: 0; font-size: 13px; font-weight: 700; color: #93c5fd; letter-spacing: 0.5px; text-transform: uppercase; }
+    .badge { display: inline-block; padding: 6px 14px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #10b981; border-radius: 9999px; font-size: 12px; font-weight: 700; margin-top: 12px; }
+    .content { padding: 32px 28px; font-size: 14px; line-height: 1.6; color: #334155; }
+    .highlight-box { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px 20px; margin: 20px 0; }
+    .btn { display: inline-block; padding: 12px 28px; background: #2563eb; color: #ffffff !important; border-radius: 10px; font-weight: 700; text-decoration: none; font-size: 14px; margin: 18px 0; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); text-align: center; }
+    .footer { padding: 20px 28px; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>${companyName}</h1>
+      <p>Next Round Interview Invitation</p>
+      <div class="badge">Assessment Cleared: ${score}% Score</div>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${candidateName}</strong>,</p>
+      <p>Congratulations! We are delighted to inform you that you have successfully cleared <strong>${assessmentTitle}</strong> with an outstanding score of <strong>${score}%</strong>.</p>
+      <p>Based on your excellent performance, you have been shortlisted for the next stage at <strong>${companyName}</strong>: <strong>${roundName}</strong>.</p>
+      
+      <div class="highlight-box">
+        <p style="margin: 0 0 10px; font-weight: 800; color: #0f172a; font-size: 14px;">📅 Interview Schedule Details:</p>
+        <p style="margin: 4px 0;"><strong>Company:</strong> ${companyName}</p>
+        <p style="margin: 4px 0;"><strong>Round:</strong> ${roundName}</p>
+        <p style="margin: 4px 0;"><strong>Date & Time:</strong> ${formattedDate}</p>
+        ${meetingLink ? `<p style="margin: 4px 0;"><strong>Platform / Link:</strong> <a href="${meetingLink}" target="_blank" style="color: #2563eb; font-weight: 700;">Join Meeting</a></p>` : ""}
+      </div>
+
+      ${customMessage ? `<p style="background: #fdf4ff; border-left: 3px solid #c084fc; padding: 12px 16px; border-radius: 6px; font-size: 13px; color: #581c87;"><strong>Message from ${companyName} Hiring Team:</strong><br>${customMessage}</p>` : ""}
+
+      ${meetingLink ? `
+      <div style="text-align: center;">
+        <a href="${meetingLink}" class="btn" target="_blank">Join Interview Meeting</a>
+      </div>` : ""}
+
+      <p style="margin-top: 24px;">Please reply directly to this email to confirm your availability. If you require any rescheduling, kindly let us know at your earliest convenience.</p>
+
+      <p style="margin-top: 24px; color: #64748b;">
+        Best regards,<br>
+        <strong>${hrUser?.name || "Recruitment Team"}</strong><br>
+        <strong>${companyName}</strong>
+      </p>
+    </div>
+    <div class="footer">
+      This is an automated recruitment notification sent on behalf of ${companyName}.
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const text = `Congratulations ${candidateName}!\n\nYou have successfully cleared ${assessmentTitle} at ${companyName} with a score of ${score}%.\n\nYou are invited for ${roundName}.\nCompany: ${companyName}\nScheduled Date: ${formattedDate}\nMeeting Link: ${meetingLink || "Will be shared shortly"}\n\n${customMessage}\n\nBest regards,\n${companyName} Recruitment Team`;
+
+      try {
+        await sendEmail({
+          to: recipientEmail,
+          subject,
+          text,
+          html,
+        });
+
+        // Persist interview details in CandidateProfile metadata (Option 1)
+        try {
+          const profile = await prisma.candidateProfile.findFirst({
+            where: { email: recipientEmail },
+          });
+
+          if (profile) {
+            const existingMeta =
+              profile.metadata && typeof profile.metadata === "object" ? profile.metadata : {};
+            const existingInterviews = Array.isArray(existingMeta.interviews)
+              ? existingMeta.interviews
+              : [];
+            const interviewsByAssessment =
+              existingMeta.interviewsByAssessment && typeof existingMeta.interviewsByAssessment === "object"
+                ? { ...existingMeta.interviewsByAssessment }
+                : {};
+
+            const interviewRecord = {
+              companyName,
+              roundName,
+              scheduledAt: scheduleDateObj.toISOString(),
+              formattedDate,
+              meetingLink: meetingLink || null,
+              customMessage: customMessage || null,
+              invitedAt: new Date().toISOString(),
+              invitedBy: hrUser?.name || hrUser?.email || `${companyName} HR`,
+              status: "INVITED",
+              assessmentTitle,
+            };
+
+            if (assessmentTitle) {
+              interviewsByAssessment[assessmentTitle.trim().toLowerCase()] = interviewRecord;
+              interviewsByAssessment[assessmentTitle.trim()] = interviewRecord;
+            }
+
+            await prisma.candidateProfile.update({
+              where: { id: profile.id },
+              data: {
+                metadata: {
+                  ...existingMeta,
+                  latestInterview: interviewRecord,
+                  interviewsByAssessment,
+                  interviews: [interviewRecord, ...existingInterviews],
+                },
+              },
+            });
+          }
+        } catch (dbErr) {
+          console.warn("Notice: could not persist candidate interview metadata:", dbErr?.message);
+        }
+
+        sentResults.push({
+          email: recipientEmail,
+          name: candidateName,
+          status: "SENT",
+        });
+      } catch (err) {
+        sentResults.push({
+          email: recipientEmail,
+          name: candidateName,
+          status: "FAILED",
+          error: err.message,
+        });
+      }
+    }
+
+    try {
+      hrResultsCache.clear();
+    } catch {}
+
+    return {
+      success: true,
+      count: sentResults.filter((r) => r.status === "SENT").length,
+      total: candidates.length,
+      results: sentResults,
+    };
   }
 }
 
