@@ -55,7 +55,7 @@ const toAssessmentSummary = (assessment) => {
     games: Array.isArray(assessment.games)
       ? assessment.games.map((ag) => {
           const g = ag.game || ag;
-          const diff = ag.difficulty || g.difficulty || assessment.difficulty || "MEDIUM";
+          const diff = ag.config?.difficulty || g.config?.difficulty || ag.difficulty || g.difficulty || assessment.difficulty || "MEDIUM";
           return {
             id: g.id || ag.gameId,
             gameId: g.id || ag.gameId,
@@ -501,7 +501,7 @@ const toCandidateCurrentAttemptResponse = (attempt, serverTime = new Date().toIS
           games: Array.isArray(attempt.assessment.games)
             ? attempt.assessment.games.map((ag) => {
                 const g = ag.game || ag;
-                const diff = ag.difficulty || g.difficulty || attempt.assessment.difficulty || "MEDIUM";
+                const diff = ag.config?.difficulty || g.config?.difficulty || ag.difficulty || g.difficulty || attempt.assessment.difficulty || "MEDIUM";
                 return {
                   id: g.id || ag.gameId,
                   gameId: g.id || ag.gameId,
