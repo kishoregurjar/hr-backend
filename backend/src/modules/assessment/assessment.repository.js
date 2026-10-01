@@ -29,6 +29,7 @@ const ASSESSMENT_LIST_SELECT = Object.freeze({
     select: {
       gameId: true,
       weight: true,
+      config: true,
       game: {
         select: {
           id: true,
@@ -105,6 +106,7 @@ const ASSESSMENT_DETAIL_SELECT = Object.freeze({
       gameId: true,
       sequence: true,
       weight: true,
+      config: true,
       game: {
         select: {
           id: true,
@@ -507,13 +509,11 @@ class AssessmentRepository {
       return [];
     }
 
-    const cleanGameIds = gameIds
-      .map((g) => (typeof g === "object" ? g.gameId || g.id : String(g)))
-      .filter(Boolean);
+    const cleanGameIds = gameIds.filter(Boolean);
 
     if (cleanGameIds.length === 0) return [];
 
-    const rawIdStrings = cleanGameIds.map((id) => String(id).trim());
+    const rawIdStrings = cleanGameIds.map((g) => (typeof g === "object" ? String(g.gameId || g.id || "").trim() : String(g).trim()));
 
     const existingGames = await db.game.findMany({
       where: {
@@ -535,7 +535,9 @@ class AssessmentRepository {
     });
 
     const records = [];
-    rawIdStrings.forEach((rawId, idx) => {
+    cleanGameIds.forEach((input, idx) => {
+      const rawId = typeof input === "object" ? String(input.id || input.gameId || "").trim() : String(input).trim();
+      const config = typeof input === "object" ? input.config : null;
       const targetId =
         gameMap.get(rawId) ||
         gameMap.get(rawId.toLowerCase()) ||
@@ -546,6 +548,7 @@ class AssessmentRepository {
           gameId: targetId,
           sequence: idx + 1,
           weight: 1.0,
+          config: config || null,
         });
       }
     });
