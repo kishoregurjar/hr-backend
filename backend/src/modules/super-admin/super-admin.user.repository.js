@@ -91,6 +91,24 @@ const findUserByEmail = async (email, tx = prisma) => {
 };
 
 /**
+ * Create a new user
+ */
+const createUser = async (data, tx = prisma) => {
+  return tx.user.create({
+    data,
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+};
+
+/**
  * Update user role
  */
 const updateUserRole = async (userId, role, tx = prisma) => {
@@ -130,6 +148,7 @@ module.exports = {
   findUsers,
   findUserById,
   findUserByEmail,
+  createUser,
   updateUserRole,
   updateUserStatus,
 };
