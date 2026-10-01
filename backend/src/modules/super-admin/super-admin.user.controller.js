@@ -9,6 +9,7 @@ const {
   userIdParamSchema,
 } = require("./super-admin.user.validator");
 const superAdminUserService = require("./super-admin.user.service");
+const auditService = require("../company/company.audit.service");
 
 class SuperAdminUserController {
   listUsers = asyncHandler(async (req, res) => {
@@ -27,7 +28,13 @@ class SuperAdminUserController {
 
   invitePlatformAdmin = asyncHandler(async (req, res) => {
     const validatedData = invitePlatformAdminSchema.parse(req.body);
-    const user = await superAdminUserService.invitePlatformAdmin(validatedData);
+    const auditContext = auditService.createRequestAuditContext(req);
+    const actorUserId = req.user?.id || null;
+    const user = await superAdminUserService.invitePlatformAdmin(
+      validatedData,
+      auditContext,
+      actorUserId
+    );
 
     return SuccessResponse.send(
       res,
@@ -41,7 +48,13 @@ class SuperAdminUserController {
 
   resendPlatformAdminInvitation = asyncHandler(async (req, res) => {
     const { userId } = userIdParamSchema.parse(req.params);
-    const user = await superAdminUserService.resendPlatformAdminInvitation(userId);
+    const auditContext = auditService.createRequestAuditContext(req);
+    const actorUserId = req.user?.id || null;
+    const user = await superAdminUserService.resendPlatformAdminInvitation(
+      userId,
+      auditContext,
+      actorUserId
+    );
 
     return SuccessResponse.send(
       res,

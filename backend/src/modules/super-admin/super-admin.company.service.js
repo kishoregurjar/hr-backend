@@ -6,6 +6,8 @@ const superAdminCompanyRepository = require("./super-admin.company.repository");
 const { SUPER_ADMIN_COMPANY_CONSTANTS } = require("./super-admin.company.constants");
 const ownerActivationService = require("./super-admin.owner-activation.service");
 const { createOutboxEvent } = require("../company/company.outbox.repository");
+const auditService = require("../company/company.audit.service");
+const { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } = require("../company/company.audit.constants");
 
 const generateSlugBase = (name) => {
   const slug = name
@@ -33,18 +35,22 @@ const generateUniqueSlug = async (name, tx) => {
   return `${baseSlug}-${crypto.randomBytes(4).toString("hex")}`;
 };
 
-const createCompanyWithOwner = async ({
-  companyName,
-  ownerName,
-  ownerEmail,
-  website,
-  industry,
-  description,
-  phone,
-  address,
-  city,
-  country,
-}) => {
+const createCompanyWithOwner = async (
+  {
+    companyName,
+    ownerName,
+    ownerEmail,
+    website,
+    industry,
+    description,
+    phone,
+    address,
+    city,
+    country,
+  },
+  auditContext = {},
+  actorUserId = null
+) => {
   try {
     return await prisma.$transaction(
       async (tx) => {
@@ -132,6 +138,24 @@ const createCompanyWithOwner = async ({
               emailDeliveryId: emailDelivery.id,
               activationId: activation.id,
             },
+          },
+          tx
+        );
+
+        await auditService.createAuditLog(
+          {
+            companyId: company.id,
+            actorUserId,
+            action: AUDIT_ACTIONS.COMPANY_CREATED,
+            entityType: AUDIT_ENTITY_TYPES.COMPANY,
+            entityId: company.id,
+            metadata: {
+              companyName: company.name,
+              companySlug: company.slug,
+              ownerEmail,
+              ownerName,
+            },
+            ...auditContext,
           },
           tx
         );
@@ -237,7 +261,12 @@ const getCompany = async (companyId) => {
   return mapCompanyDetail(company);
 };
 
-const updateCompanyStatus = async (companyId, status) => {
+const updateCompanyStatus = async (
+  companyId,
+  status,
+  auditContext = {},
+  actorUserId = null
+) => {
   const company = await superAdminCompanyRepository.findCompanyById(companyId);
 
   if (!company) {
@@ -261,10 +290,24 @@ const updateCompanyStatus = async (companyId, status) => {
     throw error;
   }
 
+  const previousStatus = company.status;
   const updatedCompany = await superAdminCompanyRepository.updateCompanyStatus(
     companyId,
     status
   );
+
+  await auditService.createAuditLog({
+    companyId,
+    actorUserId,
+    action: AUDIT_ACTIONS.COMPANY_STATUS_UPDATED,
+    entityType: AUDIT_ENTITY_TYPES.COMPANY,
+    entityId: companyId,
+    metadata: {
+      previousStatus,
+      newStatus: status,
+    },
+    ...auditContext,
+  });
 
   return mapCompanyStatus(updatedCompany);
 };
