@@ -1718,11 +1718,10 @@ class AttemptService {
       };
     }
 
-    throw new AppError({
-      message: "Unsupported question type encountered during evaluation.",
-      statusCode: 500,
-      errorCode: ATTEMPT_SUBMIT_ERROR_CODES.EVALUATION_FAILED,
-    });
+    throw new AppError(
+      "Unsupported question type encountered during evaluation.",
+      { statusCode: 500, code: ATTEMPT_SUBMIT_ERROR_CODES.EVALUATION_FAILED }
+    );
   }
 
   /**
@@ -2598,11 +2597,10 @@ class AttemptService {
       const elapsedSeconds = Math.floor((now.getTime() - recentOtp.createdAt.getTime()) / 1000);
       const remainingSeconds = Math.max(0, OTP_CONFIG.RESEND_COOLDOWN_SECONDS - elapsedSeconds);
 
-      const error = new AppError({
-        message: "Please wait before requesting another OTP.",
-        statusCode: 429,
-        errorCode: OTP_ERROR_CODES.OTP_COOLDOWN,
-      });
+      const error = new AppError(
+        "Please wait before requesting another OTP.",
+        { statusCode: 429, code: OTP_ERROR_CODES.OTP_COOLDOWN }
+      );
       error.retryAfterSeconds = remainingSeconds;
       throw error;
     }
@@ -2620,11 +2618,10 @@ class AttemptService {
     );
 
     if (hourlyCount >= OTP_CONFIG.MAX_REQUESTS_PER_HOUR) {
-      throw new AppError({
-        message: "Too many OTP requests. Please try again later.",
-        statusCode: 429,
-        errorCode: OTP_ERROR_CODES.OTP_RATE_LIMITED,
-      });
+      throw new AppError(
+        "Too many OTP requests. Please try again later.",
+        { statusCode: 429, code: OTP_ERROR_CODES.OTP_RATE_LIMITED }
+      );
     }
 
     // 4. Generate cryptographically secure OTP & hash
@@ -2662,11 +2659,10 @@ class AttemptService {
         });
       }
     } catch (err) {
-      const error = new AppError({
-        message: "OTP email delivery failed.",
-        statusCode: 502,
-        errorCode: "OTP_EMAIL_DELIVERY_FAILED",
-      });
+      const error = new AppError(
+        "OTP email delivery failed.",
+        { statusCode: 502, code: "OTP_EMAIL_DELIVERY_FAILED" }
+      );
       error.cause = err;
       throw error;
     }
@@ -2746,11 +2742,10 @@ class AttemptService {
     // 4. Maximum attempt protection check
     if (hasExceededOtpAttempts(otpRecord.attemptsCount, otpRecord.maxAttempts)) {
       await attemptRepository.invalidateCandidateOtp({ id: otpRecord.id, now }, tx);
-      throw new AppError({
-        message: "Maximum invalid attempts exceeded.",
-        statusCode: 429,
-        errorCode: OTP_ERROR_CODES.OTP_MAX_ATTEMPTS,
-      });
+      throw new AppError(
+        "Maximum invalid attempts exceeded.",
+        { statusCode: 429, code: OTP_ERROR_CODES.OTP_MAX_ATTEMPTS }
+      );
     }
 
     // 5. Constant-time hash comparison
@@ -2780,11 +2775,10 @@ class AttemptService {
           OTP_ERROR_CODES.INVALID_OTP
         );
       } else {
-        throw new AppError({
-          message: "Maximum invalid attempts exceeded.",
-          statusCode: 429,
-          errorCode: OTP_ERROR_CODES.OTP_MAX_ATTEMPTS,
-        });
+        throw new AppError(
+          "Maximum invalid attempts exceeded.",
+          { statusCode: 429, code: OTP_ERROR_CODES.OTP_MAX_ATTEMPTS }
+        );
       }
     }
 
