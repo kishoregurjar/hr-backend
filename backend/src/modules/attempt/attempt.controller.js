@@ -180,7 +180,7 @@ class AttemptController {
       candidateIds,
       candidates,
       invitedByUserId,
-      expiresAt,
+      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
     });
 
     const response = toBulkInvitationResponse(result);
@@ -735,6 +735,34 @@ class AttemptController {
       {
         message: "Assessment attempt detail retrieved successfully.",
         data: toHRAttemptDetailResponse(attempt),
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Send Interview Invitations to Qualified Candidates
+   * POST /api/v1/results/send-interview-invite
+   */
+  sendInterviewInvite = asyncHandler(async (req, res) => {
+    const hrUser = req.user;
+    const { candidates, roundName, scheduledAt, meetingLink, customMessage, companyName } = req.body || {};
+
+    const result = await attemptService.sendInterviewInvitation({
+      candidates,
+      roundName,
+      scheduledAt,
+      meetingLink,
+      customMessage,
+      companyName,
+      hrUser,
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: `Interview invitation emails dispatched to ${result.count} candidate(s).`,
+        data: result,
       },
       StatusCodes.OK
     );

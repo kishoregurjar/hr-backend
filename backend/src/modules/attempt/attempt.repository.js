@@ -26,7 +26,6 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
       durationMinutes: true,
       passingScore: true,
       maximumScore: true,
-      difficulty: true,
       games: {
         orderBy: { sequence: "asc" },
         include: {
@@ -222,7 +221,6 @@ class AttemptRepository {
             description: true,
             durationMinutes: true,
             passingScore: true,
-            difficulty: true,
             startsAt: true,
             endsAt: true,
             games: {
@@ -1456,9 +1454,7 @@ class AttemptRepository {
         durationMinutes: true,
         passingScore: true,
         maximumScore: true,
-        maxAttempts: true,
         type: true,
-        difficulty: true,
         status: true,
         startsAt: true,
         endsAt: true,
@@ -1727,7 +1723,6 @@ class AttemptRepository {
             maximumScore: true,
             durationMinutes: true,
             type: true,
-            difficulty: true,
           },
         },
 
@@ -2287,6 +2282,7 @@ class AttemptRepository {
             firstName: true,
             lastName: true,
             email: true,
+            metadata: true,
           },
         },
         assessment: {

@@ -824,6 +824,40 @@ const toHrAttemptResultResponse = (attempt) => {
 const toHRAttemptListResponse = (attempt) => {
   if (!attempt) return null;
   const candidate = attempt.candidate || attempt.candidateAssessment?.candidate;
+
+  // Resolve assessment-specific interview invitation
+  let specificInterview = null;
+  const meta = candidate?.metadata;
+  const assessmentTitle = attempt.assessment?.title;
+  const isPassed =
+    attempt.result === "PASS" ||
+    (typeof attempt.percentage === "number" && attempt.percentage >= 60);
+
+  // An interview invite should ONLY be attached if the candidate passed this specific assessment
+  if (isPassed && meta && typeof meta === "object" && assessmentTitle) {
+    const normTitle = assessmentTitle.trim().toLowerCase();
+    if (meta.interviewsByAssessment && typeof meta.interviewsByAssessment === "object") {
+      specificInterview =
+        meta.interviewsByAssessment[normTitle] ||
+        meta.interviewsByAssessment[assessmentTitle.trim()] ||
+        null;
+    }
+    if (!specificInterview && Array.isArray(meta.interviews)) {
+      specificInterview =
+        meta.interviews.find((inv) => {
+          if (!inv?.assessmentTitle) return false;
+          const invTitle = inv.assessmentTitle.trim().toLowerCase();
+          return invTitle === normTitle || normTitle.includes(invTitle) || invTitle.includes(normTitle);
+        }) || null;
+    }
+    if (!specificInterview && meta.latestInterview?.assessmentTitle) {
+      const invTitle = meta.latestInterview.assessmentTitle.trim().toLowerCase();
+      if (invTitle === normTitle || normTitle.includes(invTitle) || invTitle.includes(normTitle)) {
+        specificInterview = meta.latestInterview;
+      }
+    }
+  }
+
   return {
     id: attempt.id,
     attemptNumber: attempt.attemptNumber,
@@ -845,8 +879,10 @@ const toHRAttemptListResponse = (attempt) => {
           firstName: candidate.firstName ?? null,
           lastName: candidate.lastName ?? null,
           email: candidate.email ?? null,
+          metadata: candidate.metadata ?? null,
         }
       : null,
+    interview: specificInterview,
     assessment: attempt.assessment
       ? {
           id: attempt.assessment.id,

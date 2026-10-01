@@ -28,7 +28,6 @@ const listUsersSchema = z.object({
     .enum([
       SUPER_ADMIN_USER_CONSTANTS.ROLES.SUPER_ADMIN,
       SUPER_ADMIN_USER_CONSTANTS.ROLES.HR,
-      SUPER_ADMIN_USER_CONSTANTS.ROLES.CANDIDATE,
     ])
     .optional(),
 
@@ -60,6 +59,21 @@ const listUsersSchema = z.object({
     .default(SUPER_ADMIN_USER_CONSTANTS.SORT_ORDERS.DESC),
 });
 
+const invitePlatformAdminSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(SUPER_ADMIN_USER_CONSTANTS.NAME.MIN_LENGTH)
+    .max(SUPER_ADMIN_USER_CONSTANTS.NAME.MAX_LENGTH),
+
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(SUPER_ADMIN_USER_CONSTANTS.EMAIL.MAX_LENGTH)
+    .transform((value) => value.toLowerCase()),
+});
+
 const userIdParamSchema = z.object({
   userId: z.string().trim().min(1),
 });
@@ -68,7 +82,6 @@ const updateUserRoleSchema = z.object({
   role: z.enum([
     SUPER_ADMIN_USER_CONSTANTS.ROLES.SUPER_ADMIN,
     SUPER_ADMIN_USER_CONSTANTS.ROLES.HR,
-    SUPER_ADMIN_USER_CONSTANTS.ROLES.CANDIDATE,
   ]),
 });
 
@@ -83,6 +96,7 @@ const updateUserStatusSchema = z.object({
 
 module.exports = {
   listUsersSchema,
+  invitePlatformAdminSchema,
   userIdParamSchema,
   updateUserRoleSchema,
   updateUserStatusSchema,

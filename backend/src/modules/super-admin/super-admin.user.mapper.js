@@ -18,6 +18,7 @@ const mapUserListItem = (user) => {
     members.find((m) => m?.company?.name);
 
   const companyName = primaryMembership?.company?.name || "Independent";
+  const companyRole = primaryMembership?.role || null;
 
   return {
     id: user.id,
@@ -25,6 +26,7 @@ const mapUserListItem = (user) => {
     email: user.email,
     company: companyName,
     role: user.role,
+    companyRole: companyRole,
     status: user.status || "ACTIVE",
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
@@ -46,6 +48,7 @@ const mapUserDetail = (user) => {
     members.find((m) => m?.company?.name);
 
   const companyName = primaryMembership?.company?.name || "Independent";
+  const companyRole = primaryMembership?.role || null;
 
   return {
     id: user.id,
@@ -53,6 +56,7 @@ const mapUserDetail = (user) => {
     email: user.email,
     company: companyName,
     role: user.role,
+    companyRole: companyRole,
     status: user.status || "ACTIVE",
     companies: members
       .filter((m) => m?.company?.name)
