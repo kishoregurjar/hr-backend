@@ -55,6 +55,7 @@ const toAssessmentSummary = (assessment) => {
     games: Array.isArray(assessment.games)
       ? assessment.games.map((ag) => {
           const g = ag.game || ag;
+          const diff = ag.difficulty || g.difficulty || assessment.difficulty || "MEDIUM";
           return {
             id: g.id || ag.gameId,
             gameId: g.id || ag.gameId,
@@ -64,7 +65,13 @@ const toAssessmentSummary = (assessment) => {
             name: g.name || g.title || "Cognitive Game",
             sequence: ag.sequence ?? 1,
             weight: ag.weight ?? 1,
-            config: ag.config ?? null,
+            difficulty: diff,
+            duration: ag.duration || g.duration || 10,
+            passingScore: ag.passingScore || g.passingScore || 70,
+            config: {
+              ...(g.config || ag.config || {}),
+              difficulty: String(diff).toLowerCase(),
+            },
           };
         })
       : [],
@@ -233,13 +240,13 @@ const toCandidateResponse = (attempt) => {
     submittedAt: attempt.submittedAt ?? null,
     cancelledAt: attempt.cancelledAt ?? null,
     questions: mappedQuestions,
-    games: Array.isArray(rawGames) ? rawGames : (summary?.games || []),
+    games: (summary?.games && summary.games.length > 0) ? summary.games : (Array.isArray(rawGames) ? rawGames : []),
     answers: Array.isArray(attempt.answers)
       ? attempt.answers.map(toCandidateAnswerResponse)
       : [],
     assessment: {
       ...(summary || {}),
-      games: Array.isArray(rawGames) ? rawGames : (summary?.games || []),
+      games: (summary?.games && summary.games.length > 0) ? summary.games : (Array.isArray(rawGames) ? rawGames : []),
       questions: mappedQuestions,
     },
   };
@@ -494,6 +501,7 @@ const toCandidateCurrentAttemptResponse = (attempt, serverTime = new Date().toIS
           games: Array.isArray(attempt.assessment.games)
             ? attempt.assessment.games.map((ag) => {
                 const g = ag.game || ag;
+                const diff = ag.difficulty || g.difficulty || attempt.assessment.difficulty || "MEDIUM";
                 return {
                   id: g.id || ag.gameId,
                   gameId: g.id || ag.gameId,
@@ -503,6 +511,13 @@ const toCandidateCurrentAttemptResponse = (attempt, serverTime = new Date().toIS
                   name: g.name || g.title || "Cognitive Game",
                   sequence: ag.sequence ?? 1,
                   weight: ag.weight ?? 1,
+                  difficulty: diff,
+                  duration: ag.duration || g.duration || 10,
+                  passingScore: ag.passingScore || g.passingScore || 70,
+                  config: {
+                    ...(g.config || ag.config || {}),
+                    difficulty: String(diff).toLowerCase(),
+                  },
                 };
               })
             : [],

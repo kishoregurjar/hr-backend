@@ -234,6 +234,98 @@ const addMinutes = (date, minutes) => {
  */
 class AttemptService {
   /**
+   * Enrich assessment games with company's configured game difficulties from database
+   */
+  async enrichAssessmentWithCompanyGameConfig(assessment, explicitCompanyId = null) {
+    if (!assessment || !Array.isArray(assessment.games) || assessment.games.length === 0 || !prisma.companyGameConfig) {
+      return assessment;
+    }
+
+    try {
+      let companyId = explicitCompanyId;
+
+      if (!companyId && assessment.createdById) {
+        const member = await prisma.companyMember.findFirst({
+          where: { userId: assessment.createdById },
+          select: { companyId: true },
+        });
+        companyId = member?.companyId || null;
+      }
+
+      if (!companyId) {
+        const firstCompany = await prisma.company.findFirst({ select: { id: true } });
+        companyId = firstCompany?.id || null;
+      }
+
+      if (!companyId) return assessment;
+
+      const configs = await prisma.companyGameConfig.findMany({
+        where: { companyId },
+        include: { game: true },
+      });
+
+      const configMap = new Map();
+      configs.forEach((c) => {
+        if (c.gameId) configMap.set(String(c.gameId).toLowerCase(), c);
+        if (c.game?.code) {
+          const codeStr = String(c.game.code).toLowerCase();
+          configMap.set(codeStr, c);
+          configMap.set(codeStr.replace(/_/g, "-"), c);
+          configMap.set(codeStr.replace(/-/g, "_"), c);
+        }
+        if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
+      });
+
+      assessment.games = assessment.games.map((ag) => {
+        const gameIdKey = String(ag.gameId || ag.game?.id || "").toLowerCase();
+        const gameCodeKey = String(ag.game?.code || "").toLowerCase();
+
+        const conf =
+          configMap.get(gameIdKey) ||
+          configMap.get(gameCodeKey) ||
+          configMap.get(gameCodeKey.replace(/_/g, "-")) ||
+          configMap.get(gameCodeKey.replace(/-/g, "_"));
+
+        if (conf) {
+          const diffFormatted =
+            conf.difficulty.charAt(0).toUpperCase() +
+            conf.difficulty.slice(1).toLowerCase();
+
+          return {
+            ...ag,
+            difficulty: diffFormatted,
+            duration: conf.duration || ag.duration || 10,
+            passingScore: conf.passingScore || ag.passingScore || 70,
+            config: {
+              ...(ag.config || {}),
+              difficulty: conf.difficulty.toLowerCase(),
+              duration: conf.duration,
+              passingScore: conf.passingScore,
+            },
+            game: ag.game
+              ? {
+                  ...ag.game,
+                  difficulty: diffFormatted,
+                  duration: conf.duration,
+                  passingScore: conf.passingScore,
+                  config: {
+                    ...(ag.game.config || {}),
+                    difficulty: conf.difficulty.toLowerCase(),
+                  },
+                }
+              : null,
+          };
+        }
+        return ag;
+      });
+    } catch (_err) {
+      // safe fallback
+    }
+
+    return assessment;
+  }
+
+  /**
    * Calculate Candidate Invitation Expiry Date
    */
   calculateInvitationExpiry(requestedExpiresAt) {
@@ -861,6 +953,10 @@ class AttemptService {
         "Invitation token is no longer valid.",
         INVITATION_ERROR_CODES.TOKEN_ALREADY_USED
       );
+    }
+
+    if (invitation.assessment) {
+      await this.enrichAssessmentWithCompanyGameConfig(invitation.assessment);
     }
 
     return invitation;
@@ -2793,6 +2889,10 @@ class AttemptService {
           attemptNumber: attempt.attemptNumber,
         },
       }).catch(() => { });
+    }
+
+    if (attempt?.assessment) {
+      await this.enrichAssessmentWithCompanyGameConfig(attempt.assessment);
     }
 
     const sanitizedAttempt = attemptDto.toCandidateCurrentAttemptResponse(attempt, now);

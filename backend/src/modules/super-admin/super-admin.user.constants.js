@@ -1,0 +1,54 @@
+"use strict";
+
+const SUPER_ADMIN_USER_CONSTANTS = Object.freeze({
+  NAME: {
+    MIN_LENGTH: 2,
+    MAX_LENGTH: 100,
+  },
+  EMAIL: {
+    MAX_LENGTH: 320,
+  },
+  SEARCH: {
+    MAX_LENGTH: 100,
+  },
+  PAGINATION: {
+    DEFAULT_PAGE: 1,
+    DEFAULT_LIMIT: 20,
+    MAX_LIMIT: 100,
+  },
+  SORT_FIELDS: {
+    CREATED_AT: "createdAt",
+    UPDATED_AT: "updatedAt",
+    NAME: "name",
+    EMAIL: "email",
+    ROLE: "role",
+    STATUS: "status",
+  },
+  SORT_ORDERS: {
+    ASC: "asc",
+    DESC: "desc",
+  },
+  ROLES: {
+    SUPER_ADMIN: "SUPER_ADMIN",
+    HR: "HR",
+    CANDIDATE: "CANDIDATE",
+  },
+  STATUS: {
+    INVITED: "INVITED",
+    ACTIVE: "ACTIVE",
+    SUSPENDED: "SUSPENDED",
+    DEACTIVATED: "DEACTIVATED",
+  },
+  ERROR_CODES: {
+    USER_NOT_FOUND: "SUPER_ADMIN_USER_NOT_FOUND",
+    INVALID_ROLE: "SUPER_ADMIN_INVALID_USER_ROLE",
+    INVALID_STATUS: "SUPER_ADMIN_INVALID_USER_STATUS",
+    INVALID_SORT_FIELD: "SUPER_ADMIN_INVALID_SORT_FIELD",
+    INVALID_SORT_ORDER: "SUPER_ADMIN_INVALID_SORT_ORDER",
+    USER_UPDATE_FAILED: "SUPER_ADMIN_USER_UPDATE_FAILED",
+  },
+});
+
+module.exports = {
+  SUPER_ADMIN_USER_CONSTANTS,
+};
