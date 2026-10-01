@@ -5,14 +5,19 @@ const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const { createSuperAdminCompanySchema } = require("./super-admin.company.validator");
 const superAdminCompanyService = require("./super-admin.company.service");
+const auditService = require("../company/company.audit.service");
 const { toCreateCompanyResponse } = require("./super-admin.company.dto");
 
 class SuperAdminCompanyController {
   createCompany = asyncHandler(async (req, res) => {
     const validatedData = createSuperAdminCompanySchema.parse(req.body);
+    const auditContext = auditService.createRequestAuditContext(req);
+    const actorUserId = req.user?.id || null;
 
     const result = await superAdminCompanyService.createCompanyWithOwner(
-      validatedData
+      validatedData,
+      auditContext,
+      actorUserId
     );
 
     return SuccessResponse.send(
@@ -28,10 +33,14 @@ class SuperAdminCompanyController {
   resendActivation = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const ownerActivationService = require("./super-admin.owner-activation.service");
+    const auditContext = auditService.createRequestAuditContext(req);
+    const actorUserId = req.user?.id || null;
 
-    const result = await ownerActivationService.resendOwnerActivation({
-      companyId,
-    });
+    const result = await ownerActivationService.resendOwnerActivation(
+      { companyId },
+      auditContext,
+      actorUserId
+    );
 
     return SuccessResponse.send(
       res,
@@ -98,10 +107,14 @@ class SuperAdminCompanyController {
 
     const { companyId } = companyIdParamSchema.parse(req.params);
     const { status } = updateCompanyStatusSchema.parse(req.body);
+    const auditContext = auditService.createRequestAuditContext(req);
+    const actorUserId = req.user?.id || null;
 
     const company = await superAdminCompanyService.updateCompanyStatus(
       companyId,
-      status
+      status,
+      auditContext,
+      actorUserId
     );
 
     return SuccessResponse.send(

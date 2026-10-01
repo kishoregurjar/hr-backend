@@ -15,6 +15,9 @@ const findAuditLogs = async (
     action,
     entityType,
     entityId,
+    dateFrom,
+    dateTo,
+    search,
     skip = 0,
     take = 20,
   },
@@ -27,6 +30,20 @@ const findAuditLogs = async (
   if (action !== undefined) where.action = action;
   if (entityType !== undefined) where.entityType = entityType;
   if (entityId !== undefined) where.entityId = entityId;
+
+  if (dateFrom || dateTo) {
+    where.createdAt = {};
+    if (dateFrom) where.createdAt.gte = new Date(dateFrom);
+    if (dateTo) where.createdAt.lte = new Date(dateTo);
+  }
+
+  if (search) {
+    where.OR = [
+      { actor: { name: { contains: search, mode: "insensitive" } } },
+      { actor: { email: { contains: search, mode: "insensitive" } } },
+      { company: { name: { contains: search, mode: "insensitive" } } },
+    ];
+  }
 
   return tx.auditLog.findMany({
     where,
@@ -53,12 +70,27 @@ const findAuditLogs = async (
           email: true,
         },
       },
+      company: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
     },
   });
 };
 
 const countAuditLogs = async (
-  { companyId, actorUserId, action, entityType, entityId },
+  {
+    companyId,
+    actorUserId,
+    action,
+    entityType,
+    entityId,
+    dateFrom,
+    dateTo,
+    search,
+  },
   tx = prisma
 ) => {
   const where = {};
@@ -68,6 +100,20 @@ const countAuditLogs = async (
   if (action !== undefined) where.action = action;
   if (entityType !== undefined) where.entityType = entityType;
   if (entityId !== undefined) where.entityId = entityId;
+
+  if (dateFrom || dateTo) {
+    where.createdAt = {};
+    if (dateFrom) where.createdAt.gte = new Date(dateFrom);
+    if (dateTo) where.createdAt.lte = new Date(dateTo);
+  }
+
+  if (search) {
+    where.OR = [
+      { actor: { name: { contains: search, mode: "insensitive" } } },
+      { actor: { email: { contains: search, mode: "insensitive" } } },
+      { company: { name: { contains: search, mode: "insensitive" } } },
+    ];
+  }
 
   return tx.auditLog.count({
     where,

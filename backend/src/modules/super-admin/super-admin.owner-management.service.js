@@ -12,6 +12,8 @@ const {
 const {
   SUPER_ADMIN_OWNER_MANAGEMENT_CONSTANTS,
 } = require("./super-admin.owner-management.constants");
+const auditService = require("../company/company.audit.service");
+const { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } = require("../company/company.audit.constants");
 
 const getCompanyOwner = async (companyId) => {
   const company = await ownerRepository.findCompanyById(companyId);
@@ -50,7 +52,11 @@ const getCompanyOwner = async (companyId) => {
   );
 };
 
-const revokeOwnerActivation = async (companyId) => {
+const revokeOwnerActivation = async (
+  companyId,
+  auditContext = {},
+  actorUserId = null
+) => {
   const company = await ownerRepository.findCompanyById(companyId);
 
   if (!company) {
@@ -124,6 +130,19 @@ const revokeOwnerActivation = async (companyId) => {
     activation.id,
     now
   );
+
+  await auditService.createAuditLog({
+    companyId,
+    actorUserId,
+    action: AUDIT_ACTIONS.OWNER_ACTIVATION_REVOKED,
+    entityType: AUDIT_ENTITY_TYPES.COMPANY,
+    entityId: companyId,
+    metadata: {
+      ownerId: membership.user.id,
+      ownerEmail: membership.user.email,
+    },
+    ...auditContext,
+  });
 
   return buildActivationResponse(mapRevokedActivation(revoked));
 };

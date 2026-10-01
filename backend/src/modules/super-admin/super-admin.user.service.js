@@ -12,6 +12,8 @@ const { encryptToken } = require("./super-admin.owner-activation.crypto");
 const emailRepository = require("../company/company.email.repository");
 const { createOutboxEvent } = require("../company/company.outbox.repository");
 const { COMPANY_OUTBOX_CONSTANTS } = require("../company/company.outbox.constants");
+const auditService = require("../company/company.audit.service");
+const { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } = require("../company/company.audit.constants");
 
 /**
  * Pure helper function to construct Prisma where clauses for user directory search/filters.
@@ -87,7 +89,11 @@ const listUsers = async ({
 /**
  * Invite a new Platform Admin (SUPER_ADMIN)
  */
-const invitePlatformAdmin = async ({ name, email }) => {
+const invitePlatformAdmin = async (
+  { name, email },
+  auditContext = {},
+  actorUserId = null
+) => {
   const existingUser = await superAdminUserRepository.findUserByEmail(email);
 
   if (existingUser) {
@@ -120,7 +126,11 @@ const invitePlatformAdmin = async ({ name, email }) => {
 
     if (existingUser.status === "INVITED") {
       // Reuse existing invitation flow by resending invitation token
-      return resendPlatformAdminInvitation(existingUser.id);
+      return resendPlatformAdminInvitation(
+        existingUser.id,
+        auditContext,
+        actorUserId
+      );
     }
   }
 
@@ -168,6 +178,23 @@ const invitePlatformAdmin = async ({ name, email }) => {
           tx
         );
 
+        await auditService.createAuditLog(
+          {
+            companyId: null,
+            actorUserId,
+            action: AUDIT_ACTIONS.PLATFORM_ADMIN_INVITED,
+            entityType: AUDIT_ENTITY_TYPES.USER,
+            entityId: user.id,
+            metadata: {
+              invitedEmail: email,
+              invitedUserName: name,
+              role: "SUPER_ADMIN",
+            },
+            ...auditContext,
+          },
+          tx
+        );
+
         return mapUserListItem(user);
       },
       {
@@ -192,7 +219,11 @@ const invitePlatformAdmin = async ({ name, email }) => {
 /**
  * Resend invitation for an invited Platform Admin (SUPER_ADMIN)
  */
-const resendPlatformAdminInvitation = async (userId) => {
+const resendPlatformAdminInvitation = async (
+  userId,
+  auditContext = {},
+  actorUserId = null
+) => {
   return prisma.$transaction(
     async (tx) => {
       const user = await superAdminUserRepository.findUserById(userId, tx);
@@ -293,6 +324,22 @@ const resendPlatformAdminInvitation = async (userId) => {
             ownerName: user.name,
             companyName: "HireQuest Platform",
           },
+        },
+        tx
+      );
+
+      await auditService.createAuditLog(
+        {
+          companyId: null,
+          actorUserId,
+          action: AUDIT_ACTIONS.PLATFORM_ADMIN_INVITATION_RESENT,
+          entityType: AUDIT_ENTITY_TYPES.USER,
+          entityId: user.id,
+          metadata: {
+            recipientEmail: user.email,
+            role: "SUPER_ADMIN",
+          },
+          ...auditContext,
         },
         tx
       );

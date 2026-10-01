@@ -67,6 +67,8 @@ const superAdminCompanyRepository = require("./super-admin.company.repository");
 const emailRepository = require("../company/company.email.repository");
 const { createOutboxEvent } = require("../company/company.outbox.repository");
 const { COMPANY_OUTBOX_CONSTANTS } = require("../company/company.outbox.constants");
+const auditService = require("../company/company.audit.service");
+const { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } = require("../company/company.audit.constants");
 
 const consumeActivation = async (token, newPassword) => {
   const tokenHash = hashToken(token);
@@ -171,7 +173,11 @@ const consumeActivation = async (token, newPassword) => {
   );
 };
 
-const resendOwnerActivation = async ({ companyId }) => {
+const resendOwnerActivation = async (
+  { companyId },
+  auditContext = {},
+  actorUserId = null
+) => {
   return prisma.$transaction(
     async (tx) => {
       const owner = await superAdminCompanyRepository.findCompanyOwner(companyId, tx);
@@ -244,6 +250,22 @@ const resendOwnerActivation = async ({ companyId }) => {
             emailDeliveryId: emailDelivery.id,
             activationId: updatedActivation.id,
           },
+        },
+        tx
+      );
+
+      await auditService.createAuditLog(
+        {
+          companyId,
+          actorUserId,
+          action: AUDIT_ACTIONS.OWNER_ACTIVATION_RESENT,
+          entityType: AUDIT_ENTITY_TYPES.COMPANY,
+          entityId: companyId,
+          metadata: {
+            ownerId: owner.user.id,
+            ownerEmail: owner.user.email,
+          },
+          ...auditContext,
         },
         tx
       );
