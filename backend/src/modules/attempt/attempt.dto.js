@@ -64,6 +64,7 @@ const toAssessmentSummary = (assessment) => {
             name: g.name || g.title || "Cognitive Game",
             sequence: ag.sequence ?? 1,
             weight: ag.weight ?? 1,
+            config: ag.config ?? null,
           };
         })
       : [],

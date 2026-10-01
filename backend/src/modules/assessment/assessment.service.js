@@ -127,6 +127,57 @@ class AssessmentService {
     return result;
   }
 
+  async _buildGameIdsWithConfig(gameIds, companyId, existingAssessmentGames = []) {
+    if (!gameIds || !Array.isArray(gameIds) || gameIds.length === 0) return [];
+
+    let configMap = new Map();
+    if (companyId) {
+      const configs = await prisma.companyGameConfig.findMany({
+        where: { companyId },
+        include: { game: true },
+      });
+      configs.forEach((c) => {
+        if (c.gameId) configMap.set(String(c.gameId).toLowerCase(), c);
+        if (c.game?.code) {
+          const codeStr = String(c.game.code).toLowerCase();
+          configMap.set(codeStr, c);
+          configMap.set(codeStr.replace(/_/g, "-"), c);
+          configMap.set(codeStr.replace(/-/g, "_"), c);
+        }
+        if (c.game?.slug) {
+          const slugStr = String(c.game.slug).toLowerCase();
+          configMap.set(slugStr, c);
+          configMap.set(slugStr.replace(/_/g, "-"), c);
+          configMap.set(slugStr.replace(/-/g, "_"), c);
+        }
+      });
+    }
+
+    const existingMap = new Map();
+    existingAssessmentGames.forEach(ag => {
+      const gId = String(ag.gameId || ag.game?.id || "").toLowerCase();
+      if (gId) existingMap.set(gId, ag.config);
+    });
+
+    return gameIds.map(g => {
+      const rawId = typeof g === "object" ? String(g.gameId || g.id || g.slug || g.code || "").toLowerCase() : String(g).toLowerCase();
+      
+      if (existingMap.has(rawId)) {
+        return { id: rawId, config: existingMap.get(rawId) };
+      }
+
+      const companyConf = configMap.get(rawId) || configMap.get(rawId.replace(/_/g, "-")) || configMap.get(rawId.replace(/-/g, "_"));
+      
+      let finalConfig = typeof g === "object" ? (g.config || null) : null;
+      if (companyConf) {
+        const { id, companyId, gameId, createdAt, updatedAt, game, ...restConf } = companyConf;
+        finalConfig = { ...finalConfig, ...restConf };
+      }
+
+      return { id: typeof g === "object" ? (g.gameId || g.id) : g, config: finalConfig };
+    });
+  }
+
   /**
    * Create New Assessment
    */
@@ -166,7 +217,8 @@ class AssessmentService {
       createdById
     );
 
-    const gameIds = data.selectedGameIds || data.gameIds || data.games || [];
+    const rawGameIds = data.selectedGameIds || data.gameIds || data.games || [];
+    const gameIds = await this._buildGameIdsWithConfig(rawGameIds, companyId);
     const rawQuestions = data.selectedQuestionIds || data.questionIds || data.questions || [];
 
     const createdAssessment = await runTransaction(async (tx) => {
@@ -390,7 +442,19 @@ class AssessmentService {
     }
 
     const updateData = AssessmentMapper.toUpdateEntity(normalizedData);
-    const gameIds = data.selectedGameIds ?? data.gameIds ?? data.games;
+    const rawGameIds = data.selectedGameIds ?? data.gameIds ?? data.games;
+    let gameIds = rawGameIds;
+    if (rawGameIds !== undefined && Array.isArray(rawGameIds)) {
+       const userCompanyMember = await prisma.companyMember.findFirst({
+         where: { userId: existingAssessment.createdById },
+         select: { companyId: true },
+       });
+       gameIds = await this._buildGameIdsWithConfig(
+          rawGameIds,
+          userCompanyMember?.companyId,
+          existingAssessment.games || existingAssessment.assessmentGames || []
+       );
+    }
     const rawQuestions = data.selectedQuestionIds ?? data.questionIds ?? data.questions;
 
     const updatedAssessment = await runTransaction(async (tx) => {

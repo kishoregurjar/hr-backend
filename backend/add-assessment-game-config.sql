@@ -1,0 +1,2 @@
+ALTER TABLE "AssessmentGame"
+ADD COLUMN IF NOT EXISTS "config" JSONB;

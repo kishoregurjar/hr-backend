@@ -142,40 +142,17 @@ class GameAttemptService {
       let puzzleState;
       let puzzleVersion = gameDefinition ? gameDefinition.version : 1;
 
-      // Lookup saved company game config if available
       let difficulty = "medium";
-      let companyId = candidateAssessment?.candidate?.companyId;
-      if (!companyId && assessment?.createdById) {
-        const member = await prisma.companyMember.findFirst({
-          where: { userId: assessment.createdById },
-          select: { companyId: true },
-        });
-        companyId = member?.companyId;
+      let assessmentGame = null;
+      if (assessment) {
+        assessmentGame = await repository.findAssessmentGame(
+          assessment.id,
+          game.id
+        );
       }
-
-      if (companyId && prisma.companyGameConfig) {
-        const altCode1 = String(canonicalCode || "").replace(/_/g, "-");
-        const altCode2 = String(canonicalCode || "").replace(/-/g, "_");
-        const altSlug1 = String(slug || "").replace(/_/g, "-");
-        const altSlug2 = String(slug || "").replace(/-/g, "_");
-
-        const savedConfig = await prisma.companyGameConfig.findFirst({
-          where: {
-            companyId,
-            OR: [
-              { gameId: game.id },
-              { game: { code: { equals: canonicalCode, mode: "insensitive" } } },
-              { game: { code: { equals: altCode1, mode: "insensitive" } } },
-              { game: { code: { equals: altCode2, mode: "insensitive" } } },
-              { game: { code: { equals: slug, mode: "insensitive" } } },
-              { game: { code: { equals: altSlug1, mode: "insensitive" } } },
-              { game: { code: { equals: altSlug2, mode: "insensitive" } } },
-            ],
-          },
-        });
-        if (savedConfig?.difficulty) {
-          difficulty = savedConfig.difficulty.toLowerCase();
-        }
+      
+      if (assessmentGame && assessmentGame.config && assessmentGame.config.difficulty) {
+        difficulty = String(assessmentGame.config.difficulty).toLowerCase();
       }
 
       if (gameDefinition && gameDefinition.engine) {

@@ -944,6 +944,7 @@ model AssessmentGame {
   gameId       String
   sequence     Int        @default(1)
   weight       Float      @default(1.0)
+  config       Json?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
