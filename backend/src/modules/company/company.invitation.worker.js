@@ -16,6 +16,9 @@ const {
 const {
   buildOwnerWelcomeEmail,
 } = require("../super-admin/super-admin.owner-welcome.email.template");
+const {
+  buildPlatformAdminWelcomeEmail,
+} = require("../super-admin/super-admin.platform-admin-welcome.email.template");
 
 const {
   findEmailDeliveryByInvitationId,
@@ -218,15 +221,36 @@ const processOwnerActivationEmail = async (message) => {
   try {
     const rawToken = decryptToken(activation.encryptedToken);
     const activationUrl = buildOwnerActivationUrl(rawToken);
-    const companyName = activation.user.companyMembers?.[0]?.company?.name || message.companyName || "Your Company";
-    const ownerName = activation.user.name || message.ownerName || "Company Owner";
 
-    const { subject, html } = buildOwnerWelcomeEmail({
-      ownerName,
-      companyName,
-      activationUrl,
-      expiresAt: activation.expiresAt,
-    });
+    const userRole = String(activation.user?.role || "").toUpperCase();
+    const isPlatformAdmin =
+      userRole === "SUPER_ADMIN" || userRole === "PLATFORM_ADMIN";
+
+    let subject, html;
+
+    if (isPlatformAdmin) {
+      const adminName =
+        activation.user.name || message.ownerName || "Platform Administrator";
+      ({ subject, html } = buildPlatformAdminWelcomeEmail({
+        adminName,
+        activationUrl,
+        expiresAt: activation.expiresAt,
+      }));
+    } else {
+      const companyName =
+        activation.user.companyMembers?.[0]?.company?.name ||
+        message.companyName ||
+        "Your Company";
+      const ownerName =
+        activation.user.name || message.ownerName || "Company Owner";
+
+      ({ subject, html } = buildOwnerWelcomeEmail({
+        ownerName,
+        companyName,
+        activationUrl,
+        expiresAt: activation.expiresAt,
+      }));
+    }
 
     await sendEmail({
       to: delivery.recipientEmail,

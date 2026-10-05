@@ -80,6 +80,7 @@ const findByActivationId = async (activationId, tx = prisma) => {
           id: true,
           email: true,
           name: true,
+          role: true,
           status: true,
           companyMembers: {
             where: {

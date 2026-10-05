@@ -29,7 +29,6 @@ const ASSESSMENT_LIST_SELECT = Object.freeze({
     select: {
       gameId: true,
       weight: true,
-      config: true,
       game: {
         select: {
           id: true,
@@ -106,7 +105,6 @@ const ASSESSMENT_DETAIL_SELECT = Object.freeze({
       gameId: true,
       sequence: true,
       weight: true,
-      config: true,
       game: {
         select: {
           id: true,
