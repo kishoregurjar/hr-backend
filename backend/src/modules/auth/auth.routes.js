@@ -43,6 +43,7 @@ router.post(
   ownerActivationTokenLimit,
   controller.activateOwner
 );
+router.get("/owner/activate/verify", controller.verifyOwnerActivation);
 
 // Protected Routes
 router.use(requireAuth);

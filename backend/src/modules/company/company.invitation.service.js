@@ -428,15 +428,11 @@ const acceptInvitation = async (
     );
 
     if (existingMember) {
-      const consumedHash = hashInvitationToken(
-        `${invitation.id}:${crypto.randomUUID()}`
-      );
       await tx.companyInvitation.update({
         where: { id: invitation.id },
         data: {
           status: "ACCEPTED",
           acceptedAt: now,
-          tokenHash: consumedHash,
           encryptedToken: "",
         },
       });
@@ -470,16 +466,11 @@ const acceptInvitation = async (
       throw error;
     }
 
-    const consumedHash = hashInvitationToken(
-      `${invitation.id}:${crypto.randomUUID()}`
-    );
-
     await tx.companyInvitation.update({
       where: { id: invitation.id },
       data: {
         status: "ACCEPTED",
         acceptedAt: now,
-        tokenHash: consumedHash,
         encryptedToken: "",
       },
     });
@@ -866,16 +857,11 @@ const acceptAndRegisterInvitation = async (payload, auditContext = {}) => {
     }
 
     // ── Step 4: Mark invitation as accepted (token consumed) ─────────────────
-    const consumedHash = hashInvitationToken(
-      `${invitation.id}:${crypto.randomUUID()}`
-    );
-
     await tx.companyInvitation.update({
       where: { id: invitation.id },
       data: {
         status: "ACCEPTED",
         acceptedAt: now,
-        tokenHash: consumedHash,
         encryptedToken: "",
       },
     });
