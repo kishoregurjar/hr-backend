@@ -11,10 +11,15 @@ const createSuperAdminCompanySchema = z.object({
     .max(SUPER_ADMIN_COMPANY_CONSTANTS.NAME.MAX_LENGTH),
 
   ownerName: z
-    .string()
-    .trim()
-    .min(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MIN_LENGTH)
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MAX_LENGTH),
+    .preprocess(
+      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : val.trim()),
+      z
+        .string()
+        .min(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MIN_LENGTH)
+        .max(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MAX_LENGTH)
+        .nullable()
+        .optional()
+    ),
 
   ownerEmail: z
     .string()
@@ -24,12 +29,15 @@ const createSuperAdminCompanySchema = z.object({
     .transform((value) => value.toLowerCase()),
 
   website: z
-    .string()
-    .trim()
-    .url()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
-    .optional()
-    .nullable(),
+    .preprocess(
+      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : val.trim()),
+      z
+        .string()
+        .url()
+        .max(SUPER_ADMIN_COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
+        .nullable()
+        .optional()
+    ),
 
   industry: z
     .string()

@@ -204,6 +204,23 @@ class QuestionService {
       tagMap.set(t.name.toLowerCase().trim(), t);
     });
 
+    // Pre-fetch existing question titles for company in 1 batch query
+    const titlesToCheck = questionsList
+      .map((item) => QuestionMapper.normalizeTitle(item.title || item.question || ""))
+      .filter((t) => t && t.length >= 5);
+
+    const existingQuestions = await prisma.question.findMany({
+      where: {
+        title: { in: titlesToCheck },
+        ...(companyId ? { OR: [{ companyId }, { companyId: null }] } : {}),
+      },
+      select: { title: true },
+    });
+
+    const existingTitleSet = new Set(
+      existingQuestions.map((q) => q.title.toLowerCase().trim())
+    );
+
     for (let i = 0; i < questionsList.length; i++) {
       const item = questionsList[i];
       const rawTitle = item.title || item.question || "";
@@ -219,8 +236,17 @@ class QuestionService {
       }
 
       // Check duplicate in company bank
-      const existing = await questionRepository.findByTitle(title, companyId);
-      if (existing) {
+      const titleLower = title.toLowerCase().trim();
+      let isDuplicate = existingTitleSet.has(titleLower);
+      if (!isDuplicate) {
+        const existing = await questionRepository.findByTitle(title, companyId);
+        if (existing) {
+          isDuplicate = true;
+          existingTitleSet.add(titleLower);
+        }
+      }
+
+      if (isDuplicate) {
         skipped.push({
           index: i,
           title: rawTitle,
@@ -367,6 +393,7 @@ class QuestionService {
         });
 
         created.push(QuestionDto.toResponse(createdItem));
+        existingTitleSet.add(titleLower);
       } catch (err) {
         logger.error({ err, title: rawTitle }, "Error importing single question in bulk");
         errors.push({

@@ -100,7 +100,7 @@ const createCompanyWithOwner = async (
         const owner = await superAdminCompanyRepository.createUser(
           {
             email: ownerEmail,
-            name: ownerName,
+            name: ownerName || ownerEmail.split("@")[0],
             password: null,
             status: "INVITED",
             role: "HR",
