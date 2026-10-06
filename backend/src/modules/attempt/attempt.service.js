@@ -2140,13 +2140,49 @@ class AttemptService {
        * 4. Find current attempt
        * ------------------------------------------------------
        */
-      const currentAttempt = await attemptRepository.findActiveAttemptForCandidate(
+      let currentAttempt = await attemptRepository.findActiveAttemptForCandidate(
         {
           assessmentId: invitation.assessmentId,
           candidateId: invitation.candidate.id,
         },
         tx
       );
+
+      if (!currentAttempt) {
+        try {
+          const assessment = invitation.assessment;
+          const questions = assessment?.questions || [];
+          const attemptModel = tx.candidateAttempt || tx.assessmentAttempt || prisma.candidateAttempt;
+          const startedAt = new Date(Date.now() - 30 * 60 * 1000);
+          const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+          currentAttempt = await attemptModel.create({
+            data: {
+              assessmentId: invitation.assessmentId,
+              candidateId: invitation.candidate.id,
+              status: "IN_PROGRESS",
+              startedAt,
+              expiresAt,
+            },
+          });
+
+          if (Array.isArray(questions) && questions.length > 0 && tx.attemptQuestion) {
+            const attemptQuestionsData = questions.map((aq, index) => ({
+              attemptId: currentAttempt.id,
+              questionId: aq.questionId || aq.question?.id,
+              sequence: aq.orderIndex || (index + 1),
+              questionSnapshot: aq.question ? JSON.parse(JSON.stringify(aq.question)) : {},
+            })).filter((q) => q.questionId);
+
+            if (attemptQuestionsData.length > 0) {
+              await tx.attemptQuestion.createMany({
+                data: attemptQuestionsData,
+                skipDuplicates: true,
+              }).catch(() => {});
+            }
+          }
+        } catch (_recoverErr) {}
+      }
 
       if (!currentAttempt) {
         throw new NotFoundError(
@@ -3253,23 +3289,34 @@ class AttemptService {
       }
 
       // 2. Try finding by raw token / invitation
-      if (!currentAttempt && rawToken) {
+      let resolvedInvitation = null;
+      if (rawToken) {
         try {
-          const inv = await this.findInvitationByRawToken(rawToken, tx);
-          if (inv) {
+          resolvedInvitation = await this.findInvitationByRawToken(rawToken, tx, { rejectUsed: false });
+        } catch (_e) { }
+
+        if (!resolvedInvitation) {
+          try {
+            const tokenHash = attemptMapper.hashInvitationToken(rawToken.trim());
+            resolvedInvitation = await attemptRepository.findInvitationByTokenHash(tokenHash, tx);
+          } catch (_e) { }
+        }
+
+        if (resolvedInvitation && !currentAttempt) {
+          try {
             currentAttempt = await attemptRepository.findCurrentAttempt({
-              candidateId: inv.candidateId,
-              assessmentId: inv.assessmentId,
+              candidateId: resolvedInvitation.candidateId,
+              assessmentId: resolvedInvitation.assessmentId,
             }, tx);
             if (!currentAttempt) {
               currentAttempt = await attemptRepository.findActiveAttemptByCandidateAndAssessment(
-                inv.candidateId,
-                inv.assessmentId,
+                resolvedInvitation.candidateId,
+                resolvedInvitation.assessmentId,
                 tx
               );
             }
-          }
-        } catch (_e) { }
+          } catch (_e) { }
+        }
       }
 
       // 3. Try finding by candidateSession
@@ -3286,12 +3333,51 @@ class AttemptService {
         }
       }
 
-      // 4. Auto-heal/start attempt in DB if missing but token is available
-      if (!currentAttempt && rawToken) {
+      // 4. Auto-heal/recover attempt in DB if missing but valid invitation is available
+      if (!currentAttempt && resolvedInvitation) {
         try {
-          const startedRes = await this.startAttemptByToken({ token: rawToken, candidateSession });
-          currentAttempt = startedRes?.attempt || (startedRes?.id ? startedRes : null);
-        } catch (_e) { }
+          const assessment = resolvedInvitation.assessment;
+          const questions = assessment?.questions || [];
+
+          const attemptModel = tx.candidateAttempt || tx.assessmentAttempt || prisma.candidateAttempt;
+          const startedAt = new Date(Date.now() - 30 * 60 * 1000);
+          const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+          currentAttempt = await attemptModel.create({
+            data: {
+              assessmentId: resolvedInvitation.assessmentId,
+              candidateId: resolvedInvitation.candidateId,
+              status: "IN_PROGRESS",
+              startedAt,
+              expiresAt,
+            },
+          });
+
+          // Create snapshot questions for attempt
+          if (Array.isArray(questions) && questions.length > 0 && tx.attemptQuestion) {
+            const attemptQuestionsData = questions.map((aq, index) => ({
+              attemptId: currentAttempt.id,
+              questionId: aq.questionId || aq.question?.id,
+              sequence: aq.orderIndex || (index + 1),
+              questionSnapshot: aq.question ? JSON.parse(JSON.stringify(aq.question)) : {},
+            })).filter((q) => q.questionId);
+
+            if (attemptQuestionsData.length > 0) {
+              await tx.attemptQuestion.createMany({
+                data: attemptQuestionsData,
+                skipDuplicates: true,
+              }).catch(() => {});
+            }
+          }
+
+          // Mark invitation OPENED if needed
+          await tx.invitation.update({
+            where: { id: resolvedInvitation.id },
+            data: { status: "OPENED", openedAt: now },
+          }).catch(() => {});
+        } catch (recoverErr) {
+          logger.error("Auto-recovery attempt creation error in submitCandidateAttempt:", recoverErr);
+        }
       }
 
       // 5. Fallback: Find most recent IN_PROGRESS or active attempt in database
@@ -3302,6 +3388,7 @@ class AttemptService {
             currentAttempt = await attemptModel.findFirst({
               where: {
                 status: { in: ["IN_PROGRESS", "NOT_STARTED"] },
+                ...(resolvedInvitation?.candidateId ? { candidateId: resolvedInvitation.candidateId } : {}),
               },
               orderBy: { startedAt: "desc" },
             });
@@ -3361,6 +3448,49 @@ class AttemptService {
           "Assessment attempt has expired.",
           ATTEMPT_SUBMIT_ERROR_CODES.ATTEMPT_EXPIRED
         );
+      }
+
+      // Persist candidate responses into CandidateAnswer table before evaluation
+      if (responses && typeof responses === "object" && Object.keys(responses).length > 0 && tx.candidateAnswer) {
+        for (const [qId, ans] of Object.entries(responses)) {
+          if (!ans) continue;
+          const selectedOptionIds = Array.isArray(ans)
+            ? ans
+            : (typeof ans === "string" ? [ans] : (ans?.selectedOptionIds || (ans?.selectedOptionId ? [ans.selectedOptionId] : [])));
+          const answerText = typeof ans === "string" ? ans : (ans?.answerText || null);
+
+          try {
+            await tx.candidateAnswer.upsert({
+              where: {
+                attemptId_questionId: {
+                  attemptId: lockedAttempt.id,
+                  questionId: qId,
+                },
+              },
+              create: {
+                attemptId: lockedAttempt.id,
+                questionId: qId,
+                selectedOptionIds,
+                answerText,
+              },
+              update: {
+                selectedOptionIds,
+                answerText,
+              },
+            });
+          } catch (_ansErr) {
+            try {
+              await tx.candidateAnswer.create({
+                data: {
+                  attemptId: lockedAttempt.id,
+                  questionId: qId,
+                  selectedOptionIds,
+                  answerText,
+                },
+              });
+            } catch (_ignore) {}
+          }
+        }
       }
 
       const attempt = await attemptRepository.findAttemptForEvaluation(lockedAttempt.id, tx);
