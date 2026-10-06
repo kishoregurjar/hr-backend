@@ -288,9 +288,87 @@ const resendOwnerActivation = async (
   );
 };
 
+const verifyActivation = async (token) => {
+  if (!token || typeof token !== "string" || !token.trim()) {
+    const error = new Error("Activation token is required");
+    error.statusCode = 400;
+    error.code = "TOKEN_REQUIRED";
+    throw error;
+  }
+
+  const tokenHash = hashToken(token.trim());
+
+  return prisma.$transaction(
+    async (tx) => {
+      const activation = await activationRepository.findByTokenHash(
+        tokenHash,
+        tx
+      );
+
+      if (!activation) {
+        const error = new Error(
+          "This activation link is invalid, expired, or has already been replaced by a newer invitation link."
+        );
+        error.statusCode = 404;
+        error.code =
+          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_NOT_FOUND;
+        throw error;
+      }
+
+      if (activation.status === "CONSUMED") {
+        const error = new Error(
+          "This workspace activation link has already been used. Please log in with your password."
+        );
+        error.statusCode = 409;
+        error.code =
+          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_ALREADY_USED;
+        throw error;
+      }
+
+      if (activation.status === "REVOKED") {
+        const error = new Error(
+          "This activation link has been revoked by an administrator. Please request a new link."
+        );
+        error.statusCode = 409;
+        error.code =
+          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_REVOKED;
+        throw error;
+      }
+
+      if (activation.expiresAt.getTime() <= Date.now()) {
+        const error = new Error(
+          "This activation link has expired. Please ask your administrator to resend a new link."
+        );
+        error.statusCode = 410;
+        error.code =
+          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.ACTIVATION_EXPIRED;
+        throw error;
+      }
+
+      if (activation.user && activation.user.status === "ACTIVE") {
+        const error = new Error(
+          "This workspace owner account is already active. Please sign in directly."
+        );
+        error.statusCode = 409;
+        error.code =
+          SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS.ERROR_CODES.USER_ALREADY_ACTIVE;
+        throw error;
+      }
+
+      return {
+        valid: true,
+      };
+    },
+    {
+      isolationLevel: "ReadCommitted",
+    }
+  );
+};
+
 module.exports = {
   createOwnerActivation,
   consumeActivation,
+  verifyActivation,
   resendOwnerActivation,
   hashToken,
   buildOwnerActivationUrl,

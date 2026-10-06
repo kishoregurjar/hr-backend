@@ -233,6 +233,42 @@ class AuthController {
       StatusCodes.OK
     );
   });
+  verifyOwnerActivation = asyncHandler(async (req, res) => {
+    const ownerActivationService = require("../super-admin/super-admin.owner-activation.service");
+    
+    // We expect token from query parameter: ?token=XYZ
+    const token = req.query.token;
+    
+    if (!token) {
+      return SuccessResponse.send(
+        res,
+        {
+          message: "Token is required.",
+          data: { valid: false },
+        },
+        StatusCodes.BAD_REQUEST
+      );
+    }
+
+    try {
+      const result = await ownerActivationService.verifyActivation(token);
+      
+      return SuccessResponse.send(
+        res,
+        {
+          message: "Token is valid.",
+          data: result,
+        },
+        StatusCodes.OK
+      );
+    } catch (error) {
+      // Instead of throwing the error, we return 200 with an explicit error object
+      // so the frontend can read the message and show the correct screen.
+      // But wait, the standard for our app is to just throw and let the error middleware handle it.
+      // The frontend already catches errors via try-catch and checks err?.response?.data?.message.
+      throw error;
+    }
+  });
 }
 
 const authController = new AuthController();
