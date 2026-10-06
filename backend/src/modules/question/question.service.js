@@ -189,7 +189,7 @@ class QuestionService {
     const skipped = [];
     const errors = [];
 
-    // Pre-cache existing categories & tags
+    // 1. Pre-cache existing categories & tags in 1 batch
     const existingCategories = await prisma.category.findMany();
     const categoryMap = new Map();
     existingCategories.forEach((c) => {
@@ -204,7 +204,66 @@ class QuestionService {
       tagMap.set(t.name.toLowerCase().trim(), t);
     });
 
-    // Pre-fetch existing question titles for company in 1 batch query
+    // 2. Batch resolve missing categories upfront (parallel, non-blocking)
+    const missingCategoryNames = new Set();
+    questionsList.forEach((q) => {
+      if (q.category && !q.categoryId) {
+        const catName = String(q.category).trim();
+        if (catName && !categoryMap.has(catName.toLowerCase())) {
+          missingCategoryNames.add(catName);
+        }
+      }
+    });
+
+    if (missingCategoryNames.size > 0) {
+      await Promise.all(
+        Array.from(missingCategoryNames).map(async (name) => {
+          try {
+            const cat = await prisma.category.upsert({
+              where: { name },
+              update: {},
+              create: { name },
+            });
+            categoryMap.set(cat.id, cat);
+            categoryMap.set(cat.name.toLowerCase().trim(), cat);
+          } catch {}
+        })
+      );
+    }
+
+    // 3. Batch resolve missing tags upfront (parallel, non-blocking)
+    const missingTagNames = new Set();
+    questionsList.forEach((q) => {
+      const rawTags = Array.isArray(q.tags)
+        ? q.tags
+        : typeof q.tags === "string"
+        ? q.tags.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+      rawTags.forEach((t) => {
+        const str = typeof t === "object" ? t.name || t.id : String(t).trim();
+        if (str && !tagMap.has(str.toLowerCase()) && !tagMap.has(str)) {
+          missingTagNames.add(str);
+        }
+      });
+    });
+
+    if (missingTagNames.size > 0) {
+      await Promise.all(
+        Array.from(missingTagNames).map(async (name) => {
+          try {
+            const tag = await prisma.tag.upsert({
+              where: { name },
+              update: {},
+              create: { name },
+            });
+            tagMap.set(tag.id, tag);
+            tagMap.set(tag.name.toLowerCase().trim(), tag);
+          } catch {}
+        })
+      );
+    }
+
+    // 4. Pre-fetch existing question titles in 1 batch query
     const titlesToCheck = questionsList
       .map((item) => QuestionMapper.normalizeTitle(item.title || item.question || ""))
       .filter((t) => t && t.length >= 5);
@@ -221,6 +280,7 @@ class QuestionService {
       existingQuestions.map((q) => q.title.toLowerCase().trim())
     );
 
+    // 5. Ingest questions with in-memory resolution & lean atomic database writes
     for (let i = 0; i < questionsList.length; i++) {
       const item = questionsList[i];
       const rawTitle = item.title || item.question || "";
@@ -235,18 +295,9 @@ class QuestionService {
         continue;
       }
 
-      // Check duplicate in company bank
+      // Check duplicate in-memory (0 DB round trips)
       const titleLower = title.toLowerCase().trim();
-      let isDuplicate = existingTitleSet.has(titleLower);
-      if (!isDuplicate) {
-        const existing = await questionRepository.findByTitle(title, companyId);
-        if (existing) {
-          isDuplicate = true;
-          existingTitleSet.add(titleLower);
-        }
-      }
-
-      if (isDuplicate) {
+      if (existingTitleSet.has(titleLower)) {
         skipped.push({
           index: i,
           title: rawTitle,
@@ -256,42 +307,17 @@ class QuestionService {
       }
 
       try {
-        // Resolve Category
+        // Resolve Category in-memory (0 DB round trips)
         let categoryId = item.categoryId;
         if (!categoryId && item.category) {
           const catKey = String(item.category).toLowerCase().trim();
-          if (categoryMap.has(catKey)) {
-            categoryId = categoryMap.get(catKey).id;
-          } else {
-            const newCat = await prisma.category.create({
-              data: { name: item.category.trim() },
-            });
-            categoryMap.set(newCat.id, newCat);
-            categoryMap.set(newCat.name.toLowerCase().trim(), newCat);
-            categoryId = newCat.id;
-          }
-        } else if (categoryId && !categoryMap.has(categoryId)) {
-          const cat = await prisma.category.findUnique({ where: { id: categoryId } });
-          if (cat) {
-            categoryMap.set(cat.id, cat);
-            categoryMap.set(cat.name.toLowerCase().trim(), cat);
-          }
+          categoryId = categoryMap.get(catKey)?.id || categoryMap.get(String(item.category).trim())?.id;
         }
-
-        // Default category fallback
         if (!categoryId) {
-          let generalCat = categoryMap.get("general") || existingCategories[0];
-          if (!generalCat) {
-            generalCat = await prisma.category.create({
-              data: { name: "General" },
-            });
-            categoryMap.set(generalCat.id, generalCat);
-            categoryMap.set("general", generalCat);
-          }
-          categoryId = generalCat.id;
+          categoryId = categoryMap.get("general")?.id || existingCategories[0]?.id;
         }
 
-        // Resolve Tags
+        // Resolve Tags in-memory (0 DB round trips)
         const resolvedTagIds = [];
         const rawTags = Array.isArray(item.tags)
           ? item.tags
@@ -304,25 +330,10 @@ class QuestionService {
         for (const tagInput of rawTags) {
           const tagStr = typeof tagInput === "object" ? tagInput.name || tagInput.id : String(tagInput).trim();
           if (!tagStr) continue;
-
           const tagKey = tagStr.toLowerCase().trim();
-          if (tagMap.has(tagKey)) {
-            resolvedTagIds.push(tagMap.get(tagKey).id);
-          } else if (tagMap.has(tagStr)) {
-            resolvedTagIds.push(tagMap.get(tagStr).id);
-          } else {
-            try {
-              const newTag = await prisma.tag.upsert({
-                where: { name: tagStr },
-                update: {},
-                create: { name: tagStr },
-              });
-              tagMap.set(newTag.id, newTag);
-              tagMap.set(newTag.name.toLowerCase().trim(), newTag);
-              resolvedTagIds.push(newTag.id);
-            } catch (err) {
-              // ignore tag conflicts
-            }
+          const tagObj = tagMap.get(tagKey) || tagMap.get(tagStr);
+          if (tagObj?.id && !resolvedTagIds.includes(tagObj.id)) {
+            resolvedTagIds.push(tagObj.id);
           }
         }
 
@@ -386,13 +397,25 @@ class QuestionService {
           categoryId,
         };
 
-        const createdItem = await runTransaction(async (tx) => {
-          const questionData = QuestionMapper.toCreateEntity(questionPayload, userId, companyId);
-          const optionsData = QuestionMapper.toOptionEntities(options);
-          return questionRepository.create(tx, questionData, optionsData, resolvedTagIds);
+        const questionData = QuestionMapper.toCreateEntity(questionPayload, userId, companyId);
+        const optionsData = QuestionMapper.toOptionEntities(options);
+
+        // Fast atomic insert with lean select
+        const createdItem = await questionRepository.createLean(
+          prisma,
+          questionData,
+          optionsData,
+          resolvedTagIds
+        );
+
+        created.push({
+          id: createdItem.id,
+          title: createdItem.title,
+          status: createdItem.status,
+          type: createdItem.type,
+          difficulty: createdItem.difficulty,
         });
 
-        created.push(QuestionDto.toResponse(createdItem));
         existingTitleSet.add(titleLower);
       } catch (err) {
         logger.error({ err, title: rawTitle }, "Error importing single question in bulk");
