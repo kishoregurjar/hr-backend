@@ -111,10 +111,20 @@ async function syncMailboxNow(req, res, next) {
         throw error;
       }
       
-      // Ensure we use the string format YYYY-MM-DD
+      // Ensure To Date is inclusive (end of the calendar day)
+      const toInclusive = new Date(to);
+      toInclusive.setUTCHours(23, 59, 59, 999);
+
+      // Check if To Date is in the future relative to now
+      const isFutureDateSync = toInclusive.getTime() > Date.now();
+
+      // Ensure we use the string format YYYY-MM-DD for Gmail query logic
       dateRangeOptions = {
         fromDate: from.toISOString().split("T")[0],
-        toDate: to.toISOString().split("T")[0]
+        toDate: to.toISOString().split("T")[0],
+        isFutureDateSync,
+        dateRangeSyncFrom: from,
+        dateRangeSyncTo: toInclusive
       };
     }
 
@@ -144,10 +154,25 @@ async function disconnectMailbox(req, res, next) {
   }
 }
 
+async function stopAutomaticSync(req, res, next) {
+  try {
+    const user = getAuthenticatedUser(req);
+    const result = await service.stopAutomaticSync(user.id);
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   connectGoogleMailbox,
   handleGoogleCallback,
   getMailboxStatus,
   syncMailboxNow,
   disconnectMailbox,
+  stopAutomaticSync,
 };

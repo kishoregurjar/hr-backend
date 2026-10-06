@@ -208,6 +208,18 @@ async function createJobApplication(data, db = prisma) {
   });
 }
 
+async function updateJobApplication(id, data, db = prisma) {
+  return db.jobApplication.update({
+    where: { id },
+    data,
+    include: {
+      job: true,
+      candidate: true,
+      resumeProcessing: true,
+    },
+  });
+}
+
 async function findJobApplicationById(id, db = prisma) {
   if (!id) return null;
 
@@ -343,6 +355,7 @@ function createResumeRepository(options = {}) {
     ensureCandidateProfile: (user, extractedData, companyId, tx) => ensureCandidateProfile(user, extractedData, companyId, tx || db),
     findJobApplication: (jobId, candidateId, tx) => findJobApplication(jobId, candidateId, tx || db),
     createJobApplication: (data, tx) => createJobApplication(data, tx || db),
+    updateJobApplication: (id, data, tx) => updateJobApplication(id, data, tx || db),
     findJobApplicationById: (id, tx) => findJobApplicationById(id, tx || db),
     createInboundEmailEvent: (data, tx) => createInboundEmailEvent(data, tx || db),
     updateInboundEmailEvent: (id, data, tx) => updateInboundEmailEvent(id, data, tx || db),
@@ -368,6 +381,7 @@ module.exports = {
   ensureCandidateProfile,
   findJobApplication,
   createJobApplication,
+  updateJobApplication,
   findJobApplicationById,
   createInboundEmailEvent,
   updateInboundEmailEvent,

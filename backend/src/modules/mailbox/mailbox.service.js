@@ -119,6 +119,10 @@ async function getMailboxStatus(userId) {
     isSyncActive: mailbox.isSyncActive,
     lastSyncedAt: mailbox.lastSyncedAt,
     lastError: mailbox.lastError,
+    dateRangeSyncEnabled: mailbox.dateRangeSyncEnabled,
+    dateRangeSyncFrom: mailbox.dateRangeSyncFrom,
+    dateRangeSyncTo: mailbox.dateRangeSyncTo,
+    dateRangeLastSyncedAt: mailbox.dateRangeLastSyncedAt,
   };
 }
 
@@ -387,6 +391,7 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange
                     companyId: userCompanyId,
                     emailSubject: subject,
                     emailBody: finalEmailBody,
+                    providerMessageId: msg.id,
                   });
 
                   if (!resumeResult?.duplicate) {
@@ -449,8 +454,6 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange
       }
     }
 
-    const syncStatusUpdate = { lastError: null };
-    
     const fullyExhausted = !syncAborted && !pageToken;
     const existingLastSynced = mailbox.lastSyncedAt ? mailbox.lastSyncedAt.getTime() : 0;
     
@@ -473,6 +476,17 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange
       }
 
       await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
+    } else if (
+      customDateRange?.isCronDateRangeSync ||
+      customDateRange?.isFutureDateSync
+    ) {
+      if (maxInternalDate) {
+        const existingDateRangeLastSynced = mailbox.dateRangeLastSyncedAt ? mailbox.dateRangeLastSyncedAt.getTime() : 0;
+        const newDateRangeLastSynced = new Date(Math.max(existingDateRangeLastSynced, maxInternalDate));
+        await repository.updateMailboxSyncStatus(userId, {
+          dateRangeLastSyncedAt: newDateRangeLastSynced
+        });
+      }
     }
 
     console.info(`[MailboxSync] Sync completed for ${mailbox.email}. Total new resumes ingested: ${processedCount}`);
@@ -534,6 +548,16 @@ async function disconnectMailbox(userId) {
   return { success: true };
 }
 
+async function stopAutomaticSync(userId) {
+  const mailbox = await repository.findMailboxByUserId(userId);
+  if (!mailbox) {
+    return { success: true };
+  }
+
+  await repository.updateMailboxSyncStatus(userId, { dateRangeSyncEnabled: false });
+  return { success: true };
+}
+
 function startBackgroundSync(userId, dateRangeOptions = null) {
   if (isSyncInProgress(userId)) {
     return;
@@ -541,6 +565,15 @@ function startBackgroundSync(userId, dateRangeOptions = null) {
 
   (async () => {
     try {
+      if (dateRangeOptions?.isFutureDateSync) {
+        await repository.updateMailboxSyncStatus(userId, {
+          dateRangeSyncEnabled: true,
+          dateRangeSyncFrom: dateRangeOptions.dateRangeSyncFrom,
+          dateRangeSyncTo: dateRangeOptions.dateRangeSyncTo,
+          dateRangeLastSyncedAt: dateRangeOptions.dateRangeSyncFrom
+        });
+      }
+
       let isFirstRun = true;
       let dateRangePageToken = null;
       
@@ -586,6 +619,7 @@ module.exports = {
   getMailboxStatus,
   syncMailboxForUser,
   disconnectMailbox,
+  stopAutomaticSync,
   isSyncInProgress,
   startBackgroundSync,
 };

@@ -27,10 +27,6 @@ const runMailboxSyncJob = async () => {
 };
 
 const startMailboxSyncJob = () => {
-  // TEMPORARILY DISABLED FOR TESTING
-  // Remove this early return to re-enable the automatic background sync.
-  return;
-
   if (timer) {
     return;
   }
