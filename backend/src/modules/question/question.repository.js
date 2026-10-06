@@ -181,6 +181,61 @@ class QuestionRepository {
     });
   }
 
+  async createLean(tx, questionData, optionsData = [], tagIds = [], categoryIds = []) {
+    const db = getClient(tx);
+
+    const {
+      description,
+      marks: _marks,
+      negativeMarks: _negMarks,
+      estimatedTime: _estTime,
+      shuffleOptions: _shuffle,
+      categoryId,
+      updatedById: _uById,
+      ...restData
+    } = questionData || {};
+
+    const content = restData.content || description || restData.title || "";
+    const cleanCategoryIds = Array.isArray(categoryIds) && categoryIds.length > 0
+      ? categoryIds
+      : (categoryId ? [categoryId] : []);
+
+    return db.question.create({
+      data: {
+        ...restData,
+        status: "DRAFT",
+        content,
+        ...(optionsData.length > 0 && {
+          options: {
+            create: optionsData.map(({ questionId: _qId, ...opt }) => opt),
+          },
+        }),
+        ...(tagIds.length > 0 && {
+          tags: {
+            create: tagIds.map((tagId) => ({
+              tag: { connect: { id: tagId } },
+            })),
+          },
+        }),
+        ...(cleanCategoryIds.length > 0 && {
+          categories: {
+            create: cleanCategoryIds.map((catId) => ({
+              category: { connect: { id: catId } },
+            })),
+          },
+        }),
+      },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        difficulty: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+  }
+
   async update(tx, id, questionData, optionsData = null, tagIds = null, categoryIds = null) {
     const db = getClient(tx);
 
