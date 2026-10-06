@@ -606,12 +606,35 @@ class AttemptService {
     const testLink = `${clientUrl}/take-test?token=${result.rawToken}`;
     let emailSent = false;
 
+    // Resolve hiring company name for invitation email
+    let invitationCompanyName = null;
+    if (result.candidateProfile?.companyId) {
+      try {
+        const comp = await prisma.company.findUnique({
+          where: { id: result.candidateProfile.companyId },
+          select: { name: true },
+        });
+        invitationCompanyName = comp?.name || null;
+      } catch (_) {}
+    }
+    if (!invitationCompanyName && result.assessment?.createdById) {
+      try {
+        const creatorMember = await prisma.companyMember.findFirst({
+          where: { userId: result.assessment.createdById },
+          select: { company: { select: { name: true } } },
+        });
+        invitationCompanyName = creatorMember?.company?.name || null;
+      } catch (_) {}
+    }
+    const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
+
     try {
       const emailContent = buildInvitationEmail({
         candidateName: `${result.candidateProfile.firstName} ${result.candidateProfile.lastName}`.trim(),
         assessmentTitle: result.assessment.title,
         testLink,
         expiresAt: result.effectiveExpiresAt,
+        companyName: effectiveInvitationCompanyName,
       });
 
       await sendEmail({
@@ -884,6 +907,27 @@ class AttemptService {
 
     // Automated Email Dispatch for Bulk Invitations
     const clientUrl = env.frontend.url;
+    let bulkCompanyName = null;
+    if (invitedByUserId) {
+      try {
+        const hrMember = await prisma.companyMember.findFirst({
+          where: { userId: invitedByUserId },
+          select: { company: { select: { name: true } } },
+        });
+        bulkCompanyName = hrMember?.company?.name || null;
+      } catch (_) {}
+    }
+    if (!bulkCompanyName && assessment.createdById) {
+      try {
+        const creatorMember = await prisma.companyMember.findFirst({
+          where: { userId: assessment.createdById },
+          select: { company: { select: { name: true } } },
+        });
+        bulkCompanyName = creatorMember?.company?.name || null;
+      } catch (_) {}
+    }
+    const effectiveBulkCompanyName = bulkCompanyName || "HireQuest";
+
     for (const job of emailJobs) {
       try {
         const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
@@ -895,6 +939,7 @@ class AttemptService {
           assessmentTitle: assessment.title,
           testLink,
           expiresAt: job.expiresAt,
+          companyName: effectiveBulkCompanyName,
         });
 
         await sendEmail({
@@ -2641,16 +2686,62 @@ class AttemptService {
       tx
     );
 
-    // 6. Send email (using emailService or default sendEmail with Brevo transport)
+    // 6. Resolve hiring company name dynamically
+    let otpCompanyName =
+      invitation.candidate?.company?.name ||
+      invitation.assessment?.createdBy?.companyMembers?.[0]?.company?.name ||
+      null;
+
+    const dbClient = tx || prisma;
+    if (!otpCompanyName && invitation.assessment?.createdById) {
+      try {
+        const creatorMember = await dbClient.companyMember.findFirst({
+          where: { userId: invitation.assessment.createdById },
+          select: { company: { select: { name: true } } },
+        });
+        if (creatorMember?.company?.name) {
+          otpCompanyName = creatorMember.company.name;
+        }
+      } catch (_) {}
+    }
+
+    if (!otpCompanyName && invitation.assessmentId) {
+      try {
+        const assmt = await dbClient.assessment.findUnique({
+          where: { id: invitation.assessmentId },
+          select: {
+            createdBy: {
+              select: {
+                companyMembers: {
+                  select: {
+                    company: { select: { name: true } },
+                  },
+                },
+              },
+            },
+          },
+        });
+        otpCompanyName = assmt?.createdBy?.companyMembers?.[0]?.company?.name || null;
+      } catch (_) {}
+    }
+
+    const effectiveOtpCompanyName = otpCompanyName || "HireQuest";
+
+    // 7. Send email (using emailService or default sendEmail with Brevo transport)
     try {
       if (emailService && typeof emailService.sendCandidateOtp === "function") {
         await emailService.sendCandidateOtp({
           email: normalizedEmail,
           otp,
           expiresAt,
+          companyName: effectiveOtpCompanyName,
         });
       } else {
-        const emailContent = buildCandidateOtpEmail({ otp, expiresAt });
+        const emailContent = buildCandidateOtpEmail({
+          otp,
+          expiresAt,
+          companyName: effectiveOtpCompanyName,
+        });
         await sendEmail({
           to: normalizedEmail,
           subject: emailContent.subject,

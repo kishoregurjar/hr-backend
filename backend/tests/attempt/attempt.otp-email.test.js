@@ -7,7 +7,7 @@ const { buildCandidateOtpEmail } = require("../../src/modules/attempt/attempt.em
 const { sendEmail, verifyEmailTransport, getTransporter } = require("../../src/utils/email");
 
 describe("Candidate OTP Email Delivery & Template Suite", () => {
-  it("should build candidate OTP email with subject, text, and HTML", () => {
+  it("should build candidate OTP email with default HireQuest branding", () => {
     const expiresAt = new Date("2026-08-25T12:00:00.000Z");
     const content = buildCandidateOtpEmail({ otp: "849201", expiresAt });
 
@@ -15,6 +15,17 @@ describe("Candidate OTP Email Delivery & Template Suite", () => {
     assert.match(content.text, /849201/);
     assert.match(content.html, /849201/);
     assert.match(content.html, /HireQuest Assessment Verification/);
+  });
+
+  it("should build candidate OTP email with dynamic company name when provided", () => {
+    const expiresAt = new Date("2026-08-25T12:00:00.000Z");
+    const content = buildCandidateOtpEmail({ otp: "849201", expiresAt, companyName: "Microsoft" });
+
+    assert.equal(content.subject, "Microsoft Assessment Verification Code");
+    assert.match(content.text, /849201/);
+    assert.match(content.text, /Your Microsoft verification code is 849201/);
+    assert.match(content.html, /Microsoft Assessment Verification/);
+    assert.match(content.html, /for your Microsoft assessment is/);
   });
 
   it("should expose email utility functions", () => {
