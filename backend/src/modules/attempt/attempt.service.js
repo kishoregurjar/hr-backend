@@ -3450,49 +3450,6 @@ class AttemptService {
         );
       }
 
-      // Persist candidate responses into CandidateAnswer table before evaluation
-      if (responses && typeof responses === "object" && Object.keys(responses).length > 0 && tx.candidateAnswer) {
-        for (const [qId, ans] of Object.entries(responses)) {
-          if (!ans) continue;
-          const selectedOptionIds = Array.isArray(ans)
-            ? ans
-            : (typeof ans === "string" ? [ans] : (ans?.selectedOptionIds || (ans?.selectedOptionId ? [ans.selectedOptionId] : [])));
-          const answerText = typeof ans === "string" ? ans : (ans?.answerText || null);
-
-          try {
-            await tx.candidateAnswer.upsert({
-              where: {
-                attemptId_questionId: {
-                  attemptId: lockedAttempt.id,
-                  questionId: qId,
-                },
-              },
-              create: {
-                attemptId: lockedAttempt.id,
-                questionId: qId,
-                selectedOptionIds,
-                answerText,
-              },
-              update: {
-                selectedOptionIds,
-                answerText,
-              },
-            });
-          } catch (_ansErr) {
-            try {
-              await tx.candidateAnswer.create({
-                data: {
-                  attemptId: lockedAttempt.id,
-                  questionId: qId,
-                  selectedOptionIds,
-                  answerText,
-                },
-              });
-            } catch (_ignore) {}
-          }
-        }
-      }
-
       const attempt = await attemptRepository.findAttemptForEvaluation(lockedAttempt.id, tx);
       if (!attempt) {
         throw new NotFoundError(
@@ -3510,6 +3467,61 @@ class AttemptService {
       const questionsList = Array.isArray(attempt.attemptQuestions)
         ? attempt.attemptQuestions
         : (Array.isArray(attempt.questions) ? attempt.questions : []);
+
+      // Safely persist any candidate responses that arrived in submission payload
+      if (responses && typeof responses === "object" && tx.candidateAnswer) {
+        // Flatten nested section responses (e.g. { "technical-quiz": { "qId": "optId" } } -> { "qId": "optId" })
+        const flatResponses = new Map();
+        for (const [key, val] of Object.entries(responses)) {
+          if (!val) continue;
+          if (typeof val === "object" && !Array.isArray(val) && !val.selectedOptionIds && !val.selectedOptionId && !val.answerText) {
+            for (const [subQId, subVal] of Object.entries(val)) {
+              if (subVal) flatResponses.set(subQId, subVal);
+            }
+          } else {
+            flatResponses.set(key, val);
+          }
+        }
+
+        // Only persist for questions that genuinely exist in this assessment attempt
+        for (const aq of questionsList) {
+          const qId = aq.questionId || aq.question?.id;
+          if (!qId || !flatResponses.has(qId)) continue;
+
+          const ans = flatResponses.get(qId);
+          const selectedOptionIds = Array.isArray(ans)
+            ? ans
+            : (typeof ans === "string" ? [ans] : (ans?.selectedOptionIds || (ans?.selectedOptionId ? [ans.selectedOptionId] : [])));
+          const answerText = typeof ans === "string" ? ans : (ans?.answerText || null);
+
+          try {
+            const savedAns = await tx.candidateAnswer.upsert({
+              where: {
+                attemptId_questionId: {
+                  attemptId: lockedAttempt.id,
+                  questionId: qId,
+                },
+              },
+              create: {
+                attemptId: lockedAttempt.id,
+                questionId: qId,
+                selectedOptionIds,
+                answerText,
+              },
+              update: {
+                selectedOptionIds,
+                answerText,
+              },
+            });
+
+            if (savedAns) {
+              aq.answers = [savedAns];
+            }
+          } catch (_err) {
+            // Safe guard against any transient error
+          }
+        }
+      }
 
       const evaluations = questionsList.map((attemptQuestion) => {
         const evalResult = this.evaluateAttemptQuestion({ attemptQuestion });
