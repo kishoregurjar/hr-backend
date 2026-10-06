@@ -138,7 +138,9 @@ function parseSender(senderStr) {
 
 const activeMailboxSyncs = new Set();
 
-async function syncMailboxForUser(userId, maxDurationMs = 20000) {
+const isSyncInProgress = (userId) => activeMailboxSyncs.has(userId);
+
+async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange = null) {
   if (activeMailboxSyncs.has(userId)) {
     throw conflict(
       "Mailbox sync is already in progress for your account. Please wait a moment.",
@@ -171,7 +173,20 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000) {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
     let processedCount = 0;
-    let pageToken = mailbox.backfillComplete ? null : (mailbox.backfillPageToken || null);
+    let pageToken = null;
+    let isCustomDateRange = !!customDateRange;
+
+    if (isCustomDateRange) {
+      pageToken = customDateRange.pageToken || null;
+    } else {
+      pageToken = mailbox.backfillComplete ? null : (mailbox.backfillPageToken || null);
+      if (pageToken && !pageToken.startsWith("v2:")) {
+        pageToken = null; // Discard stale token from old query version
+      } else if (pageToken) {
+        pageToken = pageToken.replace("v2:", "");
+      }
+    }
+    
     let keepFetching = true;
     let pagesScanned = 0;
     let maxInternalDate = null;
@@ -179,9 +194,11 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000) {
     const MAX_PAGES_PER_SYNC = 5;
     const startTime = Date.now();
     let hitTimeCap = false;
+    let syncAborted = false;
 
     const shouldContinueFetching = () => {
       if (!keepFetching) return false;
+      if (isCustomDateRange) return true;
       if (mailbox.backfillComplete) {
         return processedCount < MAX_NEW_RESUMES_PER_BATCH && pagesScanned < MAX_PAGES_PER_SYNC;
       }
@@ -191,12 +208,23 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000) {
     while (shouldContinueFetching()) {
       if (Date.now() - startTime >= maxDurationMs) {
         hitTimeCap = true;
+        syncAborted = true;
         break;
       }
 
       pagesScanned++;
-      let queryStr = "has:attachment (filename:pdf OR filename:docx OR filename:doc)";
-      if (mailbox.backfillComplete && mailbox.lastSyncedAt) {
+      let queryStr = "has:attachment (filename:pdf OR filename:docx OR filename:doc) -from:me";
+      if (isCustomDateRange) {
+        const fromDateObj = new Date(customDateRange.fromDate);
+        fromDateObj.setDate(fromDateObj.getDate() - 1);
+        const fromStr = fromDateObj.toISOString().split("T")[0].replace(/-/g, "/");
+        
+        const toDateObj = new Date(customDateRange.toDate);
+        toDateObj.setDate(toDateObj.getDate() + 1);
+        const toStr = toDateObj.toISOString().split("T")[0].replace(/-/g, "/");
+        
+        queryStr += ` after:${fromStr} before:${toStr}`;
+      } else if (mailbox.backfillComplete && mailbox.lastSyncedAt) {
         const epoch = Math.floor(mailbox.lastSyncedAt.getTime() / 1000) - 1;
         queryStr += ` after:${epoch}`;
       }
@@ -230,10 +258,22 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000) {
           .map((e) => e.providerMessageId)
       );
 
+      let abortedMidPage = false;
+
       for (const msg of messages) {
         try {
-          if (mailbox.backfillComplete && processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
+          if (Date.now() - startTime >= maxDurationMs) {
             keepFetching = false;
+            hitTimeCap = true;
+            abortedMidPage = true;
+            syncAborted = true;
+            break;
+          }
+
+          if (!isCustomDateRange && mailbox.backfillComplete && processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
+            keepFetching = false;
+            abortedMidPage = true;
+            syncAborted = true;
             break;
           }
 
@@ -399,6 +439,10 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000) {
         }
       }
 
+      if (abortedMidPage) {
+        break;
+      }
+
       pageToken = res.data.nextPageToken || null;
       if (!pageToken) {
         break;
@@ -407,23 +451,29 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000) {
 
     const syncStatusUpdate = { lastError: null };
     
+    const fullyExhausted = !syncAborted && !pageToken;
     const existingLastSynced = mailbox.lastSyncedAt ? mailbox.lastSyncedAt.getTime() : 0;
-    if (maxInternalDate) {
-      syncStatusUpdate.lastSyncedAt = new Date(Math.max(existingLastSynced, maxInternalDate));
-    } else if (!mailbox.lastSyncedAt) {
-      syncStatusUpdate.lastSyncedAt = new Date();
-    }
-
-    if (!mailbox.backfillComplete) {
-      if (pageToken) {
-        syncStatusUpdate.backfillPageToken = pageToken;
-      } else {
-        syncStatusUpdate.backfillComplete = true;
-        syncStatusUpdate.backfillPageToken = null;
+    
+    if (!isCustomDateRange) {
+      const syncStatusUpdate = { lastError: null };
+      
+      if (maxInternalDate && (fullyExhausted || !mailbox.backfillComplete)) {
+        syncStatusUpdate.lastSyncedAt = new Date(Math.max(existingLastSynced, maxInternalDate));
+      } else if (!mailbox.lastSyncedAt) {
+        syncStatusUpdate.lastSyncedAt = new Date();
       }
-    }
 
-    await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
+      if (!mailbox.backfillComplete) {
+        if (pageToken) {
+          syncStatusUpdate.backfillPageToken = "v2:" + pageToken;
+        } else {
+          syncStatusUpdate.backfillComplete = true;
+          syncStatusUpdate.backfillPageToken = null;
+        }
+      }
+
+      await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
+    }
 
     console.info(`[MailboxSync] Sync completed for ${mailbox.email}. Total new resumes ingested: ${processedCount}`);
 
@@ -431,6 +481,7 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000) {
       success: true,
       processedResumes: processedCount,
       syncedAt: new Date(),
+      nextPageToken: isCustomDateRange ? pageToken : undefined,
     };
   } catch (error) {
     const errorMessage = error.message || "Failed to sync Gmail inbox";
@@ -483,10 +534,58 @@ async function disconnectMailbox(userId) {
   return { success: true };
 }
 
+function startBackgroundSync(userId, dateRangeOptions = null) {
+  if (isSyncInProgress(userId)) {
+    return;
+  }
+
+  (async () => {
+    try {
+      let isFirstRun = true;
+      let dateRangePageToken = null;
+      
+      while (true) {
+        const mailbox = await repository.findMailboxByUserId(userId);
+        if (!dateRangeOptions && (!mailbox || (!isFirstRun && mailbox.backfillComplete))) {
+          break;
+        }
+        isFirstRun = false;
+
+        const optionsToPass = dateRangeOptions 
+          ? { ...dateRangeOptions, pageToken: dateRangePageToken }
+          : null;
+
+        const syncRes = await syncMailboxForUser(userId, 180000, optionsToPass);
+
+        if (dateRangeOptions) {
+          dateRangePageToken = syncRes.nextPageToken || null;
+          if (!dateRangePageToken) {
+            break;
+          }
+        } else {
+          const updatedMailbox = await repository.findMailboxByUserId(userId);
+          if (!updatedMailbox || updatedMailbox.backfillComplete) {
+            break;
+          }
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      if (error?.code === "MAILBOX_SYNC_IN_PROGRESS") {
+        return;
+      }
+      console.error(`[MailboxSync] Background sync failed for user ${userId}:`, error.message);
+    }
+  })();
+}
+
 module.exports = {
   getAuthUrl,
   handleCallback,
   getMailboxStatus,
   syncMailboxForUser,
   disconnectMailbox,
+  isSyncInProgress,
+  startBackgroundSync,
 };
