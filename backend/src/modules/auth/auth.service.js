@@ -158,6 +158,15 @@ class AuthService {
       throw new UnauthorizedError("Invalid email or password.", "INVALID_CREDENTIALS");
     }
 
+    const companies = await this.getUserCompanies(user.id);
+
+    if (companies.length > 0 && companies.every(c => c.status === "SUSPENDED")) {
+      const error = new Error("Your company account has been suspended.");
+      error.statusCode = 403;
+      error.code = "COMPANY_SUSPENDED";
+      throw error;
+    }
+
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
@@ -169,8 +178,6 @@ class AuthService {
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });
     });
-
-    const companies = await this.getUserCompanies(user.id);
 
     return {
       message: "Login successful.",
@@ -218,6 +225,14 @@ class AuthService {
       payload.tokenVersion < user.tokenVersion
     ) {
       throw new UnauthorizedError("Refresh token has been revoked.", "TOKEN_REVOKED");
+    }
+
+    const companies = await this.getUserCompanies(user.id);
+    if (companies.length > 0 && companies.every(c => c.status === "SUSPENDED")) {
+      const error = new Error("Your company account has been suspended.");
+      error.statusCode = 403;
+      error.code = "COMPANY_SUSPENDED";
+      throw error;
     }
 
     const newAccessToken = generateAccessToken(user);

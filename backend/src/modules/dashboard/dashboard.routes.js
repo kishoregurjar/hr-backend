@@ -6,6 +6,7 @@ const router = express.Router();
 const requireAuth = require("../../middleware/requireAuth");
 const requireRole = require("../../middleware/requireRole");
 const { AUTH_ROLES } = require("../auth/auth.constants");
+const { companyContext } = require("../company/company.context.middleware");
 const dashboardController = require("./dashboard.controller");
 
 /**
@@ -16,6 +17,7 @@ const dashboardController = require("./dashboard.controller");
 router.get(
   "/overview",
   requireAuth,
+  companyContext,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   dashboardController.getOverview
 );
