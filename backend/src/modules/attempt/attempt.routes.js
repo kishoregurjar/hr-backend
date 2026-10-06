@@ -5,6 +5,7 @@ const validateRequest = require("../../middleware/validate.middleware");
 const requireAuth = require("../../middleware/requireAuth");
 const requireRole = require("../../middleware/requireRole");
 const { AUTH_ROLES } = require("../auth/auth.constants");
+const { companyContext } = require("../company/company.context.middleware");
 const {
   otpSendRateLimiter,
   otpVerifyRateLimiter,
@@ -159,6 +160,7 @@ router.get(
   ["/", "/candidates", "/invitations"],
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   (req, res, next) => {
     const urlPath = (req.originalUrl || req.baseUrl || "").toLowerCase();
     if (urlPath.includes("/candidates")) {
@@ -176,6 +178,7 @@ router.get(
   "/assessments/:assessmentId/results",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest(assessmentIdParamSchema, "params"),
   validateRequest(assessmentResultsQuerySchema, "query"),
   attemptController.getAssessmentResults
@@ -189,6 +192,7 @@ router.get(
   "/assessments/:assessmentId/analytics",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest(assessmentIdParamSchema, "params"),
   validateRequest(assessmentAnalyticsQuerySchema, "query"),
   attemptController.getAssessmentAnalytics
@@ -202,6 +206,7 @@ router.get(
   "/assessments/:assessmentId/results/:attemptId",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest(attemptResultParamsSchema, "params"),
   attemptController.getAttemptResultDetail
 );
@@ -214,6 +219,7 @@ router.post(
   "/assessments/:assessmentId/invitations",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   attemptController.createInvitation
 );
 
@@ -225,6 +231,7 @@ router.post(
   "/assessments/:assessmentId/invitations/bulk",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest({ body: createBulkInvitationSchema }),
   attemptController.createBulkInvitations
 );
@@ -237,6 +244,7 @@ router.post(
   "/invitations/bulk",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest({ body: createBulkInvitationSchema }),
   attemptController.createBulkInvitations
 );
@@ -250,6 +258,7 @@ router.post(
   ["/", "/candidates", "/invitations"],
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   (req, res, next) => {
     const urlPath = (req.originalUrl || req.baseUrl || "").toLowerCase();
     if (urlPath.includes("/candidates")) {
@@ -269,6 +278,7 @@ router.post(
   adminRateLimiter,
   requireAuth,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   (req, res) => {
     return res.status(200).json({
       success: true,
@@ -289,6 +299,7 @@ router.post(
   "/:attemptId/evaluate-answer",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest(attemptIdParamSchema, "params"),
   validateRequest({ body: evaluateAttemptAnswerSchema }),
   attemptController.evaluateAnswer
@@ -319,6 +330,7 @@ router.get(
   "/:attemptId/audit-logs",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest(attemptIdParamSchema, "params"),
   attemptAuditController.getAttemptAuditLogs
 );
@@ -331,6 +343,7 @@ router.get(
   "/:attemptId",
   adminRateLimiter,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   validateRequest(attemptIdParamSchema, "params"),
   attemptController.getHRAttemptDetail
 );
@@ -344,6 +357,7 @@ router.post(
   adminRateLimiter,
   requireAuth,
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
   attemptController.sendInterviewInvite
 );
 

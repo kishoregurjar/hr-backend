@@ -14,7 +14,10 @@ const {
   questionQuerySchema,
 } = require("./question.validator");
 
+const { companyContext } = require("../company/company.context.middleware");
+
 router.use(requireAuth);
+router.use(companyContext);
 
 router.get(
   "/",
