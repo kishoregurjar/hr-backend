@@ -146,6 +146,7 @@ const consumeActivation = async (token, newPassword) => {
           id: true,
           email: true,
           name: true,
+          role: true,
           status: true,
         },
       });
