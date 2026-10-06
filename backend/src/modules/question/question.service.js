@@ -263,30 +263,25 @@ class QuestionService {
       );
     }
 
-    // 4. Pre-fetch existing question titles in 1 batch query
-    const titlesToCheck = questionsList
-      .map((item) => QuestionMapper.normalizeTitle(item.title || item.question || ""))
-      .filter((t) => t && t.length >= 5);
-
+    // 4. Pre-fetch existing question titles in 1 batch query (Case-Insensitive & Space-Resilient)
     const existingQuestions = await prisma.question.findMany({
       where: {
-        title: { in: titlesToCheck },
         ...(companyId ? { OR: [{ companyId }, { companyId: null }] } : {}),
       },
       select: { title: true },
     });
 
     const existingTitleSet = new Set(
-      existingQuestions.map((q) => q.title.toLowerCase().trim())
+      existingQuestions.map((q) => QuestionMapper.normalizeTitle(q.title)).filter(Boolean)
     );
 
     // 5. Ingest questions with in-memory resolution & lean atomic database writes
     for (let i = 0; i < questionsList.length; i++) {
       const item = questionsList[i];
       const rawTitle = item.title || item.question || "";
-      const title = QuestionMapper.normalizeTitle(rawTitle);
+      const normalizedTitle = QuestionMapper.normalizeTitle(rawTitle);
 
-      if (!title || title.length < 5) {
+      if (!normalizedTitle || normalizedTitle.length < 5) {
         errors.push({
           index: i,
           title: rawTitle || `Row #${i + 1}`,
@@ -295,9 +290,8 @@ class QuestionService {
         continue;
       }
 
-      // Check duplicate in-memory (0 DB round trips)
-      const titleLower = title.toLowerCase().trim();
-      if (existingTitleSet.has(titleLower)) {
+      // Check duplicate in-memory (0 DB round trips, 100% Case-Insensitive)
+      if (existingTitleSet.has(normalizedTitle)) {
         skipped.push({
           index: i,
           title: rawTitle,
@@ -416,7 +410,7 @@ class QuestionService {
           difficulty: createdItem.difficulty,
         });
 
-        existingTitleSet.add(titleLower);
+        existingTitleSet.add(normalizedTitle);
       } catch (err) {
         logger.error({ err, title: rawTitle }, "Error importing single question in bulk");
         errors.push({
