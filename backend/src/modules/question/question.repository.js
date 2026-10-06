@@ -207,21 +207,23 @@ class QuestionRepository {
         content,
         ...(optionsData.length > 0 && {
           options: {
-            create: optionsData.map(({ questionId: _qId, ...opt }) => opt),
+            createMany: {
+              data: optionsData.map(({ questionId: _qId, ...opt }) => opt),
+            },
           },
         }),
         ...(tagIds.length > 0 && {
           tags: {
-            create: tagIds.map((tagId) => ({
-              tag: { connect: { id: tagId } },
-            })),
+            createMany: {
+              data: tagIds.map((tagId) => ({ tagId })),
+            },
           },
         }),
         ...(cleanCategoryIds.length > 0 && {
           categories: {
-            create: cleanCategoryIds.map((catId) => ({
-              category: { connect: { id: catId } },
-            })),
+            createMany: {
+              data: cleanCategoryIds.map((catId) => ({ categoryId: catId })),
+            },
           },
         }),
       },
