@@ -1477,6 +1477,104 @@ class AssessmentService {
       data: AssessmentDto.toResponse(duplicatedAssessment),
     };
   }
+
+  /**
+   * Delete Single Assessment Permanently (Hard Delete)
+   */
+  async deleteAssessment(assessmentId, userId, companyId = null) {
+    const assessment = await assessmentRepository.findById(assessmentId, { detailed: false });
+    if (!assessment) {
+      throw new NotFoundError(
+        "Assessment not found.",
+        ASSESSMENT_ERRORS.NOT_FOUND || "ASSESSMENT_NOT_FOUND"
+      );
+    }
+
+    await runTransaction(async (tx) => {
+      await assessmentRepository.hardDeleteManyCascade(tx, [assessmentId]);
+    });
+
+    return {
+      message: "Assessment permanently deleted successfully.",
+      data: { id: assessmentId },
+    };
+  }
+
+  /**
+   * Bulk Delete Selected Assessments Permanently (Hard Delete)
+   */
+  async bulkDeleteAssessments(ids = [], userId, companyId = null) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestError(
+        "No assessment IDs provided for deletion.",
+        "INVALID_BULK_DELETE"
+      );
+    }
+
+    const assessments = await prisma.assessment.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+
+    if (assessments.length === 0) {
+      return {
+        message: "No matching assessments found to delete.",
+        count: 0,
+        deletedCount: 0,
+      };
+    }
+
+    const assessmentIds = assessments.map((a) => a.id);
+
+    const deletedCount = await runTransaction(async (tx) => {
+      return assessmentRepository.hardDeleteManyCascade(tx, assessmentIds);
+    });
+
+    return {
+      message: deletedCount === 1
+        ? "1 assessment deleted permanently."
+        : `${deletedCount} assessments deleted permanently.`,
+      count: deletedCount,
+      deletedCount,
+    };
+  }
+
+  /**
+   * Delete All Assessments Permanently (Hard Delete for Company / User Scope)
+   */
+  async deleteAllAssessments(userId, companyId = null) {
+    const where = {};
+    if (companyId) {
+      where.OR = [
+        {
+          createdBy: {
+            companyMembers: {
+              some: { companyId },
+            },
+          },
+        },
+        { createdById: userId },
+      ];
+    } else if (userId) {
+      where.createdById = userId;
+    }
+
+    const all = await prisma.assessment.findMany({
+      where,
+      select: { id: true },
+    });
+
+    const ids = all.map((a) => a.id);
+    if (!ids.length) {
+      return {
+        message: "No assessments found to delete.",
+        count: 0,
+        deletedCount: 0,
+      };
+    }
+
+    return this.bulkDeleteAssessments(ids, userId, companyId);
+  }
 }
 
 module.exports = new AssessmentService();

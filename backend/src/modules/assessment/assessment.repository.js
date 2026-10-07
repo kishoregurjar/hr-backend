@@ -589,6 +589,73 @@ class AssessmentRepository {
       },
     });
   }
+
+  /**
+   * Hard Delete Assessments with Full Relational Cascade (Permanent DB deletion)
+   */
+  async hardDeleteManyCascade(tx, assessmentIds = []) {
+    if (!Array.isArray(assessmentIds) || assessmentIds.length === 0) return 0;
+    const db = getClient(tx);
+
+    // 1. Clear Attempt Audit Logs where assessmentId is linked
+    await db.attemptAuditLog.updateMany({
+      where: { assessmentId: { in: assessmentIds } },
+      data: { assessmentId: null },
+    });
+
+    // 2. Clear Candidate Verification Sessions
+    await db.candidateVerificationSession.deleteMany({
+      where: { assessmentId: { in: assessmentIds } },
+    });
+
+    // 3. Find and cascade candidate attempts
+    const attempts = await db.candidateAttempt.findMany({
+      where: { assessmentId: { in: assessmentIds } },
+      select: { id: true },
+    });
+    const attemptIds = attempts.map((a) => a.id);
+
+    if (attemptIds.length > 0) {
+      await db.candidateAnswer.deleteMany({
+        where: { attemptId: { in: attemptIds } },
+      });
+      await db.attemptQuestion.deleteMany({
+        where: { attemptId: { in: attemptIds } },
+      });
+      await db.gameAttempt.deleteMany({
+        where: { candidateAssessmentId: { in: attemptIds } },
+      });
+      await db.gameResult.deleteMany({
+        where: { candidateAssessmentId: { in: attemptIds } },
+      });
+      await db.assessmentResult.deleteMany({
+        where: { candidateAssessmentId: { in: attemptIds } },
+      });
+      await db.candidateAttempt.deleteMany({
+        where: { id: { in: attemptIds } },
+      });
+    }
+
+    // 4. Delete candidate invitations
+    await db.invitation.deleteMany({
+      where: { assessmentId: { in: assessmentIds } },
+    });
+
+    // 5. Delete Assessment Questions & Assessment Games
+    await db.assessmentQuestion.deleteMany({
+      where: { assessmentId: { in: assessmentIds } },
+    });
+    await db.assessmentGame.deleteMany({
+      where: { assessmentId: { in: assessmentIds } },
+    });
+
+    // 6. Delete Assessment rows permanently
+    const result = await db.assessment.deleteMany({
+      where: { id: { in: assessmentIds } },
+    });
+
+    return result.count;
+  }
 }
 
 module.exports = new AssessmentRepository();
