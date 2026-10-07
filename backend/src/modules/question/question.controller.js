@@ -127,6 +127,39 @@ class QuestionController {
     );
   });
 
+  bulkDelete = asyncHandler(async (req, res) => {
+    const { ids } = req.body || {};
+    const userId = req.user.id;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+
+    const result = await questionService.bulkDeleteQuestions(ids, userId, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Questions deleted successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  deleteAll = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+
+    const result = await questionService.deleteAllQuestions(userId, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "All questions deleted successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
   publish = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;

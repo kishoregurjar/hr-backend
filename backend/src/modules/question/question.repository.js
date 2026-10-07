@@ -357,6 +357,21 @@ class QuestionRepository {
     });
   }
 
+  async hardDeleteManyCascade(tx, questionIds = []) {
+    if (!Array.isArray(questionIds) || questionIds.length === 0) return 0;
+    const db = getClient(tx);
+    await db.assessmentQuestion.deleteMany({ where: { questionId: { in: questionIds } } });
+    await db.questionTag.deleteMany({ where: { questionId: { in: questionIds } } });
+    await db.questionCategory.deleteMany({ where: { questionId: { in: questionIds } } });
+    await db.attachment.deleteMany({ where: { questionId: { in: questionIds } } });
+    await db.option.deleteMany({ where: { questionId: { in: questionIds } } });
+
+    const result = await db.question.deleteMany({
+      where: { id: { in: questionIds } },
+    });
+    return result.count;
+  }
+
   async softDelete(tx, id) {
     return this.hardDeleteCascade(tx, id);
   }
