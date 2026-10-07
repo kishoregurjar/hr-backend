@@ -292,7 +292,8 @@ class AttemptService {
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
-        const effectiveDiff = conf?.difficulty || ag.config?.difficulty;
+        const assessmentConfigDifficulty = ag.config?.difficulty;
+        const effectiveDiff = assessmentConfigDifficulty || conf?.difficulty;
 
         if (effectiveDiff) {
           const diffFormatted =

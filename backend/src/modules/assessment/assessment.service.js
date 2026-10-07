@@ -96,7 +96,8 @@ class AssessmentService {
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
-        const effectiveDiff = conf?.difficulty || ag.config?.difficulty;
+        const assessmentConfigDifficulty = ag.config?.difficulty;
+        const effectiveDiff = assessmentConfigDifficulty || conf?.difficulty;
 
         if (effectiveDiff) {
           const diffFormatted =
@@ -224,9 +225,9 @@ class AssessmentService {
       let finalConfig = baseConfig ? { ...baseConfig } : {};
       if (companyConf) {
         const { id, companyId: cId, gameId, createdAt, updatedAt, game, ...restConf } = companyConf;
-        finalConfig = { ...finalConfig, ...restConf, companyId: cId };
+        finalConfig = { ...restConf, ...finalConfig, companyId: finalConfig.companyId || cId };
       } else if (companyId) {
-        finalConfig = { ...finalConfig, companyId };
+        finalConfig = { ...finalConfig, companyId: finalConfig.companyId || companyId };
       }
 
       return { id: typeof g === "object" ? (g.gameId || g.id) : g, config: Object.keys(finalConfig).length > 0 ? finalConfig : null };
