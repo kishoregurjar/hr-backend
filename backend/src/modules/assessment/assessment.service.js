@@ -21,6 +21,7 @@ const {
   ASSESSMENT_QUESTION_ERRORS,
 } = require("./assessment.constants");
 const { QUESTION_STATUS } = require("../question/question.constants");
+const { getCanonicalGameCode } = require("../game/game.constants");
 
 /**
  * ==========================================================
@@ -61,16 +62,26 @@ class AssessmentService {
           configMap.set(codeStr.replace(/_/g, "-"), c);
           configMap.set(codeStr.replace(/-/g, "_"), c);
         }
+        if (c.game?.slug) {
+          const slugStr = String(c.game.slug).toLowerCase();
+          configMap.set(slugStr, c);
+          configMap.set(slugStr.replace(/_/g, "-"), c);
+          configMap.set(slugStr.replace(/-/g, "_"), c);
+        }
         if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
+        const canon = getCanonicalGameCode(c.game?.code || c.game?.slug || c.gameId);
+        if (canon) configMap.set(canon.toLowerCase(), c);
       });
 
       assessment.games = assessment.games.map((ag) => {
         const gameIdKey = String(ag.gameId || ag.game?.id || "").toLowerCase();
         const gameCodeKey = String(ag.game?.code || "").toLowerCase();
+        const canonKey = getCanonicalGameCode(ag.game?.code || ag.gameId || ag.game?.name)?.toLowerCase();
 
         const conf =
           configMap.get(gameIdKey) ||
           configMap.get(gameCodeKey) ||
+          (canonKey ? configMap.get(canonKey) : null) ||
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
@@ -150,6 +161,8 @@ class AssessmentService {
           configMap.set(slugStr.replace(/_/g, "-"), c);
           configMap.set(slugStr.replace(/-/g, "_"), c);
         }
+        const canon = getCanonicalGameCode(c.game?.code || c.game?.slug || c.gameId);
+        if (canon) configMap.set(canon.toLowerCase(), c);
       });
     }
 
@@ -157,16 +170,26 @@ class AssessmentService {
     existingAssessmentGames.forEach(ag => {
       const gId = String(ag.gameId || ag.game?.id || "").toLowerCase();
       if (gId) existingMap.set(gId, ag.config);
+      const canon = getCanonicalGameCode(ag.gameId || ag.game?.code);
+      if (canon) existingMap.set(canon.toLowerCase(), ag.config);
     });
 
     return gameIds.map(g => {
       const rawId = typeof g === "object" ? String(g.gameId || g.id || g.slug || g.code || "").toLowerCase() : String(g).toLowerCase();
+      const canonRaw = getCanonicalGameCode(rawId);
       
       if (existingMap.has(rawId)) {
         return { id: rawId, config: existingMap.get(rawId) };
       }
+      if (canonRaw && existingMap.has(canonRaw.toLowerCase())) {
+        return { id: rawId, config: existingMap.get(canonRaw.toLowerCase()) };
+      }
 
-      const companyConf = configMap.get(rawId) || configMap.get(rawId.replace(/_/g, "-")) || configMap.get(rawId.replace(/-/g, "_"));
+      const companyConf =
+        configMap.get(rawId) ||
+        (canonRaw ? configMap.get(canonRaw.toLowerCase()) : null) ||
+        configMap.get(rawId.replace(/_/g, "-")) ||
+        configMap.get(rawId.replace(/-/g, "_"));
       
       let finalConfig = typeof g === "object" ? (g.config || null) : null;
       if (companyConf) {

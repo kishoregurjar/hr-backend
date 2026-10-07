@@ -58,6 +58,7 @@ const {
 } = require("../../utils/app-error");
 const { sendEmail } = require("../../utils/email");
 const { buildCandidateOtpEmail, buildInvitationEmail } = require("./attempt.email");
+const { getCanonicalGameCode } = require("../game/game.constants");
 const {
   hashAttemptToken,
   validateAttemptTokenFormat,
@@ -274,15 +275,19 @@ class AttemptService {
           configMap.set(codeStr.replace(/-/g, "_"), c);
         }
         if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
+        const canon = getCanonicalGameCode(c.game?.code || c.game?.slug || c.gameId);
+        if (canon) configMap.set(canon.toLowerCase(), c);
       });
 
       assessment.games = assessment.games.map((ag) => {
         const gameIdKey = String(ag.gameId || ag.game?.id || "").toLowerCase();
         const gameCodeKey = String(ag.game?.code || "").toLowerCase();
+        const canonKey = getCanonicalGameCode(ag.game?.code || ag.gameId || ag.game?.name)?.toLowerCase();
 
         const conf =
           configMap.get(gameIdKey) ||
           configMap.get(gameCodeKey) ||
+          (canonKey ? configMap.get(canonKey) : null) ||
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
