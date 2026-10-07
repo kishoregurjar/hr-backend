@@ -11,6 +11,8 @@ const {
   verifyRefreshToken,
   hashToken,
 } = require("./auth.utils");
+const crypto = require("crypto");
+const { sendEmail } = require("../../utils/email");
 
 const { prisma } = require("../../config/prisma");
 
@@ -311,13 +313,31 @@ class AuthService {
     const user = await authRepository.findUserByEmail(email);
 
     if (user && user.status === "ACTIVE") {
-      const rawToken = hashToken(`${user.id}-${Date.now()}`);
+      const rawToken = crypto.randomBytes(32).toString("hex");
       const tokenHash = hashToken(rawToken);
 
-      await authRepository.createPasswordResetToken({
-        userId: user.id,
-        tokenHash,
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      await runTransaction(async (tx) => {
+        await authRepository.invalidateExistingPasswordResetTokens(tx, user.id);
+        await authRepository.createPasswordResetToken(tx, {
+          userId: user.id,
+          tokenHash,
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+        });
+      });
+
+      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      const resetLink = `${frontendUrl}/reset-password?token=${rawToken}`;
+
+      await sendEmail({
+        to: user.email,
+        subject: "Password Reset Request",
+        html: `
+          <p>Hello ${user.name || "User"},</p>
+          <p>You have requested to reset your password.</p>
+          <p>Click the link below to securely reset it:</p>
+          <a href="${resetLink}">Reset Password</a>
+          <p>This link is valid for 30 minutes. If you did not request this, please ignore this email.</p>
+        `,
       });
     }
 
@@ -339,6 +359,7 @@ class AuthService {
     await runTransaction(async (tx) => {
       await authRepository.updatePassword(tx, resetToken.userId, hashedNewPassword);
       await authRepository.markPasswordResetTokenAsUsed(tx, resetToken.id);
+      await authRepository.invalidateExistingPasswordResetTokens(tx, resetToken.userId);
       await authRepository.revokeAllUserRefreshTokens(tx, resetToken.userId);
     });
 

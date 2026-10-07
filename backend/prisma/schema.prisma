@@ -254,16 +254,31 @@ model User {
   candidateProfiles CandidateProfile[]
   auditLogs         AuditLog[]
 
-  jobsCreated      Job[]                   @relation("UserCreatedJobs")
-  jobApplications  JobApplication[]        @relation("UserJobApplications")
-  resumeProcessing ResumeProcessing[]      @relation("UserResumeProcessing")
-  companyMembers   CompanyMember[]
-  mailbox          UserMailbox?
-  ownerActivation  CompanyOwnerActivation?
-  supportRequests  SupportRequest[]
+  jobsCreated         Job[]                   @relation("UserCreatedJobs")
+  jobApplications     JobApplication[]        @relation("UserJobApplications")
+  resumeProcessing    ResumeProcessing[]      @relation("UserResumeProcessing")
+  companyMembers      CompanyMember[]
+  mailbox             UserMailbox?
+  ownerActivation     CompanyOwnerActivation?
+  supportRequests     SupportRequest[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([role])
   @@index([status])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([tokenHash])
 }
 
 model Tag {

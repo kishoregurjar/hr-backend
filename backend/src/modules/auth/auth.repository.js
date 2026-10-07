@@ -151,10 +151,6 @@ class AuthRepository {
     const db = isTx ? dbOrData : defaultPrisma;
     const data = isTx ? dataIfTx : dbOrData;
 
-    if (!db.passwordResetToken) {
-      return Promise.resolve({ id: "prt_mock", ...(data || {}) });
-    }
-
     return db.passwordResetToken.create({
       data,
     });
@@ -162,9 +158,6 @@ class AuthRepository {
 
   findPasswordResetTokenByHash(tokenHash, db = defaultPrisma) {
     const client = db.passwordResetToken ? db : defaultPrisma;
-    if (!client.passwordResetToken) {
-      return Promise.resolve(null);
-    }
     return client.passwordResetToken.findUnique({
       where: { tokenHash },
     });
@@ -175,15 +168,27 @@ class AuthRepository {
     const db = isTx ? dbOrId : defaultPrisma;
     const id = isTx ? idIfTx : dbOrId;
 
-    if (!db.passwordResetToken) {
-      return Promise.resolve({ id, usedAt: new Date() });
-    }
-
     return db.passwordResetToken.update({
       where: { id },
       data: { usedAt: new Date() },
     });
   }
+
+  invalidateExistingPasswordResetTokens(dbOrUserId, userIdIfTx) {
+    const isTx = dbOrUserId && dbOrUserId.passwordResetToken;
+    const db = isTx ? dbOrUserId : defaultPrisma;
+    const userId = isTx ? userIdIfTx : dbOrUserId;
+
+    return db.passwordResetToken.updateMany({
+      where: {
+        userId,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { usedAt: new Date() },
+    });
+  }
+
 }
 
 module.exports = new AuthRepository();
