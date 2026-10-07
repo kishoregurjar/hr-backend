@@ -130,7 +130,8 @@ class QuestionController {
   bulkDelete = asyncHandler(async (req, res) => {
     const { ids } = req.body || {};
     const userId = req.user.id;
-    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+    const resolvedCompId = await resolveCompanyId(req);
+    const companyId = resolvedCompId || req.companyId || req.company?.id || req.headers["x-company-id"] || null;
 
     const result = await questionService.bulkDeleteQuestions(ids, userId, companyId);
 
@@ -146,7 +147,8 @@ class QuestionController {
 
   deleteAll = asyncHandler(async (req, res) => {
     const userId = req.user.id;
-    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+    const resolvedCompId = await resolveCompanyId(req);
+    const companyId = resolvedCompId || req.companyId || req.company?.id || req.headers["x-company-id"] || null;
 
     const result = await questionService.deleteAllQuestions(userId, companyId);
 

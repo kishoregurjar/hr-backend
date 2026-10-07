@@ -345,6 +345,7 @@ class QuestionRepository {
 
   async hardDeleteCascade(tx, questionId) {
     const db = getClient(tx);
+    await db.attemptAuditLog.updateMany({ where: { questionId }, data: { questionId: null } });
     await db.assessmentQuestion.deleteMany({ where: { questionId } });
     await db.questionTag.deleteMany({ where: { questionId } });
     await db.questionCategory.deleteMany({ where: { questionId } });
@@ -360,6 +361,7 @@ class QuestionRepository {
   async hardDeleteManyCascade(tx, questionIds = []) {
     if (!Array.isArray(questionIds) || questionIds.length === 0) return 0;
     const db = getClient(tx);
+    await db.attemptAuditLog.updateMany({ where: { questionId: { in: questionIds } }, data: { questionId: null } });
     await db.assessmentQuestion.deleteMany({ where: { questionId: { in: questionIds } } });
     await db.questionTag.deleteMany({ where: { questionId: { in: questionIds } } });
     await db.questionCategory.deleteMany({ where: { questionId: { in: questionIds } } });
@@ -388,38 +390,52 @@ class QuestionRepository {
     const db = getClient(tx);
     const skip = (page - 1) * limit;
 
-    const where = {};
+    const conditions = [];
 
-    if (type && type !== "all") where.type = type;
-    if (difficulty && difficulty !== "all") where.difficulty = difficulty;
-    if (status && status !== "all") where.status = status;
+    if (type && type !== "all") conditions.push({ type });
+    if (difficulty && difficulty !== "all") conditions.push({ difficulty });
+    if (status && status !== "all") {
+      conditions.push({ status });
+    } else {
+      conditions.push({ status: { not: "ARCHIVED" } });
+    }
 
     if (categoryId && categoryId !== "all") {
-      where.categories = {
-        some: {
-          categoryId,
+      conditions.push({
+        categories: {
+          some: {
+            categoryId,
+          },
         },
-      };
+      });
     }
 
     if (tagId && tagId !== "all") {
-      where.tags = {
-        some: {
-          tagId,
+      conditions.push({
+        tags: {
+          some: {
+            tagId,
+          },
         },
-      };
+      });
     }
 
     if (search && search.trim()) {
-      where.OR = [
-        { title: { contains: search.trim(), mode: "insensitive" } },
-        { content: { contains: search.trim(), mode: "insensitive" } },
-      ];
+      conditions.push({
+        OR: [
+          { title: { contains: search.trim(), mode: "insensitive" } },
+          { content: { contains: search.trim(), mode: "insensitive" } },
+        ],
+      });
     }
 
     if (companyId) {
-      where.companyId = companyId;
+      conditions.push({
+        OR: [{ companyId }, { companyId: null }],
+      });
     }
+
+    const where = conditions.length > 0 ? { AND: conditions } : {};
 
     const validSortFields = ["createdAt", "updatedAt", "title", "difficulty", "status"];
     const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
