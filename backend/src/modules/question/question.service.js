@@ -207,6 +207,7 @@ class QuestionService {
     if (companyId) {
       where.OR = [
         { companyId },
+        { companyId: null },
         { createdBy: { companyMembers: { some: { companyId } } } },
       ];
     }
