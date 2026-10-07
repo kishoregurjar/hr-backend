@@ -44,7 +44,18 @@ async function upsertUserMailbox(
   });
 }
 
-async function updateMailboxSyncStatus(userId, { lastSyncedAt, lastError, backfillComplete, backfillPageToken }, db = prisma) {
+async function updateMailboxSyncStatus(userId, updates, db = prisma) {
+  const { 
+    lastSyncedAt, 
+    lastError, 
+    backfillComplete, 
+    backfillPageToken,
+    dateRangeSyncEnabled,
+    dateRangeSyncFrom,
+    dateRangeSyncTo,
+    dateRangeLastSyncedAt
+  } = updates;
+
   return db.userMailbox.update({
     where: { userId },
     data: {
@@ -52,6 +63,19 @@ async function updateMailboxSyncStatus(userId, { lastSyncedAt, lastError, backfi
       ...(lastError !== undefined ? { lastError } : {}),
       ...(backfillComplete !== undefined ? { backfillComplete } : {}),
       ...(backfillPageToken !== undefined ? { backfillPageToken } : {}),
+      ...(dateRangeSyncEnabled !== undefined ? { dateRangeSyncEnabled } : {}),
+      ...(dateRangeSyncFrom !== undefined ? { dateRangeSyncFrom } : {}),
+      ...(dateRangeSyncTo !== undefined ? { dateRangeSyncTo } : {}),
+      ...(dateRangeLastSyncedAt !== undefined ? { dateRangeLastSyncedAt } : {}),
+    },
+  });
+}
+
+async function findActiveDateRangeMailboxes(db = prisma) {
+  return db.userMailbox.findMany({
+    where: {
+      isSyncActive: true,
+      dateRangeSyncEnabled: true,
     },
   });
 }
@@ -65,6 +89,7 @@ async function deleteUserMailbox(userId, db = prisma) {
 module.exports = {
   findMailboxByUserId,
   findActiveMailboxes,
+  findActiveDateRangeMailboxes,
   upsertUserMailbox,
   updateMailboxSyncStatus,
   deleteUserMailbox,

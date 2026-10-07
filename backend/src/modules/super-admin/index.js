@@ -12,10 +12,13 @@ const superAdminGameRoutes = require("../game/game.super-admin.routes");
 const { supportSuperAdminRoutes } = require("../support");
 const { publicContactSuperAdminRoutes } = require("../public-contact");
 
+const superAdminAnalyticsRoutes = require("./super-admin.analytics.routes");
+
 router.use("/games", superAdminGameRoutes);
 router.use("/companies", superAdminOwnerManagementRoutes);
 router.use("/support", supportSuperAdminRoutes);
 router.use("/contact-inquiries", publicContactSuperAdminRoutes);
+router.use(superAdminAnalyticsRoutes);
 router.use(superAdminCompanyRoutes);
 router.use(superAdminDashboardRoutes);
 router.use(superAdminUserRoutes);

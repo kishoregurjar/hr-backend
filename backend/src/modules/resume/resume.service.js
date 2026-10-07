@@ -401,6 +401,20 @@ async function createApplicationIfRequired({
   );
 
   if (existingApplication) {
+    if (source === "INBOUND_EMAIL") {
+      return await repository.updateJobApplication(
+        existingApplication.id,
+        {
+          resumeProcessingId,
+          source,
+          candidateName: extractedData?.name || existingApplication.candidateName,
+          status: "APPLIED",
+          appliedAt: new Date(),
+        },
+        tx
+      );
+    }
+
     throw createApplicationError(
       "JOB_APPLICATION_ALREADY_EXISTS",
       "Candidate has already applied to this job",
@@ -453,6 +467,7 @@ async function processResume({
   companyId = null,
   emailSubject = null,
   emailBody = null,
+  providerMessageId = null,
 }) {
   validateUploadedFile(file);
 
@@ -487,7 +502,12 @@ async function processResume({
 
   const fileType = getFileType(file);
   validateFileSignature(file.buffer, fileType);
-  const fileHash = calculateSha256(file.buffer);
+  
+  let hashInput = file.buffer;
+  if (isInbound && providerMessageId) {
+    hashInput = Buffer.concat([file.buffer, Buffer.from(providerMessageId)]);
+  }
+  const fileHash = calculateSha256(hashInput);
 
   const existingResume = await repository.findResumeByHash(fileHash);
 

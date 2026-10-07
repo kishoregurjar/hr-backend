@@ -222,7 +222,9 @@ async function processInboundEmail({
 
           storageService,
 
-          uploadedByUserId: null
+          uploadedByUserId: null,
+
+          providerMessageId: normalized.providerMessageId
         });
 
       results.push(result);

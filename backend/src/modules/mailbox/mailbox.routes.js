@@ -56,5 +56,11 @@ router.post(
   requireRole(["HR", "SUPER_ADMIN"]),
   controller.disconnectMailbox
 );
+router.post(
+  "/stop-sync",
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  controller.stopAutomaticSync
+);
 
 module.exports = router;
