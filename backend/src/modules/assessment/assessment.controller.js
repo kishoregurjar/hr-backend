@@ -308,6 +308,68 @@ class AssessmentController {
       result.alreadyFinalized ? StatusCodes.OK : StatusCodes.CREATED
     );
   });
+
+  /**
+   * Delete Single Assessment Handler (Permanent Hard Delete)
+   * DELETE /api/v1/assessments/:id
+   */
+  delete = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+
+    const result = await assessmentService.deleteAssessment(id, userId, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Assessment permanently deleted successfully.",
+        data: result.data,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Bulk Delete Selected Assessments Handler (Permanent Hard Delete)
+   * DELETE /api/v1/assessments/bulk
+   */
+  bulkDelete = asyncHandler(async (req, res) => {
+    const { ids } = req.body || {};
+    const userId = req.user?.id;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+
+    const result = await assessmentService.bulkDeleteAssessments(ids, userId, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "Assessments permanently deleted successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Delete All Assessments Handler (Permanent Hard Delete)
+   * DELETE /api/v1/assessments/all
+   */
+  deleteAll = asyncHandler(async (req, res) => {
+    const userId = req.user?.id;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+
+    const result = await assessmentService.deleteAllAssessments(userId, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "All assessments permanently deleted successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
 }
 
 const assessmentController = new AssessmentController();
