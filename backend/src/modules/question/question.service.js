@@ -140,6 +140,91 @@ class QuestionService {
     };
   }
 
+  async bulkDeleteQuestions(ids = [], userId, companyId = null) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestError("No question IDs provided for deletion.", "INVALID_BULK_DELETE");
+    }
+
+    const questions = await prisma.question.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+
+    if (questions.length === 0) {
+      return { message: "No matching questions found to delete.", count: 0, deletedCount: 0, archivedCount: 0 };
+    }
+
+    const questionIds = questions.map((q) => q.id);
+
+    // Safely check which questions have candidate test links
+    const answers = await prisma.candidateAnswer.findMany({
+      where: { questionId: { in: questionIds } },
+      select: { questionId: true },
+    });
+    const attemptQuestions = await prisma.attemptQuestion.findMany({
+      where: { questionId: { in: questionIds } },
+      select: { questionId: true },
+    });
+
+    const linkedSet = new Set([
+      ...answers.map((a) => a.questionId),
+      ...attemptQuestions.map((aq) => aq.questionId),
+    ]);
+
+    const toArchiveIds = questionIds.filter((id) => linkedSet.has(id));
+    const toDeleteIds = questionIds.filter((id) => !linkedSet.has(id));
+
+    let deletedCount = 0;
+    let archivedCount = 0;
+
+    await runTransaction(async (tx) => {
+      if (toArchiveIds.length > 0) {
+        const archived = await tx.question.updateMany({
+          where: { id: { in: toArchiveIds } },
+          data: { status: "ARCHIVED" },
+        });
+        archivedCount = archived.count;
+      }
+
+      if (toDeleteIds.length > 0) {
+        deletedCount = await questionRepository.hardDeleteManyCascade(tx, toDeleteIds);
+      }
+    });
+
+    const totalProcessed = deletedCount + archivedCount;
+    return {
+      message: totalProcessed === 1
+        ? "1 question processed successfully."
+        : `${totalProcessed} questions processed successfully (${deletedCount} deleted, ${archivedCount} archived).`,
+      deletedCount,
+      archivedCount,
+      totalCount: totalProcessed,
+    };
+  }
+
+  async deleteAllQuestions(userId, companyId = null) {
+    const where = {};
+    if (companyId) {
+      where.OR = [
+        { companyId },
+        { companyId: null },
+        { createdBy: { companyMembers: { some: { companyId } } } },
+      ];
+    }
+
+    const all = await prisma.question.findMany({
+      where,
+      select: { id: true },
+    });
+
+    const ids = all.map((q) => q.id);
+    if (!ids.length) {
+      return { message: "No questions found to delete.", count: 0, deletedCount: 0, archivedCount: 0, totalCount: 0 };
+    }
+
+    return this.bulkDeleteQuestions(ids, userId, companyId);
+  }
+
   async publishQuestion(id, userId) {
     const question = await questionRepository.findById(id);
     if (!question) {

@@ -20,8 +20,9 @@ class AssessmentController {
   create = asyncHandler(async (req, res) => {
     const data = req.validatedData || req.validatedBody || req.body;
     const userId = req.user?.id;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
 
-    const result = await assessmentService.createAssessment(data, userId);
+    const result = await assessmentService.createAssessment(data, userId, companyId);
 
     return SuccessResponse.send(
       res,
@@ -61,8 +62,9 @@ class AssessmentController {
   getById = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
 
-    const result = await assessmentService.getAssessmentById(id, user);
+    const result = await assessmentService.getAssessmentById(id, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -82,8 +84,9 @@ class AssessmentController {
     const { id } = req.params;
     const data = req.validatedData || req.validatedBody || req.body;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
 
-    const result = await assessmentService.updateAssessment(id, data, user);
+    const result = await assessmentService.updateAssessment(id, data, user, companyId);
 
     return SuccessResponse.send(
       res,

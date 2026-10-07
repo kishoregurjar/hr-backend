@@ -95,8 +95,26 @@ const GAMES_METADATA = Object.freeze([
   }),
 ]);
 
+const getCanonicalGameCode = (input) => {
+  if (!input) return null;
+  const str = String(
+    typeof input === "object"
+      ? input.code || input.slug || input.id || input.gameId || input.name || input.title || ""
+      : input
+  )
+    .toLowerCase()
+    .trim();
+
+  if (str.includes("zip") || str.includes("pathfinder")) return GAME_CODES.ZIP_PATHFINDER;
+  if (str.includes("tango")) return GAME_CODES.TANGO;
+  if (str.includes("sudoku")) return GAME_CODES.MINI_SUDOKU;
+  if (str.includes("mahjong")) return GAME_CODES.MAHJONG_TILE_MATCH;
+  return null;
+};
+
 module.exports = {
   GAME_SLUGS,
   GAME_CODES,
   GAMES_METADATA,
+  getCanonicalGameCode,
 };

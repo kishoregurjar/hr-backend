@@ -14,6 +14,7 @@ const gameSuperAdminService = require("./game.super-admin.service");
 const gameService = require("./game.service");
 const { mapGameAttemptForCandidate, mapGameResult } = require("./game.attempt.mapper");
 const { GAME_ATTEMPT_CONSTANTS } = require("./game.attempt.constants");
+const { getCanonicalGameCode } = require("./game.constants");
 
 const { prisma } = require("../../config/prisma");
 
@@ -149,10 +150,47 @@ class GameAttemptService {
           assessment.id,
           game.id
         );
+        if (!assessmentGame && prisma.assessmentGame) {
+          const canon = getCanonicalGameCode(game.code || slug || game.id);
+          const ags = await prisma.assessmentGame.findMany({
+            where: { assessmentId: assessment.id },
+            include: { game: true },
+          });
+          assessmentGame = ags.find(
+            (ag) => getCanonicalGameCode(ag.game?.code || ag.gameId) === canon
+          ) || null;
+        }
       }
       
       if (assessmentGame && assessmentGame.config && assessmentGame.config.difficulty) {
         difficulty = String(assessmentGame.config.difficulty).toLowerCase();
+      } else if (assessmentGame?.config?.companyId || assessment?.createdById) {
+        // Fallback: check company's configured game calibration directly from database
+        try {
+          let companyId = assessmentGame?.config?.companyId;
+          if (!companyId && assessment?.createdById) {
+            const member = await prisma.companyMember.findFirst({
+              where: { userId: assessment.createdById },
+              select: { companyId: true },
+            });
+            companyId = member?.companyId;
+          }
+          if (companyId) {
+            const canon = getCanonicalGameCode(game.code || slug || game.id);
+            const configs = await prisma.companyGameConfig.findMany({
+              where: { companyId },
+              include: { game: true },
+            });
+            const matchedConf = configs.find(
+              (c) =>
+                c.gameId === game.id ||
+                getCanonicalGameCode(c.game?.code || c.gameId) === canon
+            );
+            if (matchedConf?.difficulty) {
+              difficulty = String(matchedConf.difficulty).toLowerCase();
+            }
+          }
+        } catch (_) {}
       }
 
       if (gameDefinition && gameDefinition.engine) {

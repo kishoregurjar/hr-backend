@@ -1,4 +1,5 @@
 const { prisma } = require("../../config/prisma");
+const { getCanonicalGameCode } = require("../game/game.constants");
 
 /**
  * ==========================================================
@@ -105,6 +106,7 @@ const ASSESSMENT_DETAIL_SELECT = Object.freeze({
       gameId: true,
       sequence: true,
       weight: true,
+      config: true,
       game: {
         select: {
           id: true,
@@ -511,35 +513,48 @@ class AssessmentRepository {
 
     if (cleanGameIds.length === 0) return [];
 
-    const rawIdStrings = cleanGameIds.map((g) => (typeof g === "object" ? String(g.gameId || g.id || "").trim() : String(g).trim()));
-
-    const existingGames = await db.game.findMany({
-      where: {
-        OR: [
-          { id: { in: rawIdStrings } },
-          { code: { in: rawIdStrings.map((id) => id.toLowerCase()) } },
-          { code: { in: rawIdStrings.map((id) => id.toUpperCase()) } },
-        ],
-        deletedAt: null,
-      },
+    const allDbGames = await db.game.findMany({
+      where: { deletedAt: null },
     });
 
     const gameMap = new Map();
-    existingGames.forEach((g) => {
-      gameMap.set(g.id, g.id);
-      gameMap.set(g.code, g.id);
-      gameMap.set(g.code.toLowerCase(), g.id);
-      gameMap.set(g.code.toUpperCase(), g.id);
+    allDbGames.forEach((g) => {
+      gameMap.set(g.id.toLowerCase(), g.id);
+      if (g.code) {
+        gameMap.set(g.code.toLowerCase(), g.id);
+        const canon = getCanonicalGameCode(g.code);
+        if (canon) gameMap.set(canon.toLowerCase(), g.id);
+      }
     });
 
     const records = [];
-    cleanGameIds.forEach((input, idx) => {
-      const rawId = typeof input === "object" ? String(input.id || input.gameId || "").trim() : String(input).trim();
+    for (let idx = 0; idx < cleanGameIds.length; idx++) {
+      const input = cleanGameIds[idx];
+      const rawId = typeof input === "object" ? String(input.id || input.gameId || input.code || input.slug || "").trim() : String(input).trim();
       const config = typeof input === "object" ? input.config : null;
-      const targetId =
-        gameMap.get(rawId) ||
+
+      const canonCode = getCanonicalGameCode(rawId);
+      let targetId =
         gameMap.get(rawId.toLowerCase()) ||
-        gameMap.get(rawId.toUpperCase());
+        (canonCode ? gameMap.get(canonCode.toLowerCase()) : null);
+
+      if (!targetId && canonCode) {
+        let createdGame = await db.game.findFirst({
+          where: { code: canonCode },
+        });
+        if (!createdGame) {
+          createdGame = await db.game.create({
+            data: {
+              code: canonCode,
+              name: canonCode === "ZIP_PATHFINDER" ? "Zip Pathfinder" : canonCode === "TANGO" ? "Tango Deduction" : canonCode === "MINI_SUDOKU" ? "Mini Sudoku" : "Mahjong Tile Match",
+              isActive: true,
+            },
+          });
+        }
+        targetId = createdGame.id;
+        gameMap.set(canonCode.toLowerCase(), targetId);
+      }
+
       if (targetId) {
         records.push({
           assessmentId,
@@ -549,7 +564,7 @@ class AssessmentRepository {
           config: config || null,
         });
       }
-    });
+    }
 
     if (records.length > 0) {
       await db.assessmentGame.createMany({

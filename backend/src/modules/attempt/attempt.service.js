@@ -61,6 +61,7 @@ const {
 } = require("../../utils/app-error");
 const { sendEmail } = require("../../utils/email");
 const { buildCandidateOtpEmail, buildInvitationEmail } = require("./attempt.email");
+const { getCanonicalGameCode } = require("../game/game.constants");
 const {
   hashAttemptToken,
   validateAttemptTokenFormat,
@@ -247,6 +248,11 @@ class AttemptService {
     try {
       let companyId = explicitCompanyId;
 
+      if (!companyId) {
+        const savedCompanyId = assessment.games.find(g => g.config?.companyId)?.config?.companyId;
+        if (savedCompanyId) companyId = savedCompanyId;
+      }
+
       if (!companyId && assessment.createdById) {
         const member = await prisma.companyMember.findFirst({
           where: { userId: assessment.createdById },
@@ -255,17 +261,13 @@ class AttemptService {
         companyId = member?.companyId || null;
       }
 
-      if (!companyId) {
-        const firstCompany = await prisma.company.findFirst({ select: { id: true } });
-        companyId = firstCompany?.id || null;
+      let configs = [];
+      if (companyId) {
+        configs = await prisma.companyGameConfig.findMany({
+          where: { companyId },
+          include: { game: true },
+        });
       }
-
-      if (!companyId) return assessment;
-
-      const configs = await prisma.companyGameConfig.findMany({
-        where: { companyId },
-        include: { game: true },
-      });
 
       const configMap = new Map();
       configs.forEach((c) => {
@@ -274,46 +276,54 @@ class AttemptService {
           const codeStr = String(c.game.code).toLowerCase();
           configMap.set(codeStr, c);
           configMap.set(codeStr.replace(/_/g, "-"), c);
-          configMap.set(codeStr.replace(/-/g, "_"), c);
+          configMap.set(codeStr.replace(/-/g, "_"));
         }
         if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
+        const canon = getCanonicalGameCode(c.game?.code || c.game?.slug || c.gameId);
+        if (canon) configMap.set(canon.toLowerCase(), c);
       });
 
       assessment.games = assessment.games.map((ag) => {
         const gameIdKey = String(ag.gameId || ag.game?.id || "").toLowerCase();
         const gameCodeKey = String(ag.game?.code || "").toLowerCase();
+        const canonKey = getCanonicalGameCode(ag.game?.code || ag.gameId || ag.game?.name)?.toLowerCase();
 
         const conf =
           configMap.get(gameIdKey) ||
           configMap.get(gameCodeKey) ||
+          (canonKey ? configMap.get(canonKey) : null) ||
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
-        if (conf) {
+        const assessmentConfigDifficulty = ag.config?.difficulty;
+        const effectiveDiff = assessmentConfigDifficulty || conf?.difficulty;
+
+        if (effectiveDiff) {
           const diffFormatted =
-            conf.difficulty.charAt(0).toUpperCase() +
-            conf.difficulty.slice(1).toLowerCase();
+            effectiveDiff.charAt(0).toUpperCase() +
+            effectiveDiff.slice(1).toLowerCase();
 
           return {
             ...ag,
             difficulty: diffFormatted,
-            duration: conf.duration || ag.duration || 10,
-            passingScore: conf.passingScore || ag.passingScore || 70,
+            duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+            passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
             config: {
               ...(ag.config || {}),
-              difficulty: conf.difficulty.toLowerCase(),
-              duration: conf.duration,
-              passingScore: conf.passingScore,
+              difficulty: effectiveDiff.toLowerCase(),
+              duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+              passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
+              companyId: conf?.companyId || ag.config?.companyId || companyId || undefined,
             },
             game: ag.game
               ? {
                   ...ag.game,
                   difficulty: diffFormatted,
-                  duration: conf.duration,
-                  passingScore: conf.passingScore,
+                  duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+                  passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
                   config: {
                     ...(ag.game.config || {}),
-                    difficulty: conf.difficulty.toLowerCase(),
+                    difficulty: effectiveDiff.toLowerCase(),
                   },
                 }
               : null,
@@ -609,12 +619,35 @@ class AttemptService {
     const testLink = `${clientUrl}/take-test?token=${result.rawToken}`;
     let emailSent = false;
 
+    // Resolve hiring company name for invitation email
+    let invitationCompanyName = null;
+    if (result.candidateProfile?.companyId) {
+      try {
+        const comp = await prisma.company.findUnique({
+          where: { id: result.candidateProfile.companyId },
+          select: { name: true },
+        });
+        invitationCompanyName = comp?.name || null;
+      } catch (_) {}
+    }
+    if (!invitationCompanyName && result.assessment?.createdById) {
+      try {
+        const creatorMember = await prisma.companyMember.findFirst({
+          where: { userId: result.assessment.createdById },
+          select: { company: { select: { name: true } } },
+        });
+        invitationCompanyName = creatorMember?.company?.name || null;
+      } catch (_) {}
+    }
+    const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
+
     try {
       const emailContent = buildInvitationEmail({
         candidateName: `${result.candidateProfile.firstName} ${result.candidateProfile.lastName}`.trim(),
         assessmentTitle: result.assessment.title,
         testLink,
         expiresAt: result.effectiveExpiresAt,
+        companyName: effectiveInvitationCompanyName,
       });
 
       await sendEmail({
@@ -887,6 +920,27 @@ class AttemptService {
 
     // Automated Email Dispatch for Bulk Invitations
     const clientUrl = env.frontend.url;
+    let bulkCompanyName = null;
+    if (invitedByUserId) {
+      try {
+        const hrMember = await prisma.companyMember.findFirst({
+          where: { userId: invitedByUserId },
+          select: { company: { select: { name: true } } },
+        });
+        bulkCompanyName = hrMember?.company?.name || null;
+      } catch (_) {}
+    }
+    if (!bulkCompanyName && assessment.createdById) {
+      try {
+        const creatorMember = await prisma.companyMember.findFirst({
+          where: { userId: assessment.createdById },
+          select: { company: { select: { name: true } } },
+        });
+        bulkCompanyName = creatorMember?.company?.name || null;
+      } catch (_) {}
+    }
+    const effectiveBulkCompanyName = bulkCompanyName || "HireQuest";
+
     for (const job of emailJobs) {
       try {
         const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
@@ -898,6 +952,7 @@ class AttemptService {
           assessmentTitle: assessment.title,
           testLink,
           expiresAt: job.expiresAt,
+          companyName: effectiveBulkCompanyName,
         });
 
         await sendEmail({
@@ -2645,13 +2700,55 @@ class AttemptService {
       tx
     );
 
-    // 6. Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
+    // 6. Resolve hiring company name dynamically
+    let otpCompanyName =
+      invitation.candidate?.company?.name ||
+      invitation.assessment?.createdBy?.companyMembers?.[0]?.company?.name ||
+      null;
+
+    const dbClient = tx || prisma;
+    if (!otpCompanyName && invitation.assessment?.createdById) {
+      try {
+        const creatorMember = await dbClient.companyMember.findFirst({
+          where: { userId: invitation.assessment.createdById },
+          select: { company: { select: { name: true } } },
+        });
+        if (creatorMember?.company?.name) {
+          otpCompanyName = creatorMember.company.name;
+        }
+      } catch (_) {}
+    }
+
+    if (!otpCompanyName && invitation.assessmentId) {
+      try {
+        const assmt = await dbClient.assessment.findUnique({
+          where: { id: invitation.assessmentId },
+          select: {
+            createdBy: {
+              select: {
+                companyMembers: {
+                  select: {
+                    company: { select: { name: true } },
+                  },
+                },
+              },
+            },
+          },
+        });
+        otpCompanyName = assmt?.createdBy?.companyMembers?.[0]?.company?.name || null;
+      } catch (_) {}
+    }
+
+    const effectiveOtpCompanyName = otpCompanyName || "HireQuest";
+
+    // 7. Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
     try {
       if (emailService && typeof emailService.sendCandidateOtp === "function") {
         await emailService.sendCandidateOtp({
           email: normalizedEmail,
           otp,
           expiresAt,
+          companyName: effectiveOtpCompanyName,
         });
       } else {
         await createOutboxEvent(
@@ -2662,6 +2759,7 @@ class AttemptService {
               email: normalizedEmail,
               otp,
               expiresAt: expiresAt.toISOString(),
+              companyName: effectiveOtpCompanyName,
             },
           },
           tx

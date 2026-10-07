@@ -1,14 +1,16 @@
 "use strict";
 
-const buildCandidateOtpEmail = ({ otp, expiresAt }) => {
+const buildCandidateOtpEmail = ({ otp, expiresAt, companyName = "HireQuest" }) => {
   const expiryText = new Date(expiresAt).toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
   });
 
+  const orgName = companyName && companyName.trim() ? companyName.trim() : "HireQuest";
+
   return {
-    subject: "HireQuest Assessment Verification Code",
+    subject: `${orgName} Assessment Verification Code`,
     text:
-      `Your HireQuest verification code is ${otp}.\n\n` +
+      `Your ${orgName} verification code is ${otp}.\n\n` +
       `This code expires at ${expiryText}.\n\n` +
       `If you did not request this verification, please ignore this email.`,
 
@@ -29,15 +31,15 @@ const buildCandidateOtpEmail = ({ otp, expiresAt }) => {
         <body>
           <div class="container">
             <div class="header">
-              <h2>HireQuest Assessment Verification</h2>
+              <h2>${orgName} Assessment Verification</h2>
             </div>
             <p>Hello Candidate,</p>
-            <p>Your 6-digit email verification code for your HireQuest assessment is:</p>
+            <p>Your 6-digit email verification code for your ${orgName} assessment is:</p>
             <div class="otp-box">${otp}</div>
             <p><strong>Note:</strong> This verification code will expire in 5 minutes.</p>
             <p>If you did not request this verification code, you can safely ignore this email.</p>
             <div class="footer">
-              This is an automated email from HireQuest. Please do not reply to this email.
+              This is an automated email on behalf of ${orgName}. Please do not reply to this email.
             </div>
           </div>
         </body>
@@ -46,19 +48,21 @@ const buildCandidateOtpEmail = ({ otp, expiresAt }) => {
   };
 };
 
-const buildInvitationEmail = ({ candidateName, assessmentTitle, testLink, expiresAt }) => {
+const buildInvitationEmail = ({ candidateName, assessmentTitle, testLink, expiresAt, companyName = "HireQuest" }) => {
   const expiryText = new Date(expiresAt).toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
   });
 
+  const orgName = companyName && companyName.trim() ? companyName.trim() : "HireQuest";
+
   return {
-    subject: `Invitation to complete assessment: ${assessmentTitle}`,
+    subject: `${orgName} - Invitation to complete assessment: ${assessmentTitle}`,
     text:
       `Hello ${candidateName || "Candidate"},\n\n` +
-      `You have been invited to complete the assessment "${assessmentTitle}".\n\n` +
+      `You have been invited by ${orgName} to complete the assessment "${assessmentTitle}".\n\n` +
       `Click the following link to start your test:\n${testLink}\n\n` +
       `This invitation link expires at ${expiryText}.\n\n` +
-      `Best regards,\nHireQuest Team`,
+      `Best regards,\n${orgName} Hiring Team`,
 
     html: `
       <!DOCTYPE html>
@@ -77,10 +81,10 @@ const buildInvitationEmail = ({ candidateName, assessmentTitle, testLink, expire
         <body>
           <div class="container">
             <div class="header">
-              <h2>Assessment Invitation</h2>
+              <h2>${orgName} Assessment Invitation</h2>
             </div>
             <p>Hello ${candidateName || "Candidate"},</p>
-            <p>You have been invited to complete the assessment <strong>${assessmentTitle}</strong>.</p>
+            <p>You have been invited by <strong>${orgName}</strong> to complete the assessment <strong>${assessmentTitle}</strong>.</p>
             <div style="text-align: center;">
               <a href="${testLink}" class="btn" style="color: #ffffff;">Start Assessment</a>
             </div>
@@ -88,7 +92,7 @@ const buildInvitationEmail = ({ candidateName, assessmentTitle, testLink, expire
             <p style="word-break: break-all; color: #4a5568;">${testLink}</p>
             <p><strong>Note:</strong> This invitation link expires on ${expiryText}.</p>
             <div class="footer">
-              This is an automated email from HireQuest.
+              This is an automated email on behalf of ${orgName}.
             </div>
           </div>
         </body>
