@@ -287,9 +287,11 @@ class AttemptService {
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
         if (conf) {
+          const assessmentConfigDifficulty = ag.config?.difficulty;
+          const targetDifficulty = assessmentConfigDifficulty || conf.difficulty;
           const diffFormatted =
-            conf.difficulty.charAt(0).toUpperCase() +
-            conf.difficulty.slice(1).toLowerCase();
+            targetDifficulty.charAt(0).toUpperCase() +
+            targetDifficulty.slice(1).toLowerCase();
 
           return {
             ...ag,
@@ -298,19 +300,19 @@ class AttemptService {
             passingScore: conf.passingScore || ag.passingScore || 70,
             config: {
               ...(ag.config || {}),
-              difficulty: conf.difficulty.toLowerCase(),
-              duration: conf.duration,
-              passingScore: conf.passingScore,
+              difficulty: targetDifficulty.toLowerCase(),
+              duration: conf.duration || ag.duration || 10,
+              passingScore: conf.passingScore || ag.passingScore || 70,
             },
             game: ag.game
               ? {
                   ...ag.game,
                   difficulty: diffFormatted,
-                  duration: conf.duration,
-                  passingScore: conf.passingScore,
+                  duration: conf.duration || ag.duration || 10,
+                  passingScore: conf.passingScore || ag.passingScore || 70,
                   config: {
                     ...(ag.game.config || {}),
-                    difficulty: conf.difficulty.toLowerCase(),
+                    difficulty: targetDifficulty.toLowerCase(),
                   },
                 }
               : null,

@@ -74,10 +74,13 @@ class AssessmentService {
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
-        if (conf?.difficulty) {
+        const assessmentConfigDifficulty = ag.config?.difficulty;
+        const targetDifficulty = assessmentConfigDifficulty || conf?.difficulty;
+
+        if (targetDifficulty) {
           const diffFormatted =
-            conf.difficulty.charAt(0).toUpperCase() +
-            conf.difficulty.slice(1).toLowerCase();
+            targetDifficulty.charAt(0).toUpperCase() +
+            targetDifficulty.slice(1).toLowerCase();
 
           return {
             ...ag,
@@ -171,7 +174,7 @@ class AssessmentService {
       let finalConfig = typeof g === "object" ? (g.config || null) : null;
       if (companyConf) {
         const { id, companyId, gameId, createdAt, updatedAt, game, ...restConf } = companyConf;
-        finalConfig = { ...finalConfig, ...restConf };
+        finalConfig = { ...restConf, ...finalConfig };
       }
 
       return { id: typeof g === "object" ? (g.gameId || g.id) : g, config: finalConfig };
