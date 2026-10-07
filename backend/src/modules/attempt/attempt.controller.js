@@ -574,6 +574,16 @@ class AttemptController {
       }
     }
 
+    if (!company) {
+      const savedCompanyId = invitation.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
+      if (savedCompanyId) {
+        company = await prisma.company.findUnique({
+          where: { id: savedCompanyId },
+          select: { id: true, name: true, logoUrl: true, slug: true },
+        });
+      }
+    }
+
     if (invitation.assessment) {
       await attemptService.enrichAssessmentWithCompanyGameConfig(invitation.assessment, company?.id);
     }

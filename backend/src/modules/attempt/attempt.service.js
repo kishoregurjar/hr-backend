@@ -245,6 +245,11 @@ class AttemptService {
     try {
       let companyId = explicitCompanyId;
 
+      if (!companyId) {
+        const savedCompanyId = assessment.games.find(g => g.config?.companyId)?.config?.companyId;
+        if (savedCompanyId) companyId = savedCompanyId;
+      }
+
       if (!companyId && assessment.createdById) {
         const member = await prisma.companyMember.findFirst({
           where: { userId: assessment.createdById },
@@ -253,17 +258,13 @@ class AttemptService {
         companyId = member?.companyId || null;
       }
 
-      if (!companyId) {
-        const firstCompany = await prisma.company.findFirst({ select: { id: true } });
-        companyId = firstCompany?.id || null;
+      let configs = [];
+      if (companyId) {
+        configs = await prisma.companyGameConfig.findMany({
+          where: { companyId },
+          include: { game: true },
+        });
       }
-
-      if (!companyId) return assessment;
-
-      const configs = await prisma.companyGameConfig.findMany({
-        where: { companyId },
-        include: { game: true },
-      });
 
       const configMap = new Map();
       configs.forEach((c) => {
@@ -272,7 +273,7 @@ class AttemptService {
           const codeStr = String(c.game.code).toLowerCase();
           configMap.set(codeStr, c);
           configMap.set(codeStr.replace(/_/g, "-"), c);
-          configMap.set(codeStr.replace(/-/g, "_"), c);
+          configMap.set(codeStr.replace(/-/g, "_"));
         }
         if (c.game?.id) configMap.set(String(c.game.id).toLowerCase(), c);
         const canon = getCanonicalGameCode(c.game?.code || c.game?.slug || c.gameId);
@@ -291,31 +292,34 @@ class AttemptService {
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
-        if (conf) {
+        const effectiveDiff = conf?.difficulty || ag.config?.difficulty;
+
+        if (effectiveDiff) {
           const diffFormatted =
-            conf.difficulty.charAt(0).toUpperCase() +
-            conf.difficulty.slice(1).toLowerCase();
+            effectiveDiff.charAt(0).toUpperCase() +
+            effectiveDiff.slice(1).toLowerCase();
 
           return {
             ...ag,
             difficulty: diffFormatted,
-            duration: conf.duration || ag.duration || 10,
-            passingScore: conf.passingScore || ag.passingScore || 70,
+            duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+            passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
             config: {
               ...(ag.config || {}),
-              difficulty: conf.difficulty.toLowerCase(),
-              duration: conf.duration,
-              passingScore: conf.passingScore,
+              difficulty: effectiveDiff.toLowerCase(),
+              duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+              passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
+              companyId: conf?.companyId || ag.config?.companyId || companyId || undefined,
             },
             game: ag.game
               ? {
                   ...ag.game,
                   difficulty: diffFormatted,
-                  duration: conf.duration,
-                  passingScore: conf.passingScore,
+                  duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+                  passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
                   config: {
                     ...(ag.game.config || {}),
-                    difficulty: conf.difficulty.toLowerCase(),
+                    difficulty: effectiveDiff.toLowerCase(),
                   },
                 }
               : null,

@@ -35,23 +35,34 @@ class AssessmentService {
   /**
    * Enrich assessment games with company owner's configured difficulty level
    */
-  async _enrichWithCompanyGameConfig(assessment) {
+  async _enrichWithCompanyGameConfig(assessment, explicitCompanyId = null) {
     if (!assessment || !Array.isArray(assessment.games) || !prisma.companyGameConfig) {
       return assessment;
     }
 
     try {
-      const member = await prisma.companyMember.findFirst({
-        where: { userId: assessment.createdById },
-        select: { companyId: true },
-      });
+      let companyId = explicitCompanyId;
 
-      if (!member?.companyId) return assessment;
+      if (!companyId) {
+        const savedCompanyId = assessment.games.find(g => g.config?.companyId)?.config?.companyId;
+        if (savedCompanyId) companyId = savedCompanyId;
+      }
 
-      const configs = await prisma.companyGameConfig.findMany({
-        where: { companyId: member.companyId },
-        include: { game: true },
-      });
+      if (!companyId && assessment.createdById) {
+        const member = await prisma.companyMember.findFirst({
+          where: { userId: assessment.createdById },
+          select: { companyId: true },
+        });
+        companyId = member?.companyId || null;
+      }
+
+      let configs = [];
+      if (companyId) {
+        configs = await prisma.companyGameConfig.findMany({
+          where: { companyId },
+          include: { game: true },
+        });
+      }
 
       const configMap = new Map();
       configs.forEach((c) => {
@@ -85,18 +96,35 @@ class AssessmentService {
           configMap.get(gameCodeKey.replace(/_/g, "-")) ||
           configMap.get(gameCodeKey.replace(/-/g, "_"));
 
-        if (conf?.difficulty) {
+        const effectiveDiff = conf?.difficulty || ag.config?.difficulty;
+
+        if (effectiveDiff) {
           const diffFormatted =
-            conf.difficulty.charAt(0).toUpperCase() +
-            conf.difficulty.slice(1).toLowerCase();
+            effectiveDiff.charAt(0).toUpperCase() +
+            effectiveDiff.slice(1).toLowerCase();
 
           return {
             ...ag,
             difficulty: diffFormatted,
+            duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+            passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
+            config: {
+              ...(ag.config || {}),
+              difficulty: effectiveDiff.toLowerCase(),
+              duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+              passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
+              companyId: conf?.companyId || ag.config?.companyId || companyId || undefined,
+            },
             game: ag.game
               ? {
                   ...ag.game,
                   difficulty: diffFormatted,
+                  duration: conf?.duration || ag.config?.duration || ag.duration || 10,
+                  passingScore: conf?.passingScore || ag.config?.passingScore || ag.passingScore || 70,
+                  config: {
+                    ...(ag.game.config || {}),
+                    difficulty: effectiveDiff.toLowerCase(),
+                  },
                 }
               : null,
           };
@@ -178,33 +206,37 @@ class AssessmentService {
       const rawId = typeof g === "object" ? String(g.gameId || g.id || g.slug || g.code || "").toLowerCase() : String(g).toLowerCase();
       const canonRaw = getCanonicalGameCode(rawId);
       
-      if (existingMap.has(rawId)) {
-        return { id: rawId, config: existingMap.get(rawId) };
-      }
-      if (canonRaw && existingMap.has(canonRaw.toLowerCase())) {
-        return { id: rawId, config: existingMap.get(canonRaw.toLowerCase()) };
-      }
-
       const companyConf =
         configMap.get(rawId) ||
         (canonRaw ? configMap.get(canonRaw.toLowerCase()) : null) ||
         configMap.get(rawId.replace(/_/g, "-")) ||
         configMap.get(rawId.replace(/-/g, "_"));
       
-      let finalConfig = typeof g === "object" ? (g.config || null) : null;
-      if (companyConf) {
-        const { id, companyId, gameId, createdAt, updatedAt, game, ...restConf } = companyConf;
-        finalConfig = { ...finalConfig, ...restConf };
+      let baseConfig = typeof g === "object" ? (g.config || null) : null;
+      if (!baseConfig) {
+        if (existingMap.has(rawId)) {
+          baseConfig = existingMap.get(rawId);
+        } else if (canonRaw && existingMap.has(canonRaw.toLowerCase())) {
+          baseConfig = existingMap.get(canonRaw.toLowerCase());
+        }
       }
 
-      return { id: typeof g === "object" ? (g.gameId || g.id) : g, config: finalConfig };
+      let finalConfig = baseConfig ? { ...baseConfig } : {};
+      if (companyConf) {
+        const { id, companyId: cId, gameId, createdAt, updatedAt, game, ...restConf } = companyConf;
+        finalConfig = { ...finalConfig, ...restConf, companyId: cId };
+      } else if (companyId) {
+        finalConfig = { ...finalConfig, companyId };
+      }
+
+      return { id: typeof g === "object" ? (g.gameId || g.id) : g, config: Object.keys(finalConfig).length > 0 ? finalConfig : null };
     });
   }
 
   /**
    * Create New Assessment
    */
-  async createAssessment(data, createdById) {
+  async createAssessment(data, createdById, explicitCompanyId = null) {
     if (!createdById) {
       throw new UnauthorizedError(
         "Authenticated user is required to create an assessment.",
@@ -217,11 +249,14 @@ class AssessmentService {
       title: AssessmentMapper.normalizeTitle(data.title),
     };
 
-    const userCompanyMember = await prisma.companyMember.findFirst({
-      where: { userId: createdById },
-      select: { companyId: true },
-    });
-    const companyId = userCompanyMember?.companyId;
+    let companyId = explicitCompanyId;
+    if (!companyId) {
+      const userCompanyMember = await prisma.companyMember.findFirst({
+        where: { userId: createdById },
+        select: { companyId: true },
+      });
+      companyId = userCompanyMember?.companyId;
+    }
 
     const existingAssessment = await assessmentRepository.findByTitle(
       normalizedData.title,
@@ -260,7 +295,7 @@ class AssessmentService {
       return assessmentRepository.findById(created.id, { detailed: true }, tx);
     });
 
-    const enrichedAssessment = await this._enrichWithCompanyGameConfig(createdAssessment);
+    const enrichedAssessment = await this._enrichWithCompanyGameConfig(createdAssessment, companyId);
 
     return {
       message: ASSESSMENT_MESSAGES.CREATED,
@@ -328,7 +363,7 @@ class AssessmentService {
   /**
    * Get Single Assessment By ID with Ownership Authorization
    */
-  async getAssessmentById(assessmentId, user) {
+  async getAssessmentById(assessmentId, user, explicitCompanyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: true,
@@ -351,7 +386,7 @@ class AssessmentService {
       }
     }
 
-    const enrichedAssessment = await this._enrichWithCompanyGameConfig(assessment);
+    const enrichedAssessment = await this._enrichWithCompanyGameConfig(assessment, explicitCompanyId);
 
     return {
       message: ASSESSMENT_MESSAGES.FETCHED,
@@ -362,7 +397,7 @@ class AssessmentService {
   /**
    * Update Draft Assessment Properties
    */
-  async updateAssessment(assessmentId, data, user) {
+  async updateAssessment(assessmentId, data, user, explicitCompanyId = null) {
     const existingAssessment = await assessmentRepository.findById(
       assessmentId,
       {
@@ -466,15 +501,24 @@ class AssessmentService {
 
     const updateData = AssessmentMapper.toUpdateEntity(normalizedData);
     const rawGameIds = data.selectedGameIds ?? data.gameIds ?? data.games;
+    let companyId = explicitCompanyId;
+    if (!companyId) {
+      const userCompanyMember = await prisma.companyMember.findFirst({
+        where: { userId: existingAssessment.createdById },
+        select: { companyId: true },
+      });
+      companyId = userCompanyMember?.companyId;
+    }
+    if (!companyId) {
+      const savedCompanyId = existingAssessment.games?.find(g => g.config?.companyId)?.config?.companyId;
+      if (savedCompanyId) companyId = savedCompanyId;
+    }
+
     let gameIds = rawGameIds;
     if (rawGameIds !== undefined && Array.isArray(rawGameIds)) {
-       const userCompanyMember = await prisma.companyMember.findFirst({
-         where: { userId: existingAssessment.createdById },
-         select: { companyId: true },
-       });
        gameIds = await this._buildGameIdsWithConfig(
           rawGameIds,
-          userCompanyMember?.companyId,
+          companyId,
           existingAssessment.games || existingAssessment.assessmentGames || []
        );
     }
@@ -502,7 +546,7 @@ class AssessmentService {
       return assessmentRepository.findById(assessmentId, { detailed: true }, tx);
     });
 
-    const enrichedAssessment = await this._enrichWithCompanyGameConfig(updatedAssessment);
+    const enrichedAssessment = await this._enrichWithCompanyGameConfig(updatedAssessment, companyId);
 
     return {
       message: ASSESSMENT_MESSAGES.UPDATED || "Assessment updated successfully.",

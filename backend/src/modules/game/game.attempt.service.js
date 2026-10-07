@@ -164,17 +164,21 @@ class GameAttemptService {
       
       if (assessmentGame && assessmentGame.config && assessmentGame.config.difficulty) {
         difficulty = String(assessmentGame.config.difficulty).toLowerCase();
-      } else if (assessment?.createdById) {
+      } else if (assessmentGame?.config?.companyId || assessment?.createdById) {
         // Fallback: check company's configured game calibration directly from database
         try {
-          const member = await prisma.companyMember.findFirst({
-            where: { userId: assessment.createdById },
-            select: { companyId: true },
-          });
-          if (member?.companyId) {
+          let companyId = assessmentGame?.config?.companyId;
+          if (!companyId && assessment?.createdById) {
+            const member = await prisma.companyMember.findFirst({
+              where: { userId: assessment.createdById },
+              select: { companyId: true },
+            });
+            companyId = member?.companyId;
+          }
+          if (companyId) {
             const canon = getCanonicalGameCode(game.code || slug || game.id);
             const configs = await prisma.companyGameConfig.findMany({
-              where: { companyId: member.companyId },
+              where: { companyId },
               include: { game: true },
             });
             const matchedConf = configs.find(
