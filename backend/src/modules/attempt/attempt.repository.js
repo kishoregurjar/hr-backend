@@ -1010,11 +1010,36 @@ class AttemptRepository {
    * IMPORTANT: Raw token is NEVER queried against the database.
    * ------------------------------------------------------------
    */
-  async findInvitationByTokenHash(tokenHash, tx) {
+  async findInvitationByTokenHash(tokenHash, tx, options = {}) {
     if (!tokenHash || typeof tokenHash !== "string") {
       return null;
     }
     const db = getClient(tx);
+
+    if (options && options.lean) {
+      return db.invitation.findUnique({
+        where: {
+          token: tokenHash,
+        },
+        select: {
+          id: true,
+          token: true,
+          status: true,
+          expiresAt: true,
+          candidateId: true,
+          assessmentId: true,
+          candidate: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+    }
+
     return db.invitation.findUnique({
       where: {
         token: tokenHash,
@@ -1228,6 +1253,7 @@ class AttemptRepository {
    * ------------------------------------------------------------
    */
   async findInvitationById(id, tx) {
+    if (!id || typeof id !== "string") return null;
     const db = getClient(tx);
     return db.invitation.findUnique({
       where: { id },

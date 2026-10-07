@@ -72,6 +72,19 @@ const publishCompanyOwnerActivationEmail = async (payload) => {
   );
 };
 
+const publishCandidateOtpEmail = async (payload) => {
+  return redisClient.xAdd(
+    COMPANY_INVITATION_EMAIL_STREAM,
+    "*",
+    {
+      eventType: "CANDIDATE_OTP_EMAIL",
+      email: String(payload.email),
+      otp: String(payload.otp),
+      expiresAt: String(payload.expiresAt),
+    }
+  );
+};
+
 const ensureConsumerGroup = async () => {
   try {
     await redisClient.xGroupCreate(
@@ -102,5 +115,6 @@ module.exports = {
   enqueueCompanyInvitationEmail,
   publishCompanyInvitationEmail,
   publishCompanyOwnerActivationEmail,
+  publishCandidateOtpEmail,
   ensureConsumerGroup,
 };

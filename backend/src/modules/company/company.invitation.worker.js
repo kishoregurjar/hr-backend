@@ -19,6 +19,7 @@ const {
 const {
   buildPlatformAdminWelcomeEmail,
 } = require("../super-admin/super-admin.platform-admin-welcome.email.template");
+const { buildCandidateOtpEmail } = require("../attempt/attempt.email");
 
 const {
   findEmailDeliveryByInvitationId,
@@ -314,6 +315,26 @@ const acknowledgeMessage = async (messageId) => {
   );
 };
 
+const processCandidateOtpEmail = async (data) => {
+  const { email, otp, expiresAt } = data;
+
+  if (!email || !otp) {
+    console.error("Candidate OTP email payload missing parameters", { email: Boolean(email) });
+    return { success: false, permanentFailure: true };
+  }
+
+  const emailContent = buildCandidateOtpEmail({ otp, expiresAt });
+  await sendEmail({
+    to: email,
+    subject: emailContent.subject,
+    text: emailContent.text,
+    html: emailContent.html,
+  });
+
+  console.info("Candidate OTP email sent via worker", { email });
+  return { success: true };
+};
+
 const handleMessage = async (message) => {
   if (!message || !message.id || !message.message) {
     return;
@@ -323,7 +344,9 @@ const handleMessage = async (message) => {
 
   try {
     let result;
-    if (
+    if (data.eventType === "CANDIDATE_OTP_EMAIL") {
+      result = await processCandidateOtpEmail(data);
+    } else if (
       data.eventType === "COMPANY_OWNER_ACTIVATION_EMAIL" ||
       data.activationId
     ) {

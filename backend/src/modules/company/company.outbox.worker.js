@@ -17,6 +17,7 @@ const {
   ensureConsumerGroup,
   publishCompanyInvitationEmail,
   publishCompanyOwnerActivationEmail,
+  publishCandidateOtpEmail,
 } = require("./company.invitation.queue");
 
 const { calculateNextAvailableAt } = require("./company.outbox.service");
@@ -36,6 +37,11 @@ const processOutboxEvent = async (event) => {
 
       case COMPANY_OUTBOX_CONSTANTS.EVENT_TYPES.COMPANY_OWNER_ACTIVATION_EMAIL: {
         await publishCompanyOwnerActivationEmail(payload);
+        break;
+      }
+
+      case COMPANY_OUTBOX_CONSTANTS.EVENT_TYPES.CANDIDATE_OTP_EMAIL: {
+        await publishCandidateOtpEmail(payload);
         break;
       }
 

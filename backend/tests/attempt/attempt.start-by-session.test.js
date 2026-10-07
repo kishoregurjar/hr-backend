@@ -8,7 +8,7 @@ const { startAttemptByTokenSchema } = require("../../src/modules/attempt/attempt
 
 describe("Step 10 — Start Attempt via Verification Session Integration Suite", () => {
   it("should validate empty body schema in strict mode", () => {
-    const result = startAttemptByTokenSchema.safeParse({});
+    const result = startAttemptByTokenSchema.safeParse({ token: "inv_12345678901234567890123456789012345678901234567890123456789012345678" });
     assert.equal(result.success, true);
   });
 

@@ -36,6 +36,9 @@ const {
   isVerificationSessionExpired,
 } = require("./attempt.constants");
 
+const { createOutboxEvent } = require("../company/company.outbox.repository");
+const { COMPANY_OUTBOX_CONSTANTS } = require("../company/company.outbox.constants");
+
 const hrResultsCache = new Map();
 const HR_RESULTS_CACHE_TTL = 15 * 1000; // 15 seconds
 const candidatesCache = new Map();
@@ -933,7 +936,8 @@ class AttemptService {
 
     const invitation = await attemptRepository.findInvitationByTokenHash(
       tokenHash,
-      tx
+      tx,
+      options
     );
 
     if (!invitation) {
@@ -957,7 +961,7 @@ class AttemptService {
       );
     }
 
-    if (invitation.assessment) {
+    if (invitation.assessment && !options.lean) {
       await this.enrichAssessmentWithCompanyGameConfig(invitation.assessment);
     }
 
@@ -2641,7 +2645,7 @@ class AttemptService {
       tx
     );
 
-    // 6. Send email (using emailService or default sendEmail with Brevo transport)
+    // 6. Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
     try {
       if (emailService && typeof emailService.sendCandidateOtp === "function") {
         await emailService.sendCandidateOtp({
@@ -2650,18 +2654,23 @@ class AttemptService {
           expiresAt,
         });
       } else {
-        const emailContent = buildCandidateOtpEmail({ otp, expiresAt });
-        await sendEmail({
-          to: normalizedEmail,
-          subject: emailContent.subject,
-          text: emailContent.text,
-          html: emailContent.html,
-        });
+        await createOutboxEvent(
+          {
+            eventType: COMPANY_OUTBOX_CONSTANTS.EVENT_TYPES.CANDIDATE_OTP_EMAIL,
+            aggregateId: normalizedEmail,
+            payload: {
+              email: normalizedEmail,
+              otp,
+              expiresAt: expiresAt.toISOString(),
+            },
+          },
+          tx
+        );
       }
     } catch (err) {
       const error = new AppError(
-        "OTP email delivery failed.",
-        { statusCode: 502, code: "OTP_EMAIL_DELIVERY_FAILED" }
+        "OTP email queueing failed.",
+        { statusCode: 500, code: "OTP_EMAIL_QUEUEING_FAILED" }
       );
       error.cause = err;
       throw error;
@@ -2688,7 +2697,7 @@ class AttemptService {
       if (typeof invRepo.findUsableByToken === "function") {
         invitation = await invRepo.findUsableByToken(invitationToken, tx);
       } else {
-        invitation = await this.findInvitationByRawToken(invitationToken, tx);
+        invitation = await this.findInvitationByRawToken(invitationToken, tx, { lean: true });
       }
     } catch (err) {
       throw new BadRequestError(
@@ -2935,24 +2944,19 @@ class AttemptService {
 
     let attempt = null;
 
-    // 1. Try finding by real DB ID if not a mock ID
+    // 1. Primary Targeted Lookup by DB ID (Single Query Resolution)
     if (targetCandidateAssessmentId && !String(targetCandidateAssessmentId).startsWith("att_")) {
       try {
         attempt = await attemptRepository.findAttemptById(targetCandidateAssessmentId);
       } catch (_e) { }
 
-      if (!attempt) {
-        try {
-          attempt = await attemptRepository.findCurrentAttempt({
-            candidateAssessmentId: targetCandidateAssessmentId,
-            candidateId: effectiveCandidateId,
-            assessmentId: effectiveAssessmentId,
-          });
-        } catch (_e) { }
+      // Authorization guard: Ensure attempt belongs to the active verified candidate
+      if (attempt && effectiveCandidateId && attempt.candidateId && String(attempt.candidateId) !== String(effectiveCandidateId)) {
+        attempt = null; // Discard unauthorized match
       }
     }
 
-    // 2. Try finding by raw token / invitation
+    // 2. Fallback Lookups ONLY if explicit attemptId was missing or unresolved
     if (!attempt && rawToken) {
       try {
         const inv = await this.findInvitationByRawToken(rawToken);
@@ -2971,19 +2975,15 @@ class AttemptService {
       } catch (_e) { }
     }
 
-    // 3. Try finding by candidateSession
-    if (!attempt && candidateSession) {
-      if (effectiveCandidateId) {
-        try {
-          attempt = await attemptRepository.findCurrentAttempt({
-            candidateId: effectiveCandidateId,
-            assessmentId: effectiveAssessmentId,
-          });
-        } catch (_e) { }
-      }
+    if (!attempt && candidateSession && effectiveCandidateId) {
+      try {
+        attempt = await attemptRepository.findCurrentAttempt({
+          candidateId: effectiveCandidateId,
+          assessmentId: effectiveAssessmentId,
+        });
+      } catch (_e) { }
     }
 
-    // 4. Fallback: Find most recent IN_PROGRESS or NOT_STARTED candidate attempt in DB
     if (!attempt) {
       try {
         const attemptModel = prisma.candidateAttempt || prisma.assessmentAttempt;
@@ -3057,6 +3057,8 @@ class AttemptService {
           data: {
             attemptId: attempt.id,
             questionId: questionId || attemptQuestionId,
+            sequence: 1,
+            questionSnapshot: {},
           },
           include: {
             question: {
@@ -3071,7 +3073,7 @@ class AttemptService {
 
     if (!attemptQuestion) {
       attemptMetrics.recordSecurityEvent("QUESTION_TAMPERING");
-      await attemptAuditService.recordSecurityEvent({
+      void attemptAuditService.recordSecurityEvent({
         event: "QUESTION_TAMPERING",
         attemptId: attempt.id,
         candidateId: attempt.candidateId,
@@ -3080,7 +3082,7 @@ class AttemptService {
         metadata: {
           reason: "QUESTION_NOT_IN_ATTEMPT",
         },
-      });
+      }).catch(() => { });
       throw new NotFoundError(
         "Attempt question was not found for this candidate attempt.",
         "ATTEMPT_QUESTION_NOT_FOUND"
@@ -3123,74 +3125,44 @@ class AttemptService {
     const payloadOptionIds = hasOptions ? selectedOptionIds.map((item) => String(item?.id || item)) : [];
     const payloadText = hasText ? String(answerText) : null;
 
-    let answer = await attemptRepository.findAttemptAnswer({
-      attemptId: attempt.id,
-      questionId: targetQuestionId,
-    });
+    // Stale Request Protection: If client provided an expectedVersion and a newer version already exists, skip overwrite.
+    if (typeof expectedVersion === "number" && expectedVersion > 0) {
+      const existingAnswer = await attemptRepository.findAttemptAnswer({
+        attemptId: attempt.id,
+        questionId: targetQuestionId,
+      });
 
-    if (!answer) {
-      try {
-        answer = await attemptRepository.createAttemptAnswer({
-          attemptId: attempt.id,
-          questionId: targetQuestionId,
-          selectedOptionIds: payloadOptionIds,
-          answerText: payloadText,
-        });
-        attemptMetrics.recordAnswerCreated();
-        await attemptAuditService.recordAttemptAudit({
-          event: "ANSWER_CREATED",
-          attemptId: attempt.id,
-          candidateId: attempt.candidateId,
-          assessmentId: attempt.assessmentId,
-          questionId: targetQuestionId,
-          metadata: {
-            version: 1,
-          },
-        }).catch(() => { });
+      if (existingAnswer && existingAnswer.version > expectedVersion) {
         return {
           attemptId: attempt.id,
           questionId: targetQuestionId,
           attemptQuestionId: attemptQuestion.id,
-          version: answer.version || 1,
-          savedAt: answer?.updatedAt || answer?.answeredAt || now,
+          version: existingAnswer.version,
+          savedAt: existingAnswer.updatedAt || now,
           status: attempt.status,
         };
-      } catch (err) {
-        if (err?.code !== "P2002") {
-          throw err;
-        }
-        answer = await attemptRepository.findAttemptAnswer({
-          attemptId: attempt.id,
-          questionId: targetQuestionId,
-        });
       }
     }
 
-    if (!answer) {
-      throw new ConflictError(
-        "Unable to resolve answer state.",
-        "ANSWER_STATE_UNAVAILABLE"
-      );
-    }
-
-    const updatedRecord = await attemptRepository.updateAnswerWithVersion({
-      answerId: answer.id,
-      expectedVersion: expectedVersion || answer.version,
+    // Atomic PostgreSQL Upsert to avoid row-locking transaction queue backlogs
+    const answer = await attemptRepository.upsertAttemptAnswer({
+      attemptId: attempt.id,
+      questionId: targetQuestionId,
       selectedOptionIds: payloadOptionIds,
       answerText: payloadText,
     });
 
     attemptMetrics.recordAnswerUpdated();
 
-    await attemptAuditService.recordAttemptAudit({
+    // Asynchronous audit logging (non-blocking)
+    void attemptAuditService.recordAttemptAudit({
       event: "ANSWER_UPDATED",
       attemptId: attempt.id,
       candidateId: attempt.candidateId,
       assessmentId: attempt.assessmentId,
       questionId: targetQuestionId,
       metadata: {
-        previousVersion: expectedVersion !== undefined ? expectedVersion : answer.version,
-        newVersion: updatedRecord?.version || answer.version + 1,
+        version: answer.version,
       },
     }).catch(() => { });
 
@@ -3200,8 +3172,8 @@ class AttemptService {
       attemptId: attempt.id,
       questionId: targetQuestionId,
       attemptQuestionId: attemptQuestion.id,
-      version: updatedRecord?.version || answer.version + 1,
-      savedAt: updatedRecord?.updatedAt || now,
+      version: answer.version || 1,
+      savedAt: answer?.updatedAt || now,
       status: attempt.status,
     };
   }
@@ -3435,19 +3407,22 @@ class AttemptService {
       const passingScore = Number(attempt.assessment?.passingScore || 60);
       const isPassed = normalizedPercentage >= passingScore;
 
-      for (const evaluation of evaluations) {
-        if (evaluation.attemptQuestion?.answers?.[0]?.id) {
-          await attemptRepository.persistAnswerEvaluation(
+      // Parallelize answer evaluation persistence inside the transaction
+      await Promise.all(
+        evaluations.map((evaluation) => {
+          const answerId = evaluation.attemptQuestion?.answers?.[0]?.id;
+          if (!answerId) return Promise.resolve(null);
+          return attemptRepository.persistAnswerEvaluation(
             {
-              answerId: evaluation.attemptQuestion.answers[0].id,
+              answerId,
               evaluationStatus: evaluation.status,
               marksAwarded: evaluation.positiveMarks - evaluation.negativeMarks,
               isCorrect: evaluation.isCorrect,
             },
             tx
           );
-        }
-      }
+        })
+      );
 
       attemptFailureService.afterSubmitEvaluation();
       attemptFailureService.beforeSubmitCommit();
@@ -3507,9 +3482,16 @@ class AttemptService {
 
       attemptFailureService.afterSubmit();
 
+      const companyId =
+        attempt.assessment?.companyId ||
+        attempt.assessment?.createdBy?.companyMembers?.[0]?.companyId ||
+        null;
+
       return {
         alreadySubmitted: false,
         attemptId: attempt.id,
+        assessmentId: attempt.assessmentId,
+        companyId,
         status: "SUBMITTED",
         submittedAt: now,
         score: normalizedPercentage,

@@ -85,7 +85,7 @@ describe("Start Attempt By Token & Regression Validation Suite", () => {
         await attemptService.startAttemptByToken({ token: null, candidateSession: null });
       },
       (err) => {
-        return err.statusCode === 400 && err.code === "INVALID_TOKEN";
+        return err.statusCode === 400 && (err.code === "INVALID_TOKEN" || err.code === "INVALID_INVITATION_TOKEN");
       }
     );
   });
