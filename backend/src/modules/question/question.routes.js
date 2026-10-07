@@ -75,6 +75,18 @@ router.put(
 );
 
 router.delete(
+  "/bulk",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  controller.bulkDelete
+);
+
+router.delete(
+  "/all",
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  controller.deleteAll
+);
+
+router.delete(
   "/:id",
   requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
   validateRequest(questionIdParamSchema),
