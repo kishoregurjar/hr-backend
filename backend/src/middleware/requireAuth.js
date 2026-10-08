@@ -41,6 +41,10 @@ const requireAuth = async (req, res, next) => {
       throw new UnauthorizedError("User no longer exists.", "USER_INVALID");
     }
 
+    if (user.status !== "ACTIVE") {
+      throw new UnauthorizedError("Your account has been deactivated. Please contact your company owner for assistance.", "ACCOUNT_DEACTIVATED");
+    }
+
     req.user = user;
     return next();
   } catch (error) {

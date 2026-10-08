@@ -106,6 +106,13 @@ const deleteMember = async (memberId, tx = prisma) => {
   });
 };
 
+const updateUserStatus = async (userId, status, tx = prisma) => {
+  return tx.user.update({
+    where: { id: userId },
+    data: { status },
+  });
+};
+
 const findCompanyMembers = async (
   companyId,
   {
@@ -124,6 +131,7 @@ const findCompanyMembers = async (
           id: true,
           email: true,
           name: true,
+          status: true,
         },
       },
     },
@@ -228,6 +236,7 @@ const findUserById = async (userId, tx = prisma) => {
     select: {
       id: true,
       email: true,
+      status: true,
     },
   });
 };
@@ -240,6 +249,7 @@ const findUserByEmail = async (email, tx = prisma) => {
     select: {
       id: true,
       email: true,
+      status: true,
     },
   });
 };
@@ -394,5 +404,6 @@ module.exports = {
   findUserById,
   findUserByEmail,
   countCompanyJobs,
+  updateUserStatus,
 };
 

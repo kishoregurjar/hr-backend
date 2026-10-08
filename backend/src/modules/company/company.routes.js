@@ -91,6 +91,24 @@ router.delete(
   companyController.removeMember
 );
 
+// Deactivate company member
+router.patch(
+  ["/me/members/:memberId/deactivate", "/members/:memberId/deactivate"],
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
+  companyController.deactivateMember
+);
+
+// Reactivate company member
+router.patch(
+  ["/me/members/:memberId/reactivate", "/members/:memberId/reactivate"],
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
+  companyController.reactivateMember
+);
+
 /**
  * Company Ownership Transfer
  */

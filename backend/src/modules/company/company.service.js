@@ -440,6 +440,200 @@ const removeMember = async (
   };
 };
 
+const deactivateMember = async (
+  companyIdOrOptions,
+  requesterRoleArg,
+  memberIdArg,
+  requesterUserIdArg = null,
+  auditContextArg = {}
+) => {
+  const options =
+    typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
+      ? companyIdOrOptions
+      : {
+        companyId: companyIdOrOptions,
+        actorRole: requesterRoleArg,
+        memberId: memberIdArg,
+        actorUserId: requesterUserIdArg,
+        auditContext: auditContextArg,
+      };
+
+  const {
+    companyId,
+    actorRole = requesterRoleArg,
+    memberId = memberIdArg,
+    actorUserId = requesterUserIdArg,
+    auditContext = auditContextArg,
+  } = options;
+
+  assertCanRemoveMember(actorRole);
+
+  const member = await companyRepository.findMemberForUpdate(
+    companyId,
+    memberId,
+    prisma
+  );
+
+  if (!member || member.companyId !== companyId) {
+    throw createCompanyError(
+      "Company member not found",
+      COMPANY_CONSTANTS.ERROR_CODES.MEMBER_NOT_FOUND,
+      404
+    );
+  }
+
+  if (actorUserId && member.userId === actorUserId) {
+    throw createCompanyError(
+      "Cannot deactivate yourself",
+      COMPANY_CONSTANTS.ERROR_CODES.CANNOT_MODIFY_SELF,
+      409
+    );
+  }
+
+  if (member.role === "OWNER") {
+    throw createCompanyError(
+      "Company owner cannot be deactivated",
+      COMPANY_CONSTANTS.ERROR_CODES.MEMBER_CANNOT_REMOVE_OWNER,
+      409
+    );
+  }
+
+  if (actorRole === "ADMIN" && member.role === "ADMIN") {
+    throw createCompanyError(
+      "Administrators cannot deactivate another administrator",
+      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
+      403
+    );
+  }
+
+  const user = await companyRepository.findUserById(member.userId);
+  if (user && user.status === "DEACTIVATED") {
+    return { memberId: member.id, status: "DEACTIVATED" };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await companyRepository.updateUserStatus(member.userId, "DEACTIVATED", tx);
+
+    await auditService.createAuditLog(
+      {
+        companyId,
+        actorUserId: actorUserId,
+        action: "MEMBER_DEACTIVATED",
+        entityType: AUDIT_ENTITY_TYPES.COMPANY_MEMBER,
+        entityId: memberId,
+        metadata: {
+          userId: member.userId,
+          role: member.role,
+        },
+        ...auditContext,
+      },
+      tx
+    );
+  });
+
+  return {
+    memberId: member.id,
+    status: "DEACTIVATED",
+  };
+};
+
+const reactivateMember = async (
+  companyIdOrOptions,
+  requesterRoleArg,
+  memberIdArg,
+  requesterUserIdArg = null,
+  auditContextArg = {}
+) => {
+  const options =
+    typeof companyIdOrOptions === "object" && companyIdOrOptions !== null
+      ? companyIdOrOptions
+      : {
+        companyId: companyIdOrOptions,
+        actorRole: requesterRoleArg,
+        memberId: memberIdArg,
+        actorUserId: requesterUserIdArg,
+        auditContext: auditContextArg,
+      };
+
+  const {
+    companyId,
+    actorRole = requesterRoleArg,
+    memberId = memberIdArg,
+    actorUserId = requesterUserIdArg,
+    auditContext = auditContextArg,
+  } = options;
+
+  assertCanRemoveMember(actorRole);
+
+  const member = await companyRepository.findMemberForUpdate(
+    companyId,
+    memberId,
+    prisma
+  );
+
+  if (!member || member.companyId !== companyId) {
+    throw createCompanyError(
+      "Company member not found",
+      COMPANY_CONSTANTS.ERROR_CODES.MEMBER_NOT_FOUND,
+      404
+    );
+  }
+
+  if (actorUserId && member.userId === actorUserId) {
+    throw createCompanyError(
+      "Cannot reactivate yourself",
+      COMPANY_CONSTANTS.ERROR_CODES.CANNOT_MODIFY_SELF,
+      409
+    );
+  }
+
+  if (member.role === "OWNER") {
+    throw createCompanyError(
+      "Company owner cannot be reactivated",
+      COMPANY_CONSTANTS.ERROR_CODES.MEMBER_CANNOT_REMOVE_OWNER,
+      409
+    );
+  }
+
+  if (actorRole === "ADMIN" && member.role === "ADMIN") {
+    throw createCompanyError(
+      "Administrators cannot reactivate another administrator",
+      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
+      403
+    );
+  }
+
+  const user = await companyRepository.findUserById(member.userId);
+  if (user && user.status === "ACTIVE") {
+    return { memberId: member.id, status: "ACTIVE" };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await companyRepository.updateUserStatus(member.userId, "ACTIVE", tx);
+
+    await auditService.createAuditLog(
+      {
+        companyId,
+        actorUserId: actorUserId,
+        action: "MEMBER_REACTIVATED",
+        entityType: AUDIT_ENTITY_TYPES.COMPANY_MEMBER,
+        entityId: memberId,
+        metadata: {
+          userId: member.userId,
+          role: member.role,
+        },
+        ...auditContext,
+      },
+      tx
+    );
+  });
+
+  return {
+    memberId: member.id,
+    status: "ACTIVE",
+  };
+};
+
 const transferOwnership = async (
   companyIdOrOptions,
   currentUserIdArg,
@@ -628,6 +822,8 @@ module.exports = {
   inviteMember,
   updateMemberRole,
   removeMember,
+  deactivateMember,
+  reactivateMember,
   transferOwnership,
   deleteCompany,
 };

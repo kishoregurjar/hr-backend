@@ -43,6 +43,7 @@ const mapCompanyMember = (member) => {
           id: member.user.id,
           email: member.user.email,
           name: member.user.name,
+          status: member.user.status,
         }
       : null,
     createdAt: member.createdAt,
