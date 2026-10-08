@@ -145,6 +145,48 @@ const removeMember = async (req, res, next) => {
   }
 };
 
+const deactivateMember = async (req, res, next) => {
+  try {
+    const auditContext = auditService.createRequestAuditContext(req);
+    const result = await companyService.deactivateMember(
+      req.companyId,
+      req.companyMember.role,
+      req.params.memberId,
+      req.user.id,
+      auditContext
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Company member deactivated successfully",
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const reactivateMember = async (req, res, next) => {
+  try {
+    const auditContext = auditService.createRequestAuditContext(req);
+    const result = await companyService.reactivateMember(
+      req.companyId,
+      req.companyMember.role,
+      req.params.memberId,
+      req.user.id,
+      auditContext
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Company member reactivated successfully",
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const transferOwnership = async (req, res, next) => {
   try {
     const auditContext = auditService.createRequestAuditContext(req);
@@ -219,6 +261,8 @@ module.exports = {
   inviteMember,
   updateMemberRole,
   removeMember,
+  deactivateMember,
+  reactivateMember,
   transferOwnership,
   deleteCompany,
   listAuditLogs,
