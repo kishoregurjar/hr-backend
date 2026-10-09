@@ -2771,6 +2771,25 @@ class AttemptService {
       null;
 
     const dbClient = tx || prisma;
+
+    if (!otpCompanyName && invitation.candidateId) {
+      try {
+        const candProfile = await dbClient.candidateProfile.findUnique({
+          where: { id: invitation.candidateId },
+          select: { companyId: true, company: { select: { name: true } } },
+        });
+        if (candProfile?.company?.name) {
+          otpCompanyName = candProfile.company.name;
+        } else if (candProfile?.companyId) {
+          const comp = await dbClient.company.findUnique({
+            where: { id: candProfile.companyId },
+            select: { name: true },
+          });
+          if (comp?.name) otpCompanyName = comp.name;
+        }
+      } catch (_) {}
+    }
+
     if (!otpCompanyName && invitation.assessment?.createdById) {
       try {
         const creatorMember = await dbClient.companyMember.findFirst({
@@ -2788,6 +2807,7 @@ class AttemptService {
         const assmt = await dbClient.assessment.findUnique({
           where: { id: invitation.assessmentId },
           select: {
+            createdById: true,
             createdBy: {
               select: {
                 companyMembers: {
@@ -2800,6 +2820,15 @@ class AttemptService {
           },
         });
         otpCompanyName = assmt?.createdBy?.companyMembers?.[0]?.company?.name || null;
+        if (!otpCompanyName && assmt?.createdById) {
+          const creatorMember = await dbClient.companyMember.findFirst({
+            where: { userId: assmt.createdById },
+            select: { company: { select: { name: true } } },
+          });
+          if (creatorMember?.company?.name) {
+            otpCompanyName = creatorMember.company.name;
+          }
+        }
       } catch (_) {}
     }
 
