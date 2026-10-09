@@ -558,11 +558,21 @@ class AttemptController {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
     const invitation = await attemptService.findInvitationByRawToken(rawToken, undefined, { rejectUsed: false });
 
-    // Resolve company from candidate OR assessment creator's companyMember
-    let company =
-      invitation.candidate?.company ||
-      invitation.assessment?.createdBy?.companyMembers?.[0]?.company ||
-      null;
+    // 1. Authoritative company from assessment games config
+    const savedCompanyId = invitation.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
+    let company = null;
+    
+    if (savedCompanyId) {
+      company = await prisma.company.findUnique({
+        where: { id: savedCompanyId },
+        select: { id: true, name: true, logoUrl: true, slug: true },
+      });
+    }
+
+    // 2. Fallback to assessment creator's companyMember
+    if (!company) {
+      company = invitation.assessment?.createdBy?.companyMembers?.[0]?.company || null;
+    }
 
     if (!company && invitation.assessment?.createdById) {
       const creatorMember = await prisma.companyMember.findFirst({
@@ -574,6 +584,10 @@ class AttemptController {
       }
     }
 
+    // 3. Fallback to candidate's legacy company
+    if (!company) {
+      company = invitation.candidate?.company || null;
+    }
     if (invitation.assessment) {
       await attemptService.enrichAssessmentWithCompanyGameConfig(invitation.assessment, company?.id);
     }
