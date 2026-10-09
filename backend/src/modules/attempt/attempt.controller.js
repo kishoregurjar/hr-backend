@@ -594,6 +594,30 @@ class AttemptController {
     const companyName = company?.name || null;
     const companyLogo = company?.logoUrl || null;
 
+    let candidateAttempt = null;
+    if (invitation.assessmentId && invitation.candidateId) {
+      try {
+        candidateAttempt = await prisma.candidateAttempt.findFirst({
+          where: {
+            assessmentId: invitation.assessmentId,
+            candidateId: invitation.candidateId,
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            score: true,
+            maxScore: true,
+            percentage: true,
+            result: true,
+            startedAt: true,
+            submittedAt: true,
+            createdAt: true,
+          },
+        });
+      } catch (_) {}
+    }
+
     return res.status(200).json({
       success: true,
       message: "Invitation verified successfully.",
@@ -603,6 +627,8 @@ class AttemptController {
         status: invitation.status,
         expiresAt: invitation.expiresAt,
         isExpired: invitation.expiresAt <= new Date(),
+        attempt: candidateAttempt,
+        submittedAt: candidateAttempt?.submittedAt || candidateAttempt?.createdAt || null,
         assessmentId: invitation.assessmentId,
         candidateId: invitation.candidateId,
         companyName,
