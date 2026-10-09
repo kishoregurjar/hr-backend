@@ -56,6 +56,7 @@ const corsOptions = {
     "ngrok-skip-browser-warning",
     "X-Company-Id",
     "X-Request-Id",
+    "Cache-Control",
   ],
 
   exposedHeaders: ["Set-Cookie", "X-Request-Id"],

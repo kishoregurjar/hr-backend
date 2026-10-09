@@ -411,10 +411,31 @@ class AttemptService {
       });
 
       if (candidateProfile) {
-        throw new ConflictError(
-          `Candidate with email '${normalizedEmail}' already exists in your candidate directory.`,
-          "CANDIDATE_ALREADY_EXISTS"
-        );
+        if (targetCompanyId) {
+          const existingMembership = await tx.companyCandidate.findUnique({
+            where: {
+              companyId_candidateId: {
+                companyId: targetCompanyId,
+                candidateId: candidateProfile.id,
+              },
+            },
+          });
+
+          if (existingMembership) {
+            throw new ConflictError(
+              `Candidate with email '${normalizedEmail}' already exists in your candidate directory.`,
+              "CANDIDATE_ALREADY_EXISTS"
+            );
+          }
+
+          await tx.companyCandidate.create({
+            data: {
+              companyId: targetCompanyId,
+              candidateId: candidateProfile.id,
+            },
+          });
+        }
+        return candidateProfile;
       }
 
       const fName = (firstName || "").trim() || "Candidate";
@@ -427,6 +448,13 @@ class AttemptService {
           lastName: lName,
           phoneNumber: phoneNumber ? phoneNumber.trim() : null,
           companyId: targetCompanyId || null,
+          ...(targetCompanyId && {
+            companyCandidates: {
+              create: {
+                companyId: targetCompanyId,
+              },
+            },
+          }),
           metadata: {
             source: source || "MANUAL",
           },
@@ -535,6 +563,22 @@ class AttemptService {
             data: { companyId: effectiveCompanyId },
           });
         }
+        
+        if (effectiveCompanyId) {
+          await tx.companyCandidate.upsert({
+            where: {
+              companyId_candidateId: {
+                companyId: effectiveCompanyId,
+                candidateId: candidateProfile.id,
+              },
+            },
+            update: {},
+            create: {
+              companyId: effectiveCompanyId,
+              candidateId: candidateProfile.id,
+            },
+          });
+        }
       } else if (normalizedEmail) {
         const fName = (firstName || "").trim() || "Candidate";
         const lName = (lastName || "").trim();
@@ -544,6 +588,13 @@ class AttemptService {
             firstName: fName,
             lastName: lName,
             companyId: effectiveCompanyId,
+            ...(effectiveCompanyId && {
+              companyCandidates: {
+                create: {
+                  companyId: effectiveCompanyId,
+                },
+              },
+            }),
             metadata: { source: "EMAIL_EXTRACTION", inbound: true },
           },
         });
@@ -621,15 +672,19 @@ class AttemptService {
 
     // Resolve hiring company name for invitation email
     let invitationCompanyName = null;
-    if (result.candidateProfile?.companyId) {
+    // 1. Authoritative company from assessment games config
+    const savedCompanyId = result.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
+    if (savedCompanyId) {
       try {
         const comp = await prisma.company.findUnique({
-          where: { id: result.candidateProfile.companyId },
+          where: { id: savedCompanyId },
           select: { name: true },
         });
         invitationCompanyName = comp?.name || null;
       } catch (_) {}
     }
+
+    // 2. Fallback to assessment creator's companyMember
     if (!invitationCompanyName && result.assessment?.createdById) {
       try {
         const creatorMember = await prisma.companyMember.findFirst({
@@ -639,8 +694,18 @@ class AttemptService {
         invitationCompanyName = creatorMember?.company?.name || null;
       } catch (_) {}
     }
-    const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
 
+    // 3. Fallback to candidate's legacy company
+    if (!invitationCompanyName && result.candidateProfile?.companyId) {
+      try {
+        const comp = await prisma.company.findUnique({
+          where: { id: result.candidateProfile.companyId },
+          select: { name: true },
+        });
+        invitationCompanyName = comp?.name || null;
+      } catch (_) {}
+    }
+    const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
     try {
       const emailContent = buildInvitationEmail({
         candidateName: `${result.candidateProfile.firstName} ${result.candidateProfile.lastName}`.trim(),
@@ -3787,13 +3852,26 @@ class AttemptService {
     }
 
     let targetCompanyId = companyId;
-    if (!targetCompanyId && user?.id) {
+
+    if (user.role !== "SUPER_ADMIN" && user?.id) {
       const member = await prisma.companyMember.findFirst({
         where: { userId: user.id },
         select: { companyId: true },
       });
+      
       if (member?.companyId) {
+        if (targetCompanyId && targetCompanyId !== member.companyId) {
+          throw new ForbiddenError(
+            "You do not have permission to access candidates for this company.",
+            "ACCESS_DENIED"
+          );
+        }
         targetCompanyId = member.companyId;
+      } else if (targetCompanyId) {
+        throw new ForbiddenError(
+          "You do not have permission to access candidates for this company.",
+          "ACCESS_DENIED"
+        );
       }
     }
 
@@ -3804,7 +3882,10 @@ class AttemptService {
 
     const where = {};
     if (targetCompanyId) {
-      where.companyId = targetCompanyId;
+      where.OR = [
+        { companyId: targetCompanyId },
+        { companyCandidates: { some: { companyId: targetCompanyId } } }
+      ];
     } else {
       where.id = "no-matching-company";
     }
@@ -3818,7 +3899,12 @@ class AttemptService {
 
       where.AND = [
         targetCompanyId
-          ? { companyId: targetCompanyId }
+          ? {
+              OR: [
+                { companyId: targetCompanyId },
+                { companyCandidates: { some: { companyId: targetCompanyId } } }
+              ]
+            }
           : { id: "no-matching-company" },
         { OR: searchFilter },
       ];

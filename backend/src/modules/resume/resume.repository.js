@@ -88,7 +88,7 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
 
   const existingCandidate = await db.candidateProfile.findUnique({
     where: { email },
-    select: { firstName: true, lastName: true, metadata: true, companyId: true }
+    select: { id: true, firstName: true, lastName: true, metadata: true, companyId: true }
   });
 
   const existingMetadata = (existingCandidate && existingCandidate.metadata && typeof existingCandidate.metadata === 'object')
@@ -138,7 +138,7 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
     }
   }
 
-  return db.candidateProfile.upsert({
+  const profile = await db.candidateProfile.upsert({
     where: { email },
     update: {
       userId: user.id || undefined,
@@ -162,6 +162,24 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
       },
     },
   });
+
+  if (effectiveCompanyId) {
+    await db.companyCandidate.upsert({
+      where: {
+        companyId_candidateId: {
+          companyId: effectiveCompanyId,
+          candidateId: profile.id,
+        },
+      },
+      update: {},
+      create: {
+        companyId: effectiveCompanyId,
+        candidateId: profile.id,
+      },
+    });
+  }
+
+  return profile;
 }
 
 async function createCandidate(data, db = prisma) {
