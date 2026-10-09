@@ -1469,27 +1469,26 @@ class AttemptService {
         );
       }
 
-      // 15. Load final candidate-safe attempt
-      const createdAttempt = await attemptRepository.findById(
-        attempt.id,
-        { includeQuestions: true },
-        tx
-      );
-
-      if (!createdAttempt) {
-        throw new NotFoundError(
-          "Assessment attempt could not be retrieved after creation.",
-          ATTEMPT_ERRORS.NOT_FOUND
-        );
-      }
+      // 15. Construct final candidate-safe attempt in memory (eliminates redundant post-creation DB re-fetch)
+      const createdAttempt = {
+        ...attempt,
+        assessment: invitation.assessment,
+        attemptQuestions: attemptQuestionData,
+        questions: attemptQuestionData,
+      };
 
       attemptFailureService.beforeStartCommit();
 
       return createdAttempt;
     });
 
+    const explicitCompanyId =
+      startedAttempt?.assessment?.createdBy?.companyMembers?.[0]?.company?.id ||
+      startedAttempt?.candidate?.company?.id ||
+      null;
+
     if (startedAttempt?.assessment) {
-      await this.enrichAssessmentWithCompanyGameConfig(startedAttempt.assessment);
+      await this.enrichAssessmentWithCompanyGameConfig(startedAttempt.assessment, explicitCompanyId);
     }
 
     return startedAttempt;
