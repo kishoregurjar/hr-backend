@@ -69,7 +69,6 @@ const ATTEMPT_ANSWER_SELECT = Object.freeze({
   evaluationStatus: true,
   isCorrect: true,
   marksAwarded: true,
-  answeredAt: true,
   updatedAt: true,
 });
 
@@ -455,7 +454,6 @@ class AttemptRepository {
         questionId: true,
         selectedOptionIds: true,
         answerText: true,
-        answeredAt: true,
         updatedAt: true,
       },
     });
@@ -529,7 +527,6 @@ class AttemptRepository {
         selectedOptionIds: true,
         answerText: true,
         version: true,
-        answeredAt: true,
         updatedAt: true,
       },
     });
@@ -1797,7 +1794,6 @@ class AttemptRepository {
                 evaluationStatus: true,
                 isCorrect: true,
                 marksAwarded: true,
-                answeredAt: true,
                 updatedAt: true,
               },
             },
@@ -2047,19 +2043,19 @@ class AttemptRepository {
    */
   async touchVerificationSession(optionsOrId, tx) {
     const client = tx || prisma;
-    const id = typeof optionsOrId === "object" ? optionsOrId.id : optionsOrId;
-    const lastUsedAt = typeof optionsOrId === "object" && optionsOrId.lastUsedAt ? optionsOrId.lastUsedAt : new Date();
+    const id = typeof optionsOrId === "object" ? (optionsOrId.id || optionsOrId.sessionId) : optionsOrId;
+    const now = typeof optionsOrId === "object" && (optionsOrId.lastUsedAt || optionsOrId.now) ? (optionsOrId.lastUsedAt || optionsOrId.now) : new Date();
 
     return client.candidateVerificationSession.updateMany({
       where: {
         id,
         revokedAt: null,
         expiresAt: {
-          gt: lastUsedAt,
+          gt: now,
         },
       },
       data: {
-        lastUsedAt,
+        updatedAt: now,
       },
     });
   }
