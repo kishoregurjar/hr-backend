@@ -20,6 +20,7 @@ const {
 } = require("./attempt.dto");
 const { UnauthorizedError, BadRequestError, NotFoundError } = require("../../common/errors");
 const socketService = require("../../socket/socket.service");
+const logger = require("../../config/logger");
 
 /**
  * ==========================================================
@@ -616,7 +617,7 @@ class AttemptController {
             assessmentId: invitation.assessmentId,
             candidateId: invitation.candidateId,
           },
-          orderBy: { createdAt: "desc" },
+          orderBy: { startedAt: "desc" },
           select: {
             id: true,
             status: true,
@@ -626,10 +627,20 @@ class AttemptController {
             result: true,
             startedAt: true,
             submittedAt: true,
-            createdAt: true,
           },
         });
-      } catch (_) {}
+      } catch (err) {
+        const sanitizedError = err?.message
+          ? err.message.split(/[\r\n]+/)[0].trim().slice(0, 300)
+          : undefined;
+
+        logger.warn({
+          event: "VERIFY_INVITATION_ATTEMPT_FETCH_FAILED",
+          code: err?.code,
+          errorName: err?.name,
+          error: sanitizedError,
+        });
+      }
     }
 
     return res.status(200).json({
@@ -642,7 +653,7 @@ class AttemptController {
         expiresAt: invitation.expiresAt,
         isExpired: invitation.expiresAt <= new Date(),
         attempt: candidateAttempt,
-        submittedAt: candidateAttempt?.submittedAt || candidateAttempt?.createdAt || null,
+        submittedAt: candidateAttempt?.submittedAt || null,
         assessmentId: invitation.assessmentId,
         candidateId: invitation.candidateId,
         companyName,
