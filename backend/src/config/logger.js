@@ -45,6 +45,14 @@ if (env.nodeEnv === "development") {
       ignore: "pid,hostname",
     },
   });
+} else {
+  // In production / non-development environments, stream structured JSON directly to stdout (fd: 1)
+  // so container platforms (e.g. Railway) can collect, index, and display logs.
+  targets.push({
+    level: env.logger.level || "info",
+    target: "pino/file",
+    options: { destination: 1 },
+  });
 }
 
 const transport = pino.transport({ targets });
@@ -54,6 +62,21 @@ const logger = pino(
     level: env.logger.level || "info",
     base: undefined,
     timestamp: pino.stdTimeFunctions.isoTime,
+    redact: {
+      paths: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "req.headers['x-candidate-session']",
+        "req.body.password",
+        "req.body.otp",
+        "req.body.token",
+        "password",
+        "otp",
+        "secret",
+        "token",
+      ],
+      censor: "[REDACTED]",
+    },
   },
   transport
 );
