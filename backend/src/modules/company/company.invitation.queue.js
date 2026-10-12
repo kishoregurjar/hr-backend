@@ -81,6 +81,7 @@ const publishCandidateOtpEmail = async (payload) => {
       email: String(payload.email),
       otp: String(payload.otp),
       expiresAt: String(payload.expiresAt),
+      companyName: String(payload.companyName || ""),
     }
   );
 };

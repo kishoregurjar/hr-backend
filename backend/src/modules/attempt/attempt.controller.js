@@ -561,11 +561,21 @@ class AttemptController {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
     const invitation = await attemptService.findInvitationByRawToken(rawToken, undefined, { rejectUsed: false });
 
-    // Resolve company from candidate OR assessment creator's companyMember
-    let company =
-      invitation.candidate?.company ||
-      invitation.assessment?.createdBy?.companyMembers?.[0]?.company ||
-      null;
+    // 1. Authoritative company from assessment games config
+    const savedCompanyId = invitation.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
+    let company = null;
+    
+    if (savedCompanyId) {
+      company = await prisma.company.findUnique({
+        where: { id: savedCompanyId },
+        select: { id: true, name: true, logoUrl: true, slug: true },
+      });
+    }
+
+    // 2. Fallback to assessment creator's companyMember
+    if (!company) {
+      company = invitation.assessment?.createdBy?.companyMembers?.[0]?.company || null;
+    }
 
     if (!company && invitation.assessment?.createdById) {
       const creatorMember = await prisma.companyMember.findFirst({
@@ -587,12 +597,40 @@ class AttemptController {
       }
     }
 
+    // Fallback to candidate's legacy company
+    if (!company) {
+      company = invitation.candidate?.company || null;
+    }
     if (invitation.assessment) {
       await attemptService.enrichAssessmentWithCompanyGameConfig(invitation.assessment, company?.id);
     }
 
     const companyName = company?.name || null;
     const companyLogo = company?.logoUrl || null;
+
+    let candidateAttempt = null;
+    if (invitation.assessmentId && invitation.candidateId) {
+      try {
+        candidateAttempt = await prisma.candidateAttempt.findFirst({
+          where: {
+            assessmentId: invitation.assessmentId,
+            candidateId: invitation.candidateId,
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            score: true,
+            maxScore: true,
+            percentage: true,
+            result: true,
+            startedAt: true,
+            submittedAt: true,
+            createdAt: true,
+          },
+        });
+      } catch (_) {}
+    }
 
     return res.status(200).json({
       success: true,
@@ -603,6 +641,8 @@ class AttemptController {
         status: invitation.status,
         expiresAt: invitation.expiresAt,
         isExpired: invitation.expiresAt <= new Date(),
+        attempt: candidateAttempt,
+        submittedAt: candidateAttempt?.submittedAt || candidateAttempt?.createdAt || null,
         assessmentId: invitation.assessmentId,
         candidateId: invitation.candidateId,
         companyName,

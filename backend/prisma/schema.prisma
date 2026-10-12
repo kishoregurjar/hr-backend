@@ -434,12 +434,26 @@ model CandidateProfile {
 
   user             User?              @relation(fields: [userId], references: [id])
   company          Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  companyCandidates CompanyCandidate[]
   invitations      Invitation[]
   attempts         CandidateAttempt[]
   attemptAuditLogs AttemptAuditLog[]
 
   @@index([companyId])
   @@index([companyId, email])
+}
+
+model CompanyCandidate {
+  companyId   String
+  candidateId String
+  createdAt   DateTime @default(now())
+
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  candidate CandidateProfile @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, candidateId])
+  @@index([companyId])
+  @@index([candidateId])
 }
 
 model Invitation {
@@ -773,6 +787,7 @@ model Company {
   invitations       CompanyInvitation[]
   auditLogs         AuditLog[]
   candidateProfiles CandidateProfile[]
+  companyCandidates CompanyCandidate[]
   questions         Question[]
   gameConfigs       CompanyGameConfig[]
   supportRequests   SupportRequest[]
