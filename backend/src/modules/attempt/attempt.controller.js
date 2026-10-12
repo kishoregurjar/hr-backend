@@ -561,9 +561,8 @@ class AttemptController {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
     const invitation = await attemptService.findInvitationByRawToken(rawToken, undefined, { rejectUsed: false });
 
-    // Resolve company from candidate OR assessment creator's companyMember
+    // Resolve hiring company dynamically from assessment creator's companyMember (Source of Truth)
     let company =
-      invitation.candidate?.company ||
       invitation.assessment?.createdBy?.companyMembers?.[0]?.company ||
       null;
 
@@ -577,6 +576,34 @@ class AttemptController {
       }
     }
 
+    if (!company && invitation.assessmentId) {
+      const assmt = await prisma.assessment.findUnique({
+        where: { id: invitation.assessmentId },
+        select: {
+          createdById: true,
+          createdBy: {
+            select: {
+              companyMembers: {
+                select: {
+                  company: { select: { id: true, name: true, logoUrl: true, slug: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+      company = assmt?.createdBy?.companyMembers?.[0]?.company || null;
+      if (!company && assmt?.createdById) {
+        const creatorMember = await prisma.companyMember.findFirst({
+          where: { userId: assmt.createdById },
+          select: { company: { select: { id: true, name: true, logoUrl: true, slug: true } } },
+        });
+        if (creatorMember?.company) {
+          company = creatorMember.company;
+        }
+      }
+    }
+
     if (!company) {
       const savedCompanyId = invitation.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
       if (savedCompanyId) {
@@ -585,6 +612,10 @@ class AttemptController {
           select: { id: true, name: true, logoUrl: true, slug: true },
         });
       }
+    }
+
+    if (!company && invitation.candidate?.company) {
+      company = invitation.candidate.company;
     }
 
     if (invitation.assessment) {

@@ -80,6 +80,75 @@ describe("Candidate OTP Asynchronous Outbox Optimization Suite", () => {
     assert.notEqual(createdCandidateOtp.otpHash, createdOutboxEvent.payload.otp, "Raw OTP must be securely hashed in DB");
   });
 
+  it("should prioritize assessment creator company over stale candidate profile company in OTP outbox event", async () => {
+    const mockEmail = "rohitpanchal@example.com";
+    const mockToken = "inv_gamastack_token_456";
+
+    let createdOutboxEvent = null;
+
+    const mockInvitationRepo = {
+      findUsableByToken: async () => ({
+        id: "inv_gamastack_123",
+        email: mockEmail,
+        status: "PENDING",
+        // Candidate has old company binding (e.g. Microsoft)
+        candidate: {
+          id: "cand_rohit",
+          firstName: "Rohit",
+          lastName: "Panchal",
+          company: {
+            id: "comp_msft",
+            name: "Microsoft",
+          },
+        },
+        // Assessment was created by recruiter in gamastack
+        assessment: {
+          id: "assmt_gamastack",
+          title: "Full Stack Engineer Assessment",
+          createdById: "recruiter_gamastack_user",
+          createdBy: {
+            id: "recruiter_gamastack_user",
+            companyMembers: [
+              {
+                role: "RECRUITER",
+                company: {
+                  id: "comp_gamastack",
+                  name: "gamastack",
+                },
+              },
+            ],
+          },
+        },
+      }),
+    };
+
+    await attemptService.sendCandidateOtp(
+      {
+        email: mockEmail,
+        invitationToken: mockToken,
+        now: new Date(),
+        invitationRepository: mockInvitationRepo,
+      },
+      {
+        outboxEvent: {
+          create: async ({ data }) => {
+            createdOutboxEvent = data;
+            return { id: "outbox_456", ...data };
+          },
+        },
+        candidateOtp: {
+          create: async () => ({ id: "otp_456" }),
+          findFirst: async () => null,
+          count: async () => 0,
+        },
+      }
+    );
+
+    assert.ok(createdOutboxEvent, "Outbox event must be created");
+    assert.equal(createdOutboxEvent.payload.companyName, "gamastack", "Company name must dynamically resolve to gamastack, NOT Microsoft");
+    assert.equal(createdOutboxEvent.payload.candidateName, "Rohit Panchal", "Candidate name must resolve to Rohit Panchal");
+  });
+
   it("should generate exact email content using buildCandidateOtpEmail", () => {
     const testOtp = "948201";
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
@@ -91,3 +160,4 @@ describe("Candidate OTP Asynchronous Outbox Optimization Suite", () => {
     assert.ok(content.html.includes("5 minutes"));
   });
 });
+
