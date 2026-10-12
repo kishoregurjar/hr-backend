@@ -90,7 +90,7 @@ function wrapClientForMetrics(client) {
       const orig = Reflect.get(target, prop, receiver);
 
       if (typeof prop === "string" && prop.startsWith("$")) {
-        if (typeof orig === "function" && prop !== "$transaction") {
+        if (typeof orig === "function" && prop !== "$transaction" && !prop.endsWith("Internal")) {
           return async function (...args) {
             const start = performance.now();
             try {

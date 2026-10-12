@@ -474,4 +474,90 @@ describe("Latency Instrumentation & Observability Suite", () => {
       );
     }
   });
+
+  it("11. Raw queries ($queryRaw, $executeRaw, $queryRawUnsafe) delegating to internal helpers are recorded exactly once with public action names", async () => {
+    const ctx = {
+      requestId: "req_raw_dedup_test",
+      route: "POST /api/v1/attempts/start-by-token",
+      prisma: { count: 0, cumulativeDurationMs: 0, operations: [] },
+      redis: { count: 0, durationMs: 0 },
+      stages: {},
+    };
+
+    await new Promise((resolve) => {
+      metricsStorage.run(ctx, async () => {
+        const mockPrisma = {
+          async $queryRawInternal() {
+            await new Promise((r) => setTimeout(r, 5));
+            return [{ id: "lock_1" }];
+          },
+          async $queryRaw(...args) {
+            // Emulates Prisma's internal delegation: this.$queryRawInternal(...)
+            return this.$queryRawInternal(...args);
+          },
+          async $executeRawInternal() {
+            await new Promise((r) => setTimeout(r, 5));
+            return 1;
+          },
+          async $executeRaw(...args) {
+            // Emulates Prisma's internal delegation: this.$executeRawInternal(...)
+            return this.$executeRawInternal(...args);
+          },
+          async $queryRawUnsafe(...args) {
+            return this.$queryRawInternal(...args);
+          },
+          candidateAttempt: {
+            async findFirst() {
+              await new Promise((r) => setTimeout(r, 5));
+              return { id: "att_123" };
+            },
+          },
+        };
+
+        const wrapped = wrapClientForMetrics(mockPrisma);
+
+        // 1. Execute $queryRaw
+        await wrapped.$queryRaw`SELECT id FROM "Invitation" FOR UPDATE`;
+
+        assert.equal(ctx.prisma.count, 1, "Logical $queryRaw must produce exactly 1 metric record");
+        assert.equal(ctx.prisma.operations.length, 1);
+        assert.equal(ctx.prisma.operations[0].model, "raw");
+        assert.equal(ctx.prisma.operations[0].action, "$queryRaw");
+        assert.ok(ctx.prisma.operations[0].durationMs >= 4);
+
+        // 2. Execute $executeRaw
+        await wrapped.$executeRaw`UPDATE "CandidateAnswer" SET score = 10`;
+
+        assert.equal(ctx.prisma.count, 2, "Logical $executeRaw must produce exactly 1 additional metric record");
+        assert.equal(ctx.prisma.operations.length, 2);
+        assert.equal(ctx.prisma.operations[1].model, "raw");
+        assert.equal(ctx.prisma.operations[1].action, "$executeRaw");
+        assert.ok(ctx.prisma.operations[1].durationMs >= 4);
+
+        // 3. Execute $queryRawUnsafe
+        await wrapped.$queryRawUnsafe("SELECT 1");
+
+        assert.equal(ctx.prisma.count, 3, "Logical $queryRawUnsafe must produce exactly 1 additional metric record");
+        assert.equal(ctx.prisma.operations.length, 3);
+        assert.equal(ctx.prisma.operations[2].model, "raw");
+        assert.equal(ctx.prisma.operations[2].action, "$queryRawUnsafe");
+
+        // 4. Verify no internal helpers leaked into operations list
+        const actionNames = ctx.prisma.operations.map((op) => op.action);
+        assert.ok(!actionNames.includes("$queryRawInternal"), "Internal helper $queryRawInternal must NOT be recorded");
+        assert.ok(!actionNames.includes("$executeRawInternal"), "Internal helper $executeRawInternal must NOT be recorded");
+
+        // 5. Verify normal model methods are still accurately recorded
+        await wrapped.candidateAttempt.findFirst();
+
+        assert.equal(ctx.prisma.count, 4);
+        assert.equal(ctx.prisma.operations.length, 4);
+        assert.equal(ctx.prisma.operations[3].model, "candidateAttempt");
+        assert.equal(ctx.prisma.operations[3].action, "findFirst");
+
+        resolve();
+      });
+    });
+  });
 });
+
