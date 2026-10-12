@@ -115,6 +115,17 @@ async function findGameResult(candidateAssessmentId, gameId) {
       });
       if (found) return found;
     }
+    const db = prisma;
+    const model = db?.candidateAttempt || db?.assessmentAttempt;
+    if (model?.findUnique) {
+      const ca = await model.findUnique({
+        where: { id: candidateAssessmentId },
+        select: { gameResults: true },
+      });
+      if (ca?.gameResults && typeof ca.gameResults === "object") {
+        if (ca.gameResults[gameId]) return ca.gameResults[gameId];
+      }
+    }
   } catch (_err) {
     // Fallback
   }
