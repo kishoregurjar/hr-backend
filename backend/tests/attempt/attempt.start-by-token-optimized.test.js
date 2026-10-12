@@ -11,6 +11,8 @@ const attemptMapper = require("../../src/modules/attempt/attempt.mapper");
 describe("Candidate Start-By-Token Performance & Concurrency Suite", () => {
   let origFindInvitationByTokenHash;
   let origFindActiveAttempt;
+  let origFindLatestAttempt;
+  let origCountAttempts;
   let origFindById;
   let origCreateAttempt;
   let origCreateAttemptQuestions;
@@ -20,6 +22,8 @@ describe("Candidate Start-By-Token Performance & Concurrency Suite", () => {
   beforeEach(() => {
     origFindInvitationByTokenHash = attemptRepository.findInvitationByTokenHash;
     origFindActiveAttempt = attemptRepository.findActiveAttempt;
+    origFindLatestAttempt = attemptRepository.findLatestAttempt;
+    origCountAttempts = attemptRepository.countAttempts;
     origFindById = attemptRepository.findById;
     origCreateAttempt = attemptRepository.createAttempt;
     origCreateAttemptQuestions = attemptRepository.createAttemptQuestions;
@@ -33,6 +37,8 @@ describe("Candidate Start-By-Token Performance & Concurrency Suite", () => {
   afterEach(() => {
     attemptRepository.findInvitationByTokenHash = origFindInvitationByTokenHash;
     attemptRepository.findActiveAttempt = origFindActiveAttempt;
+    attemptRepository.findLatestAttempt = origFindLatestAttempt;
+    attemptRepository.countAttempts = origCountAttempts;
     attemptRepository.findById = origFindById;
     attemptRepository.createAttempt = origCreateAttempt;
     attemptRepository.createAttemptQuestions = origCreateAttemptQuestions;
@@ -283,5 +289,70 @@ describe("Candidate Start-By-Token Performance & Concurrency Suite", () => {
     assert.ok(r1);
     assert.ok(r2);
     assert.equal(r1.id, r2.id, "Both simultaneous requests must return the exact same attempt ID");
+  });
+
+  it("should start attempt #2 successfully when a previous attempt without attemptNumber exists", async () => {
+    const mockRawToken = "inv_retry_test_token_1234567890";
+    const tokenHash = attemptMapper.hashInvitationToken(mockRawToken);
+    const mockCandidateId = "c_cand_retry_102";
+    const mockAssessmentId = "c_ass_retry_102";
+    const mockAttemptId = "c_att_retry_new_102";
+
+    attemptRepository.findInvitationByTokenHash = async () => ({
+      id: "c_inv_102",
+      token: tokenHash,
+      status: "PENDING",
+      expiresAt: new Date(Date.now() + 3600 * 1000),
+      candidateId: mockCandidateId,
+      assessmentId: mockAssessmentId,
+      candidate: {
+        id: mockCandidateId,
+        email: "candidate.retry@example.com",
+      },
+      assessment: {
+        id: mockAssessmentId,
+        status: "PUBLISHED",
+        durationMinutes: 60,
+        maxAttempts: 3,
+        questions: [{ questionId: "q_1", sequence: 1 }],
+        games: [],
+      },
+    });
+
+    // No currently ACTIVE/IN_PROGRESS attempt
+    attemptRepository.findActiveAttempt = async () => null;
+
+    // Previous attempt exists in DB, but has no attemptNumber field (real DB schema)
+    attemptRepository.findLatestAttempt = async () => ({
+      id: "c_att_prev_submitted",
+      status: "SUBMITTED",
+      // attemptNumber is undefined!
+    });
+    attemptRepository.countAttempts = async () => 1;
+
+    let createdAttemptData = null;
+    attemptRepository.createAttempt = async (data) => {
+      createdAttemptData = data;
+      return {
+        id: mockAttemptId,
+        ...data,
+        status: "IN_PROGRESS",
+      };
+    };
+
+    attemptRepository.createAttemptQuestions = async () => ({ count: 1 });
+    attemptRepository.markInvitationOpenedIfUsable = async () => true;
+    attemptRepository.findById = async () => ({
+      id: mockAttemptId,
+      status: "IN_PROGRESS",
+    });
+
+    const result = await attemptService.startAttemptByToken({
+      token: mockRawToken,
+    });
+
+    assert.ok(result);
+    assert.equal(result.id, mockAttemptId);
+    assert.ok(createdAttemptData, "Attempt record must be created");
   });
 });

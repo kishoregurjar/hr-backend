@@ -1184,7 +1184,19 @@ class AttemptService {
       return 1;
     }
 
-    return latestAttempt.attemptNumber + 1;
+    if (
+      Number.isInteger(latestAttempt.attemptNumber) &&
+      latestAttempt.attemptNumber >= 1
+    ) {
+      return latestAttempt.attemptNumber + 1;
+    }
+
+    const count = await attemptRepository.countAttempts(
+      { assessmentId, candidateId },
+      tx
+    );
+
+    return Math.max(1, (Number.isInteger(count) ? count : 0) + 1);
   }
 
   /**

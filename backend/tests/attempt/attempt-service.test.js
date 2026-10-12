@@ -2,6 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
 const attemptService = require("../../src/modules/attempt/attempt.service");
+const attemptRepository = require("../../src/modules/attempt/attempt.repository");
 const { ATTEMPT_ERRORS } = require("../../src/modules/attempt/attempt.constants");
 const { NotFoundError, ConflictError, BadRequestError, UnauthorizedError } = require("../../src/common/errors");
 
@@ -213,6 +214,131 @@ describe("Assessment Attempt Service Workflow & Validation Suite", () => {
       () => attemptService.saveAnswerByToken({ token: "inv_123", questionId: "" }),
       (err) => err instanceof BadRequestError
     );
+  });
+
+  describe("calculateAttemptNumber", () => {
+    const origFindLatestAttempt = attemptRepository.findLatestAttempt;
+    const origCountAttempts = attemptRepository.countAttempts;
+
+    it("returns attempt number 1 when no previous attempts exist", async () => {
+      attemptRepository.findLatestAttempt = async () => null;
+
+      const result = await attemptService.calculateAttemptNumber({
+        assessmentId: "ass-1",
+        candidateId: "cand-1",
+      });
+
+      assert.equal(result, 1);
+    });
+
+    it("returns attempt number 2 when 1 previous attempt exists without attemptNumber", async () => {
+      attemptRepository.findLatestAttempt = async () => ({
+        id: "att-prev-1",
+        status: "SUBMITTED",
+        // attemptNumber is undefined, matching production CandidateAttempt schema
+      });
+      attemptRepository.countAttempts = async () => 1;
+
+      const result = await attemptService.calculateAttemptNumber({
+        assessmentId: "ass-1",
+        candidateId: "cand-1",
+      });
+
+      assert.equal(result, 2);
+    });
+
+    it("returns N + 1 when N previous attempts exist without attemptNumber", async () => {
+      attemptRepository.findLatestAttempt = async () => ({
+        id: "att-prev-5",
+        status: "SUBMITTED",
+      });
+      attemptRepository.countAttempts = async () => 5;
+
+      const result = await attemptService.calculateAttemptNumber({
+        assessmentId: "ass-1",
+        candidateId: "cand-1",
+      });
+
+      assert.equal(result, 6);
+    });
+
+    it("supports valid mocked integer attemptNumber when present", async () => {
+      attemptRepository.findLatestAttempt = async () => ({
+        id: "att-mock-2",
+        attemptNumber: 2,
+      });
+      attemptRepository.countAttempts = async () => {
+        throw new Error("countAttempts should not be called when attemptNumber is valid");
+      };
+
+      const result = await attemptService.calculateAttemptNumber({
+        assessmentId: "ass-1",
+        candidateId: "cand-1",
+      });
+
+      assert.equal(result, 3);
+    });
+
+    it("propagates findLatestAttempt repository errors", async () => {
+      attemptRepository.findLatestAttempt = async () => {
+        throw new Error("DB findLatestAttempt failure");
+      };
+
+      await assert.rejects(
+        () =>
+          attemptService.calculateAttemptNumber({
+            assessmentId: "ass-1",
+            candidateId: "cand-1",
+          }),
+        { message: "DB findLatestAttempt failure" }
+      );
+    });
+
+    it("propagates countAttempts repository errors", async () => {
+      attemptRepository.findLatestAttempt = async () => ({
+        id: "att-prev-1",
+      });
+      attemptRepository.countAttempts = async () => {
+        throw new Error("DB countAttempts failure");
+      };
+
+      await assert.rejects(
+        () =>
+          attemptService.calculateAttemptNumber({
+            assessmentId: "ass-1",
+            candidateId: "cand-1",
+          }),
+        { message: "DB countAttempts failure" }
+      );
+    });
+
+    it("preserves transaction client tx argument", async () => {
+      const mockTx = { isMockTx: true };
+      let txPassedToFind = null;
+      let txPassedToCount = null;
+
+      attemptRepository.findLatestAttempt = async (_filter, tx) => {
+        txPassedToFind = tx;
+        return { id: "att-prev-1" };
+      };
+      attemptRepository.countAttempts = async (_filter, tx) => {
+        txPassedToCount = tx;
+        return 1;
+      };
+
+      const result = await attemptService.calculateAttemptNumber(
+        { assessmentId: "ass-1", candidateId: "cand-1" },
+        mockTx
+      );
+
+      assert.equal(result, 2);
+      assert.equal(txPassedToFind, mockTx);
+      assert.equal(txPassedToCount, mockTx);
+
+      // Restore original repository functions
+      attemptRepository.findLatestAttempt = origFindLatestAttempt;
+      attemptRepository.countAttempts = origCountAttempts;
+    });
   });
 });
 
