@@ -2,6 +2,7 @@
 
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 
 process.env.OTP_SECRET = "test-only-otp-secret";
 
@@ -27,20 +28,54 @@ describe("OTP Security Suite", () => {
     assert.notEqual(otp1, otp2);
   });
 
-  it("should hash OTP", () => {
-    const hash = hashOtp("123456");
+  it("should hash OTP using scrypt async format", async () => {
+    const hash = await hashOtp("123456");
     assert.equal(typeof hash, "string");
-    assert.equal(hash.length, 64);
+    assert.ok(hash.startsWith("scrypt:"), "Hash must start with scrypt: prefix");
   });
 
-  it("should verify correct OTP", () => {
-    const hash = hashOtp("123456");
-    assert.equal(verifyOtpHash("123456", hash), true);
+  it("should verify correct OTP with new scrypt hash", async () => {
+    const hash = await hashOtp("123456");
+    const result = await verifyOtpHash("123456", hash);
+    assert.equal(result, true);
   });
 
-  it("should reject incorrect OTP", () => {
-    const hash = hashOtp("123456");
-    assert.equal(verifyOtpHash("654321", hash), false);
+  it("should reject incorrect OTP with scrypt hash", async () => {
+    const hash = await hashOtp("123456");
+    const result = await verifyOtpHash("654321", hash);
+    assert.equal(result, false);
+  });
+
+  it("should verify legacy HMAC-SHA256 stored hash for backward compatibility & rollback", async () => {
+    const legacyHash = crypto
+      .createHmac("sha256", process.env.OTP_SECRET)
+      .update("123456", "utf8")
+      .digest("hex");
+    
+    assert.equal(legacyHash.length, 64);
+    assert.equal(legacyHash.startsWith("scrypt:"), false);
+
+    const validResult = await verifyOtpHash("123456", legacyHash);
+    assert.equal(validResult, true, "Must verify legacy HMAC hash successfully");
+
+    const invalidResult = await verifyOtpHash("654321", legacyHash);
+    assert.equal(invalidResult, false, "Must reject incorrect OTP for legacy HMAC hash");
+  });
+
+  it("should handle malformed stored hashes gracefully without throwing", async () => {
+    assert.equal(await verifyOtpHash("123456", "malformed_hash_xyz"), false);
+    assert.equal(await verifyOtpHash("123456", "scrypt:invalid"), false);
+    assert.equal(await verifyOtpHash("123456", "scrypt:shortsalt:shortkey"), false);
+    assert.equal(await verifyOtpHash("123456", ""), false);
+    assert.equal(await verifyOtpHash("123456", null), false);
+  });
+
+  it("should handle concurrent verification requests using Promise.all", async () => {
+    const hash = await hashOtp("123456");
+    const promises = Array.from({ length: 10 }, () => verifyOtpHash("123456", hash));
+    const results = await Promise.all(promises);
+    assert.equal(results.length, 10);
+    assert.ok(results.every((r) => r === true));
   });
 
   it("should create 5 minute expiry", () => {

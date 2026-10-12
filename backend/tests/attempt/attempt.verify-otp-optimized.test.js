@@ -33,7 +33,7 @@ describe("Candidate Verify OTP Performance, Security & Concurrency Suite", () =>
     const tokenHash = attemptMapper.hashInvitationToken(rawToken);
     const email = "candidate.otp.valid@example.com";
     const otp = "123456";
-    const otpHash = hashOtp(otp);
+    const otpHash = await hashOtp(otp);
 
     attemptRepository.findInvitationByTokenHash = async () => ({
       id: "c_inv_101",
@@ -86,7 +86,7 @@ describe("Candidate Verify OTP Performance, Security & Concurrency Suite", () =>
     const email = "candidate.otp.invalid@example.com";
     const correctOtp = "123456";
     const wrongOtp = "999999";
-    const otpHash = hashOtp(correctOtp);
+    const otpHash = await hashOtp(correctOtp);
 
     attemptRepository.findInvitationByTokenHash = async () => ({
       id: "c_inv_102",
@@ -179,7 +179,7 @@ describe("Candidate Verify OTP Performance, Security & Concurrency Suite", () =>
     const rawToken = "inv_concurrent_otp_test_12345678901234567890123456789012";
     const email = "candidate.otp.concurrent@example.com";
     const otp = "123456";
-    const otpHash = hashOtp(otp);
+    const otpHash = await hashOtp(otp);
 
     attemptRepository.findInvitationByTokenHash = async () => ({
       id: "c_inv_conc",

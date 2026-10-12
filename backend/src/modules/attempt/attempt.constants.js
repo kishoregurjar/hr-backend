@@ -378,36 +378,91 @@ const OTP_ERROR_CODES = Object.freeze({
  * OTP SECURITY HELPERS
  * ========================================== */
 
+const { promisify } = require("node:util");
+const scryptAsync = promisify(crypto.scrypt);
+
+const SCRYPT_CONFIG = {
+  keylen: 32,
+  cost: 16384,
+  blockSize: 8,
+  parallelization: 1,
+  maxmem: 32 * 1024 * 1024,
+};
+
 const generateNumericOtp = () => {
   const min = 100000;
   const max = 1000000;
   return crypto.randomInt(min, max).toString();
 };
 
-const hashOtp = (otp) => {
-  const secret = process.env.OTP_SECRET;
-
-  if (!secret) {
-    throw new Error("OTP_SECRET environment variable is not configured.");
+const hashOtp = async (otp) => {
+  if (typeof otp !== "string" || !/^\d{6}$/.test(otp)) {
+    throw new Error("Invalid OTP format for hashing.");
   }
 
-  return crypto
-    .createHmac("sha256", secret)
-    .update(otp, "utf8")
-    .digest("hex");
+  const salt = crypto.randomBytes(16);
+  const derivedKey = await scryptAsync(otp, salt, SCRYPT_CONFIG.keylen, {
+    N: SCRYPT_CONFIG.cost,
+    r: SCRYPT_CONFIG.blockSize,
+    p: SCRYPT_CONFIG.parallelization,
+    maxmem: SCRYPT_CONFIG.maxmem,
+  });
+
+  return `scrypt:${salt.toString("hex")}:${derivedKey.toString("hex")}`;
 };
 
-const verifyOtpHash = (otp, storedHash) => {
-  const calculatedHash = hashOtp(otp);
-
-  const calculatedBuffer = Buffer.from(calculatedHash, "hex");
-  const storedBuffer = Buffer.from(storedHash, "hex");
-
-  if (calculatedBuffer.length !== storedBuffer.length) {
+const verifyOtpHash = async (otp, storedHash) => {
+  if (typeof otp !== "string" || typeof storedHash !== "string" || !storedHash) {
     return false;
   }
 
-  return crypto.timingSafeEqual(calculatedBuffer, storedBuffer);
+  if (!storedHash.startsWith("scrypt:")) {
+    const secret = process.env.OTP_SECRET;
+    if (!secret) return false;
+
+    const legacyCalculated = crypto
+      .createHmac("sha256", secret)
+      .update(otp, "utf8")
+      .digest("hex");
+
+    const calculatedBuffer = Buffer.from(legacyCalculated, "hex");
+    const storedBuffer = Buffer.from(storedHash, "hex");
+
+    if (calculatedBuffer.length !== storedBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(calculatedBuffer, storedBuffer);
+  }
+
+  try {
+    const parts = storedHash.split(":");
+    if (parts.length !== 3 || parts[0] !== "scrypt") {
+      return false;
+    }
+
+    const salt = Buffer.from(parts[1], "hex");
+    const storedKeyBuffer = Buffer.from(parts[2], "hex");
+
+    if (salt.length !== 16 || storedKeyBuffer.length !== SCRYPT_CONFIG.keylen) {
+      return false;
+    }
+
+    const derivedKey = await scryptAsync(otp, salt, storedKeyBuffer.length, {
+      N: SCRYPT_CONFIG.cost,
+      r: SCRYPT_CONFIG.blockSize,
+      p: SCRYPT_CONFIG.parallelization,
+      maxmem: SCRYPT_CONFIG.maxmem,
+    });
+
+    if (derivedKey.length !== storedKeyBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(derivedKey, storedKeyBuffer);
+  } catch (_err) {
+    return false;
+  }
 };
 
 const createOtpExpiryDate = (now = new Date()) => {

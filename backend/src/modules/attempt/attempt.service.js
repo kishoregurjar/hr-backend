@@ -2684,7 +2684,15 @@ class AttemptService {
 
     // 4. Generate cryptographically secure OTP & hash
     const otp = generateNumericOtp();
-    const otpHash = hashOtp(otp);
+    let otpHash;
+    try {
+      otpHash = await hashOtp(otp);
+    } catch (err) {
+      throw new AppError(
+        "Unable to process verification request.",
+        { statusCode: 500, code: "OTP_HASH_FAILED" }
+      );
+    }
     const expiresAt = createOtpExpiryDate(now);
 
     // 5. Save hashed OTP to database
@@ -2855,7 +2863,12 @@ class AttemptService {
     }
 
     // 5. Constant-time hash comparison
-    const isValid = verifyOtpHash(otp, otpRecord.otpHash);
+    let isValid = false;
+    try {
+      isValid = await verifyOtpHash(otp, otpRecord.otpHash);
+    } catch (_err) {
+      isValid = false;
+    }
 
     // 6. Wrong OTP handling
     if (!isValid) {
