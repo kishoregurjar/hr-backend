@@ -25,6 +25,18 @@ function getNormalizedRoute(req) {
     return `${method} /api/v1/attempts/submit`;
   }
 
+  if (path.endsWith("/send-otp")) {
+    return `${method} /api/v1/attempts/candidate/send-otp`;
+  }
+
+  if (path.endsWith("/verify-otp")) {
+    return `${method} /api/v1/attempts/candidate/verify-otp`;
+  }
+
+  if (path.endsWith("/start-by-token") || path.endsWith("/start")) {
+    return `${method} /api/v1/attempts/start-by-token`;
+  }
+
   const sanitized = path
     .replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, ":id")
     .replace(/c[a-z0-9]{24}/g, ":id")
@@ -44,7 +56,14 @@ function isTargetedRoute(req) {
       path.includes("/attempts/submit") ||
       path.includes("/assessment-attempts/") ||
       path.endsWith("/save-answer") ||
-      path.endsWith("/submit"))
+      path.endsWith("/submit") ||
+      path.includes("/send-otp") ||
+      path.includes("/verify-otp") ||
+      path.includes("/start-by-token") ||
+      path.endsWith("/send-otp") ||
+      path.endsWith("/verify-otp") ||
+      path.endsWith("/start-by-token") ||
+      path.endsWith("/start"))
   );
 }
 
@@ -66,6 +85,7 @@ const diagnosticsMiddleware = (req, res, next) => {
     prisma: {
       count: 0,
       cumulativeDurationMs: 0,
+      operations: [],
     },
     redis: {
       count: 0,
@@ -92,6 +112,7 @@ const diagnosticsMiddleware = (req, res, next) => {
         prisma: {
           count: context.prisma.count,
           cumulativeDurationMs: Number(context.prisma.cumulativeDurationMs.toFixed(2)),
+          operations: context.prisma.operations,
         },
         redis: {
           count: context.redis.count,

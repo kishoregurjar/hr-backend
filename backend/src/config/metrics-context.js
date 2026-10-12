@@ -22,12 +22,23 @@ function getRequestContext() {
   }
 }
 
-function recordPrismaMetric(durationMs) {
+const MAX_RECORDED_OPERATIONS = 25;
+
+function recordPrismaMetric(durationMs, model, action) {
   try {
     const ctx = getRequestContext();
     if (!ctx || !ctx.prisma) return;
+    const dur = Math.max(0, durationMs || 0);
     ctx.prisma.count += 1;
-    ctx.prisma.cumulativeDurationMs += Math.max(0, durationMs || 0);
+    ctx.prisma.cumulativeDurationMs += dur;
+
+    if (Array.isArray(ctx.prisma.operations) && ctx.prisma.operations.length < MAX_RECORDED_OPERATIONS) {
+      ctx.prisma.operations.push({
+        model: typeof model === "string" ? model : (typeof action === "string" && action.startsWith("$") ? "raw" : "unknown"),
+        action: typeof action === "string" ? action : "query",
+        durationMs: Number(dur.toFixed(2)),
+      });
+    }
   } catch (_) {
     // Fail-safe: metrics recording must never break business logic
   }
@@ -86,7 +97,7 @@ function wrapClientForMetrics(client) {
               return await orig.apply(this, args);
             } finally {
               try {
-                recordPrismaMetric(performance.now() - start);
+                recordPrismaMetric(performance.now() - start, "raw", prop);
               } catch (_) {}
             }
           };
@@ -105,7 +116,7 @@ function wrapClientForMetrics(client) {
                   return await modelMethod.apply(this, args);
                 } finally {
                   try {
-                    recordPrismaMetric(performance.now() - start);
+                    recordPrismaMetric(performance.now() - start, prop, modelProp);
                   } catch (_) {}
                 }
               };
@@ -135,4 +146,5 @@ module.exports = {
   recordTransactionMetric,
   wrapClientForMetrics,
   IS_METRICS_WRAPPED,
+  MAX_RECORDED_OPERATIONS,
 };

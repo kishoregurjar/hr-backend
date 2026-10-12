@@ -339,5 +339,139 @@ describe("Latency Instrumentation & Observability Suite", () => {
       path: "/assessment-attempts/att_ck123456789/submit",
     });
     assert.equal(route3, "POST /api/v1/assessment-attempts/:attemptId/submit");
+
+    const routeOtpSend = getNormalizedRoute({
+      method: "POST",
+      baseUrl: "/api/v1/attempts",
+      path: "/candidate/send-otp",
+    });
+    assert.equal(routeOtpSend, "POST /api/v1/attempts/candidate/send-otp");
+
+    const routeOtpVerify = getNormalizedRoute({
+      method: "POST",
+      baseUrl: "/api/v1/attempts",
+      path: "/candidate/verify-otp",
+    });
+    assert.equal(routeOtpVerify, "POST /api/v1/attempts/candidate/verify-otp");
+
+    const routeStartByToken = getNormalizedRoute({
+      method: "POST",
+      baseUrl: "/api/v1/attempts",
+      path: "/start-by-token",
+    });
+    assert.equal(routeStartByToken, "POST /api/v1/attempts/start-by-token");
+  });
+
+  it("8. Captures exact model and action in operations array with privacy guarantee", async () => {
+    const ctx = {
+      requestId: "req_ops_detail",
+      route: "POST /api/v1/attempts/start-by-token",
+      prisma: { count: 0, cumulativeDurationMs: 0, operations: [] },
+      redis: { count: 0, durationMs: 0 },
+      stages: {},
+    };
+
+    await new Promise((resolve) => {
+      metricsStorage.run(ctx, async () => {
+        const mockClient = {
+          $queryRaw: async () => [{ id: "1" }],
+          invitation: {
+            findUnique: async () => ({ id: "inv_1", secret: "super_secret_token" }),
+          },
+          candidateAttempt: {
+            create: async () => ({ id: "att_1" }),
+          },
+        };
+
+        const wrapped = wrapClientForMetrics(mockClient);
+        await wrapped.$queryRaw`SELECT * FROM "Invitation" WHERE token = 'super_secret_token'`;
+        await wrapped.invitation.findUnique({ where: { id: "inv_1", token: "super_secret_token" } });
+        await wrapped.candidateAttempt.create({ data: { candidateId: "secret_cand_1" } });
+
+        assert.equal(ctx.prisma.count, 3);
+        assert.equal(ctx.prisma.operations.length, 3);
+
+        const [op1, op2, op3] = ctx.prisma.operations;
+        assert.equal(op1.model, "raw");
+        assert.equal(op1.action, "$queryRaw");
+        assert.ok(typeof op1.durationMs === "number" && op1.durationMs >= 0);
+
+        assert.equal(op2.model, "invitation");
+        assert.equal(op2.action, "findUnique");
+        assert.ok(typeof op2.durationMs === "number" && op2.durationMs >= 0);
+
+        assert.equal(op3.model, "candidateAttempt");
+        assert.equal(op3.action, "create");
+        assert.ok(typeof op3.durationMs === "number" && op3.durationMs >= 0);
+
+        // Strict Privacy Verification: Operations record contains NO arguments, parameters, or sensitive strings
+        const stringifiedOps = JSON.stringify(ctx.prisma.operations);
+        assert.ok(!stringifiedOps.includes("super_secret_token"), "Query parameters must not be captured");
+        assert.ok(!stringifiedOps.includes("secret_cand_1"), "Data payloads must not be captured");
+        assert.ok(!stringifiedOps.includes("SELECT * FROM"), "SQL text must not be captured");
+
+        resolve();
+      });
+    });
+  });
+
+  it("9. Limits recorded operations to 25 per request while count and cumulative duration track all", async () => {
+    const ctx = {
+      requestId: "req_cap_test",
+      route: "POST /api/v1/attempts/submit",
+      prisma: { count: 0, cumulativeDurationMs: 0, operations: [] },
+      redis: { count: 0, durationMs: 0 },
+      stages: {},
+    };
+
+    await new Promise((resolve) => {
+      metricsStorage.run(ctx, async () => {
+        // Execute 30 operations
+        for (let i = 1; i <= 30; i++) {
+          recordPrismaMetric(2, "candidateAnswer", "update");
+        }
+
+        assert.equal(ctx.prisma.count, 30, "Total count must reflect all 30 operations");
+        assert.equal(ctx.prisma.cumulativeDurationMs, 60, "Cumulative duration must sum all 30 operations");
+        assert.equal(ctx.prisma.operations.length, 25, "Operations array must be strictly capped at 25");
+
+        // Verify structure of stored items
+        assert.equal(ctx.prisma.operations[0].model, "candidateAnswer");
+        assert.equal(ctx.prisma.operations[0].action, "update");
+        assert.equal(ctx.prisma.operations[0].durationMs, 2);
+
+        resolve();
+      });
+    });
+  });
+
+  it("10. Diagnostic targeting includes all 5 critical candidate attempt routes", () => {
+    const targetedRoutes = [
+      { method: "POST", url: "/api/v1/attempts/save-answer" },
+      { method: "POST", url: "/api/v1/attempts/submit" },
+      { method: "POST", url: "/api/v1/attempts/candidate/send-otp" },
+      { method: "POST", url: "/api/v1/attempts/candidate/verify-otp" },
+      { method: "POST", url: "/api/v1/attempts/start-by-token" },
+    ];
+
+    for (const route of targetedRoutes) {
+      assert.ok(
+        isTargetedRoute({ method: route.method, path: route.url, url: route.url }),
+        `Route ${route.method} ${route.url} must be targeted for diagnostics`
+      );
+    }
+
+    const untargetedRoutes = [
+      { method: "GET", url: "/api/v1/attempts/candidate/send-otp" },
+      { method: "GET", url: "/api/v1/health" },
+      { method: "POST", url: "/api/v1/users/login" },
+    ];
+
+    for (const route of untargetedRoutes) {
+      assert.ok(
+        !isTargetedRoute({ method: route.method, path: route.url, url: route.url }),
+        `Route ${route.method} ${route.url} must not be targeted`
+      );
+    }
   });
 });
