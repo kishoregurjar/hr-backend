@@ -21,6 +21,7 @@ const {
 const { UnauthorizedError, BadRequestError, NotFoundError } = require("../../common/errors");
 const socketService = require("../../socket/socket.service");
 const logger = require("../../config/logger");
+const { recordStageMetric } = require("../../config/metrics-context");
 
 /**
  * ==========================================================
@@ -326,16 +327,22 @@ class AttemptController {
     const { attemptId, candidateAssessmentId, token, attemptQuestionId, questionId, selectedOptionIds, answerText, version } = req.body || {};
     const candidateSession = req.candidateSession;
 
-    const result = await attemptService.saveCandidateAnswer({
-      candidateAssessmentId: attemptId || candidateAssessmentId || candidateSession?.candidateAssessmentId,
-      token,
-      candidateSession,
-      attemptQuestionId,
-      questionId,
-      selectedOptionIds,
-      answerText,
-      version,
-    });
+    const saveStart = performance.now();
+    let result;
+    try {
+      result = await attemptService.saveCandidateAnswer({
+        candidateAssessmentId: attemptId || candidateAssessmentId || candidateSession?.candidateAssessmentId,
+        token,
+        candidateSession,
+        attemptQuestionId,
+        questionId,
+        selectedOptionIds,
+        answerText,
+        version,
+      });
+    } finally {
+      recordStageMetric("saveCandidateAnswerMs", performance.now() - saveStart);
+    }
 
     return SuccessResponse.send(
       res,
@@ -364,15 +371,21 @@ class AttemptController {
     const candidateSession = req.candidateSession;
 
     const executeSubmission = async () => {
-      const result = await attemptService.submitCandidateAttempt({
-        token: token || invitationToken,
-        candidateAssessmentId: candidateAssessmentId || attemptId,
-        attemptId: attemptId || candidateAssessmentId,
-        candidateSession,
-        responses,
-        gameResults,
-        score,
-      });
+      const submitStart = performance.now();
+      let result;
+      try {
+        result = await attemptService.submitCandidateAttempt({
+          token: token || invitationToken,
+          candidateAssessmentId: candidateAssessmentId || attemptId,
+          attemptId: attemptId || candidateAssessmentId,
+          candidateSession,
+          responses,
+          gameResults,
+          score,
+        });
+      } finally {
+        recordStageMetric("submitCandidateAttemptMs", performance.now() - submitStart);
+      }
 
       const responseData = {
         attemptId: result.attemptId,

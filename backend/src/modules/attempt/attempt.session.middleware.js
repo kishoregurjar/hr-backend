@@ -4,6 +4,7 @@ const { AppError } = require("../../utils/app-error");
 const { hashVerificationSessionToken } = require("./attempt.session");
 const { findActiveVerificationSession, touchVerificationSession } = require("./attempt.repository");
 const { VERIFICATION_SESSION_ERROR_CODES } = require("./attempt.constants");
+const { recordStageMetric } = require("../../config/metrics-context");
 
 const extractBearerToken = (authorization) => {
   if (typeof authorization !== "string") {
@@ -69,10 +70,16 @@ const requireCandidateVerification = async (req, res, next) => {
     const repository = req.app?.locals?.attemptRepository || { findActiveVerificationSession, touchVerificationSession };
     const findSessionFn = repository.findActiveVerificationSession.bind(repository);
 
-    const session = await findSessionFn({
-      tokenHash,
-      now: new Date(),
-    });
+    const authStart = performance.now();
+    let session;
+    try {
+      session = await findSessionFn({
+        tokenHash,
+        now: new Date(),
+      });
+    } finally {
+      recordStageMetric("sessionAuthMs", performance.now() - authStart);
+    }
 
     if (!session) {
       throw createSessionError(
@@ -100,6 +107,7 @@ const requireCandidateVerification = async (req, res, next) => {
     };
 
     if (typeof repository.touchVerificationSession === "function") {
+      const touchStart = performance.now();
       try {
         await repository.touchVerificationSession({
           sessionId: session.id,
@@ -107,6 +115,8 @@ const requireCandidateVerification = async (req, res, next) => {
         });
       } catch (touchErr) {
         // Silent touch update failure to prevent blocking user request
+      } finally {
+        recordStageMetric("sessionTouchMs", performance.now() - touchStart);
       }
     }
 

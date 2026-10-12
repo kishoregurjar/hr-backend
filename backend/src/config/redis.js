@@ -3,6 +3,8 @@
 require("dotenv").config();
 const { createClient } = require("redis");
 
+const { recordRedisMetric } = require("./metrics-context");
+
 const redisUrl = process.env.REDIS_URL;
 
 if (!redisUrl) {
@@ -12,6 +14,18 @@ if (!redisUrl) {
 const redisClient = createClient({
   url: redisUrl,
 });
+
+if (redisClient && typeof redisClient.sendCommand === "function") {
+  const originalSendCommand = redisClient.sendCommand.bind(redisClient);
+  redisClient.sendCommand = async function (...args) {
+    const start = performance.now();
+    try {
+      return await originalSendCommand(...args);
+    } finally {
+      recordRedisMetric(performance.now() - start);
+    }
+  };
+}
 
 redisClient.on("error", (error) => {
   console.error({

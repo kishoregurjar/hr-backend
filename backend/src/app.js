@@ -9,6 +9,7 @@ const hpp = require("hpp");
 
 const corsOptions = require("./config/cors");
 const requestIdMiddleware = require("./middleware/requestId.middleware");
+const { diagnosticsMiddleware } = require("./middleware/diagnostics.middleware");
 const requestLogger = require("./middleware/requestLogger.middleware");
 const notFoundMiddleware = require("./middleware/not-found.middleware");
 const errorMiddleware = require("./middleware/error.middleware");
@@ -40,6 +41,7 @@ app.set("trust proxy", getTrustProxyConfig());
  * 1. Request ID (MUST BE FIRST FOR LOGGING & TRACING)
  */
 app.use(requestIdMiddleware);
+app.use(diagnosticsMiddleware);
 
 /**
  * 2. Request Body Parser
