@@ -1,15 +1,17 @@
 "use strict";
 
-const buildCandidateOtpEmail = ({ otp, expiresAt, companyName = "HireQuest" }) => {
+const buildCandidateOtpEmail = ({ otp, expiresAt, companyName = "HireQuest", candidateName = "Candidate" }) => {
   const expiryText = new Date(expiresAt).toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
   });
 
   const orgName = companyName && companyName.trim() ? companyName.trim() : "HireQuest";
+  const personName = candidateName && candidateName.trim() ? candidateName.trim() : "Candidate";
 
   return {
     subject: `${orgName} Assessment Verification Code`,
     text:
+      `Hello ${personName},\n\n` +
       `Your ${orgName} verification code is ${otp}.\n\n` +
       `This code expires at ${expiryText}.\n\n` +
       `If you did not request this verification, please ignore this email.`,
@@ -33,7 +35,7 @@ const buildCandidateOtpEmail = ({ otp, expiresAt, companyName = "HireQuest" }) =
             <div class="header">
               <h2>${orgName} Assessment Verification</h2>
             </div>
-            <p>Hello Candidate,</p>
+            <p>Hello ${personName},</p>
             <p>Your 6-digit email verification code for your ${orgName} assessment is:</p>
             <div class="otp-box">${otp}</div>
             <p><strong>Note:</strong> This verification code will expire in 5 minutes.</p>
