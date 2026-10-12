@@ -670,41 +670,56 @@ class AttemptService {
     const testLink = `${clientUrl}/take-test?token=${result.rawToken}`;
     let emailSent = false;
 
-    // Resolve hiring company name for invitation email
+    // Resolve hiring company name dynamically for invitation email (Source of Truth: Assessment & Recruiter)
     let invitationCompanyName = null;
-    // 1. Authoritative company from assessment games config
-    const savedCompanyId = result.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
-    if (savedCompanyId) {
+
+    // 1. Authoritative company from recruiter (invitedByUserId)
+    if (invitedByUserId) {
       try {
-        const comp = await prisma.company.findUnique({
-          where: { id: savedCompanyId },
-          select: { name: true },
+        const hrMember = await prisma.companyMember.findFirst({
+          where: { userId: invitedByUserId },
+          select: { company: { select: { name: true } } },
         });
-        invitationCompanyName = comp?.name || null;
+        invitationCompanyName = hrMember?.company?.name?.trim() || null;
       } catch (_) {}
     }
 
-    // 2. Fallback to assessment creator's companyMember
+    // 2. Authoritative company from assessment games config
+    if (!invitationCompanyName) {
+      const savedCompanyId = result.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
+      if (savedCompanyId) {
+        try {
+          const comp = await prisma.company.findUnique({
+            where: { id: savedCompanyId },
+            select: { name: true },
+          });
+          invitationCompanyName = comp?.name?.trim() || null;
+        } catch (_) {}
+      }
+    }
+
+    // 3. Fallback to assessment creator's companyMember
     if (!invitationCompanyName && result.assessment?.createdById) {
       try {
         const creatorMember = await prisma.companyMember.findFirst({
           where: { userId: result.assessment.createdById },
           select: { company: { select: { name: true } } },
         });
-        invitationCompanyName = creatorMember?.company?.name || null;
+        invitationCompanyName = creatorMember?.company?.name?.trim() || null;
       } catch (_) {}
     }
 
-    // 3. Fallback to candidate's legacy company
+    // 4. Fallback to candidate's legacy company
     if (!invitationCompanyName && result.candidateProfile?.companyId) {
       try {
         const comp = await prisma.company.findUnique({
           where: { id: result.candidateProfile.companyId },
           select: { name: true },
         });
-        invitationCompanyName = comp?.name || null;
+        invitationCompanyName = comp?.name?.trim() || null;
       } catch (_) {}
     }
+
     const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
     try {
       const emailContent = buildInvitationEmail({
@@ -2772,32 +2787,17 @@ class AttemptService {
       tx
     );
 
-    // 6. Resolve hiring company name dynamically
-    let otpCompanyName =
-      invitation.candidate?.company?.name ||
-      invitation.assessment?.createdBy?.companyMembers?.[0]?.company?.name ||
-      null;
-
+    // 6. Resolve hiring company name dynamically (Source of Truth: Assessment & creator company)
     const dbClient = tx || prisma;
+    let otpCompanyName = null;
 
-    if (!otpCompanyName && invitation.candidateId) {
-      try {
-        const candProfile = await dbClient.candidateProfile.findUnique({
-          where: { id: invitation.candidateId },
-          select: { companyId: true, company: { select: { name: true } } },
-        });
-        if (candProfile?.company?.name) {
-          otpCompanyName = candProfile.company.name;
-        } else if (candProfile?.companyId) {
-          const comp = await dbClient.company.findUnique({
-            where: { id: candProfile.companyId },
-            select: { name: true },
-          });
-          if (comp?.name) otpCompanyName = comp.name;
-        }
-      } catch (_) {}
+    // A. Direct assessment creator's companyMember from preloaded invitation.assessment
+    const creatorCompany = invitation.assessment?.createdBy?.companyMembers?.[0]?.company?.name;
+    if (creatorCompany && creatorCompany.trim()) {
+      otpCompanyName = creatorCompany.trim();
     }
 
+    // B. Direct DB lookup for assessment creator's companyMember
     if (!otpCompanyName && invitation.assessment?.createdById) {
       try {
         const creatorMember = await dbClient.companyMember.findFirst({
@@ -2805,11 +2805,12 @@ class AttemptService {
           select: { company: { select: { name: true } } },
         });
         if (creatorMember?.company?.name) {
-          otpCompanyName = creatorMember.company.name;
+          otpCompanyName = creatorMember.company.name.trim();
         }
       } catch (_) {}
     }
 
+    // C. Lookup assessment by assessmentId if assessment relation was not preloaded
     if (!otpCompanyName && invitation.assessmentId) {
       try {
         const assmt = await dbClient.assessment.findUnique({
@@ -2827,15 +2828,53 @@ class AttemptService {
             },
           },
         });
-        otpCompanyName = assmt?.createdBy?.companyMembers?.[0]?.company?.name || null;
-        if (!otpCompanyName && assmt?.createdById) {
+        const assmtCompName = assmt?.createdBy?.companyMembers?.[0]?.company?.name;
+        if (assmtCompName && assmtCompName.trim()) {
+          otpCompanyName = assmtCompName.trim();
+        } else if (assmt?.createdById) {
           const creatorMember = await dbClient.companyMember.findFirst({
             where: { userId: assmt.createdById },
             select: { company: { select: { name: true } } },
           });
           if (creatorMember?.company?.name) {
-            otpCompanyName = creatorMember.company.name;
+            otpCompanyName = creatorMember.company.name.trim();
           }
+        }
+      } catch (_) {}
+    }
+
+    // D. Assessment game configuration company fallback
+    if (!otpCompanyName && invitation.assessment?.games) {
+      try {
+        const savedCompanyId = invitation.assessment.games.find(g => g.config?.companyId)?.config?.companyId;
+        if (savedCompanyId) {
+          const comp = await dbClient.company.findUnique({
+            where: { id: savedCompanyId },
+            select: { name: true },
+          });
+          if (comp?.name) otpCompanyName = comp.name.trim();
+        }
+      } catch (_) {}
+    }
+
+    // E. Only if assessment has no company at all, fallback to candidate profile's company
+    if (!otpCompanyName && invitation.candidate?.company?.name) {
+      otpCompanyName = invitation.candidate.company.name.trim();
+    }
+    if (!otpCompanyName && invitation.candidateId) {
+      try {
+        const candProfile = await dbClient.candidateProfile.findUnique({
+          where: { id: invitation.candidateId },
+          select: { companyId: true, company: { select: { name: true } } },
+        });
+        if (candProfile?.company?.name) {
+          otpCompanyName = candProfile.company.name.trim();
+        } else if (candProfile?.companyId) {
+          const comp = await dbClient.company.findUnique({
+            where: { id: candProfile.companyId },
+            select: { name: true },
+          });
+          if (comp?.name) otpCompanyName = comp.name.trim();
         }
       } catch (_) {}
     }

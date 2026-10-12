@@ -575,20 +575,21 @@ class AttemptController {
     const rawToken = req.params.token || req.body?.token || req.query?.token;
     const invitation = await attemptService.findInvitationByRawToken(rawToken, undefined, { rejectUsed: false });
 
-    // 1. Authoritative company from assessment games config
-    const savedCompanyId = invitation.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
-    let company = null;
-    
-    if (savedCompanyId) {
-      company = await prisma.company.findUnique({
-        where: { id: savedCompanyId },
-        select: { id: true, name: true, logoUrl: true, slug: true },
-      });
-    }
+    // 1. Authoritative company from assessment creator's companyMember or games config (Source of Truth)
+    let company =
+      invitation.assessment?.createdBy?.companyMembers?.[0]?.company ||
+      null;
 
-    // 2. Fallback to assessment creator's companyMember
     if (!company) {
-      company = invitation.assessment?.createdBy?.companyMembers?.[0]?.company || null;
+      const savedCompanyId = invitation.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
+      if (savedCompanyId) {
+        try {
+          company = await prisma.company.findUnique({
+            where: { id: savedCompanyId },
+            select: { id: true, name: true, logoUrl: true, slug: true },
+          });
+        } catch (_) {}
+      }
     }
 
     if (!company && invitation.assessment?.createdById) {
@@ -601,19 +602,37 @@ class AttemptController {
       }
     }
 
-    if (!company) {
-      const savedCompanyId = invitation.assessment?.games?.find(g => g.config?.companyId)?.config?.companyId;
-      if (savedCompanyId) {
-        company = await prisma.company.findUnique({
-          where: { id: savedCompanyId },
-          select: { id: true, name: true, logoUrl: true, slug: true },
+    if (!company && invitation.assessmentId) {
+      const assmt = await prisma.assessment.findUnique({
+        where: { id: invitation.assessmentId },
+        select: {
+          createdById: true,
+          createdBy: {
+            select: {
+              companyMembers: {
+                select: {
+                  company: { select: { id: true, name: true, logoUrl: true, slug: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+      company = assmt?.createdBy?.companyMembers?.[0]?.company || null;
+      if (!company && assmt?.createdById) {
+        const creatorMember = await prisma.companyMember.findFirst({
+          where: { userId: assmt.createdById },
+          select: { company: { select: { id: true, name: true, logoUrl: true, slug: true } } },
         });
+        if (creatorMember?.company) {
+          company = creatorMember.company;
+        }
       }
     }
 
     // Fallback to candidate's legacy company
-    if (!company) {
-      company = invitation.candidate?.company || null;
+    if (!company && invitation.candidate?.company) {
+      company = invitation.candidate.company;
     }
     if (invitation.assessment) {
       await attemptService.enrichAssessmentWithCompanyGameConfig(invitation.assessment, company?.id);
