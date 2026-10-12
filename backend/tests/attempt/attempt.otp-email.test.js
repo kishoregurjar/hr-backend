@@ -28,6 +28,30 @@ describe("Candidate OTP Email Delivery & Template Suite", () => {
     assert.match(content.html, /for your Microsoft assessment is/);
   });
 
+  it("should personalize candidate greeting with single name or full name with caste/surname", () => {
+    const expiresAt = new Date("2026-08-25T12:00:00.000Z");
+    
+    // Single name
+    const singleNameContent = buildCandidateOtpEmail({
+      otp: "849201",
+      expiresAt,
+      companyName: "Microsoft",
+      candidateName: "Rohit",
+    });
+    assert.match(singleNameContent.html, /<p>Hello Rohit,<\/p>/);
+    assert.match(singleNameContent.text, /Hello Rohit,/);
+
+    // Full name with caste / surname with proper space
+    const fullNameContent = buildCandidateOtpEmail({
+      otp: "849201",
+      expiresAt,
+      companyName: "Microsoft",
+      candidateName: "Rohit Panchal",
+    });
+    assert.match(fullNameContent.html, /<p>Hello Rohit Panchal,<\/p>/);
+    assert.match(fullNameContent.text, /Hello Rohit Panchal,/);
+  });
+
   it("should expose email utility functions", () => {
     assert.equal(typeof sendEmail, "function");
     assert.equal(typeof verifyEmailTransport, "function");

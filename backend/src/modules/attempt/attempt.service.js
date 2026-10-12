@@ -2842,6 +2842,34 @@ class AttemptService {
 
     const effectiveOtpCompanyName = otpCompanyName || "HireQuest";
 
+    // Resolve candidate name dynamically (handles single name or first name + last name/caste with clean space)
+    let candidateName = null;
+    const directFirst = (invitation.candidate?.firstName || "").trim();
+    const directLast = (invitation.candidate?.lastName || "").trim();
+    if (directFirst || directLast) {
+      candidateName = [directFirst, directLast].filter(Boolean).join(" ");
+    } else if (invitation.candidate?.name && typeof invitation.candidate.name === "string") {
+      candidateName = invitation.candidate.name.trim();
+    }
+
+    if (!candidateName && invitation.candidateId) {
+      try {
+        const candidateProfile = await dbClient.candidateProfile.findUnique({
+          where: { id: invitation.candidateId },
+          select: { firstName: true, lastName: true },
+        });
+        if (candidateProfile) {
+          const f = (candidateProfile.firstName || "").trim();
+          const l = (candidateProfile.lastName || "").trim();
+          if (f || l) {
+            candidateName = [f, l].filter(Boolean).join(" ");
+          }
+        }
+      } catch (_) {}
+    }
+
+    const effectiveCandidateName = candidateName && candidateName.trim() ? candidateName.trim() : "Candidate";
+
     // 7. Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
     try {
       if (emailService && typeof emailService.sendCandidateOtp === "function") {
@@ -2850,6 +2878,7 @@ class AttemptService {
           otp,
           expiresAt,
           companyName: effectiveOtpCompanyName,
+          candidateName: effectiveCandidateName,
         });
       } else {
         await createOutboxEvent(
@@ -2861,6 +2890,7 @@ class AttemptService {
               otp,
               expiresAt: expiresAt.toISOString(),
               companyName: effectiveOtpCompanyName,
+              candidateName: effectiveCandidateName,
             },
           },
           tx

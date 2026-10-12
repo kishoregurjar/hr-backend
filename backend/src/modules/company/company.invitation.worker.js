@@ -316,14 +316,14 @@ const acknowledgeMessage = async (messageId) => {
 };
 
 const processCandidateOtpEmail = async (data) => {
-  const { email, otp, expiresAt, companyName } = data;
+  const { email, otp, expiresAt, companyName, candidateName } = data;
 
   if (!email || !otp) {
     console.error("Candidate OTP email payload missing parameters", { email: Boolean(email) });
     return { success: false, permanentFailure: true };
   }
 
-  const emailContent = buildCandidateOtpEmail({ otp, expiresAt, companyName });
+  const emailContent = buildCandidateOtpEmail({ otp, expiresAt, companyName, candidateName });
   await sendEmail({
     to: email,
     subject: emailContent.subject,
@@ -331,7 +331,7 @@ const processCandidateOtpEmail = async (data) => {
     html: emailContent.html,
   });
 
-  console.info("Candidate OTP email sent via worker", { email, companyName });
+  console.info("Candidate OTP email sent via worker", { email, companyName, candidateName });
   return { success: true };
 };
 
