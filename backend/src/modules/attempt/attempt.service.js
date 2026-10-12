@@ -2085,6 +2085,24 @@ class AttemptService {
         } catch { }
 
         const existingGameResults = typeof attempt.gameResults === "object" && attempt.gameResults ? { ...attempt.gameResults } : {};
+
+        const targetKeys = [
+          questionId,
+          gameScoreObj?.sectionId,
+          gameScoreObj?.gameId,
+          gameScoreObj?.slug,
+          gameScoreObj?.metrics?.gameId,
+          gameScoreObj?.metrics?.slug,
+        ].filter(Boolean);
+
+        const isAlreadyCompleted = targetKeys.some((k) => Boolean(existingGameResults[k]));
+        if (isAlreadyCompleted) {
+          throw new ConflictError(
+            "Game has already been completed for this assessment",
+            "GAME_ALREADY_COMPLETED"
+          );
+        }
+
         existingGameResults[questionId] = gameScoreObj;
 
         const db = tx || prisma;
