@@ -623,7 +623,7 @@ class AttemptService {
 
       if (existing) {
         throw new ConflictError(
-          "Candidate already has an active invitation for this assessment.",
+          "This candidate already has an active invitation for this assessment.",
           INVITATION_ERROR_CODES.INVITATION_ALREADY_EXISTS
         );
       }
@@ -945,7 +945,7 @@ class AttemptService {
             status: BULK_INVITATION_RESULT_STATUS.DUPLICATE,
             code: INVITATION_ERROR_CODES.DUPLICATE_INVITATION,
             invitationId: result.invitation.id,
-            message: "An active invitation already exists.",
+            message: "This candidate already has an active invitation for this assessment.",
           });
           continue;
         }
