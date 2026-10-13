@@ -2316,6 +2316,32 @@ class AttemptRepository {
             passingScore: true,
           },
         },
+        answers: {
+          select: {
+            questionId: true,
+            isCorrect: true,
+            marksObtained: true,
+          },
+        },
+        attemptQuestions: {
+          select: {
+            questionId: true,
+          },
+        },
+        gameResults: {
+          select: {
+            gameId: true,
+            score: true,
+            metrics: true,
+            game: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+          },
+        },
       },
     });
   }
