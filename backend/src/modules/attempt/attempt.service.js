@@ -797,21 +797,21 @@ class AttemptService {
           const candidate = await runTransaction(async (tx) => {
             let found = await tx.user.findUnique({
               where: { email: normalizedEmail },
-              select: { id: true, email: true, role: true, isActive: true },
+              select: { id: true, email: true, role: true, status: true },
             });
             if (!found) {
+              const fullName = [firstName, lastName].filter(Boolean).join(" ").trim() || "Candidate";
               const randomPassword = crypto.randomBytes(32).toString("hex");
               const hashedPassword = await bcrypt.hash(randomPassword, 10);
               found = await tx.user.create({
                 data: {
                   email: normalizedEmail,
                   password: hashedPassword,
-                  firstName: firstName ? firstName.trim() : "Candidate",
-                  lastName: lastName ? lastName.trim() : "User",
+                  name: fullName,
                   role: "CANDIDATE",
-                  isActive: true,
+                  status: "ACTIVE",
                 },
-                select: { id: true, email: true, role: true, isActive: true },
+                select: { id: true, email: true, role: true, status: true },
               });
             }
             return found;
