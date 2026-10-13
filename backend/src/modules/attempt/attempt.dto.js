@@ -883,12 +883,17 @@ const toHRAttemptListResponse = (attempt) => {
         }
       : null,
     interview: specificInterview,
+    answers: Array.isArray(attempt.answers) ? attempt.answers : [],
+    attemptQuestions: Array.isArray(attempt.attemptQuestions) ? attempt.attemptQuestions : [],
+    gameResults: Array.isArray(attempt.gameResults) ? attempt.gameResults : [],
     assessment: attempt.assessment
       ? {
           id: attempt.assessment.id,
           title: attempt.assessment.title ?? null,
           maximumScore: attempt.assessment.maximumScore ?? null,
           passingScore: attempt.assessment.passingScore ?? null,
+          games: Array.isArray(attempt.assessment.games) ? attempt.assessment.games : [],
+          questions: Array.isArray(attempt.assessment.questions) ? attempt.assessment.questions : [],
         }
       : null,
   };
