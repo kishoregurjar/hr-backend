@@ -5,6 +5,7 @@ const GAME_SLUGS = Object.freeze({
   TANGO: "tango",
   SUDOKU: "sudoku",
   MAHJONG: "mahjong",
+  N_QUEENS: "n-queens",
 });
 
 const GAME_CODES = Object.freeze({
@@ -12,6 +13,7 @@ const GAME_CODES = Object.freeze({
   TANGO: "TANGO",
   MINI_SUDOKU: "MINI_SUDOKU",
   MAHJONG_TILE_MATCH: "MAHJONG_TILE_MATCH",
+  N_QUEENS: "N_QUEENS",
 });
 
 const GAMES_METADATA = Object.freeze([
@@ -93,6 +95,25 @@ const GAMES_METADATA = Object.freeze([
       cols: 6,
     },
   }),
+  Object.freeze({
+    id: "game_n_queens",
+    code: GAME_CODES.N_QUEENS,
+    slug: GAME_SLUGS.N_QUEENS,
+    name: "N-Queens Spatial Logic",
+    title: "N-Queens Spatial Deduction",
+    description:
+      "Place N queens on a chessboard so no two queens attack each other across rows, columns, or diagonals.",
+    category: "COGNITIVE",
+    difficulty: "Medium",
+    duration: 8,
+    skill: "Constraint Satisfaction & Backtracking",
+    scoringMetric: "Constraint Accuracy & Placement Speed",
+    supportedDifficulties: ["EASY", "MEDIUM", "HARD"],
+    config: {
+      size: 8,
+      difficulty: "medium",
+    },
+  }),
 ]);
 
 const getCanonicalGameCode = (input) => {
@@ -109,6 +130,7 @@ const getCanonicalGameCode = (input) => {
   if (str.includes("tango")) return GAME_CODES.TANGO;
   if (str.includes("sudoku")) return GAME_CODES.MINI_SUDOKU;
   if (str.includes("mahjong")) return GAME_CODES.MAHJONG_TILE_MATCH;
+  if (str.includes("queen")) return GAME_CODES.N_QUEENS;
   return null;
 };
 
