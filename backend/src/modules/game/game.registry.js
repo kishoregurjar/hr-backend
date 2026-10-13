@@ -4,6 +4,7 @@ const zipPathfinderEngine = require("./game.zip-pathfinder.engine");
 const tangoEngine = require("./game.tango.engine");
 const miniSudokuEngine = require("./game.mini-sudoku.engine");
 const mahjongTileMatchEngine = require("./game.mahjong-tile-match.engine");
+const nQueensEngine = require("./game.n-queens.engine");
 
 const { validateGameDefinition } = require("./game.engine.validator");
 const { GAME_ENGINE_CONSTANTS } = require("./game.engine.constants");
@@ -14,6 +15,7 @@ const GAME_CODES = Object.freeze({
   TANGO: "TANGO",
   MINI_SUDOKU: "MINI_SUDOKU",
   MAHJONG_TILE_MATCH: "MAHJONG_TILE_MATCH",
+  N_QUEENS: "N_QUEENS",
 });
 
 const RAW_GAME_DEFINITIONS = [
@@ -40,6 +42,12 @@ const RAW_GAME_DEFINITIONS = [
     code: "MAHJONG_TILE_MATCH",
     version: mahjongTileMatchEngine.version || 1,
     engine: mahjongTileMatchEngine,
+  },
+  {
+    slug: "n-queens",
+    code: "N_QUEENS",
+    version: nQueensEngine.version || 1,
+    engine: nQueensEngine,
   },
 ];
 
