@@ -816,7 +816,7 @@ class AttemptService {
             }
             return found;
           });
-          if (candidate && candidate.id) {
+          if (candidate && candidate.id && !effectiveCandidateIds.includes(candidate.id)) {
             effectiveCandidateIds.push(candidate.id);
           }
         }
@@ -866,13 +866,27 @@ class AttemptService {
       );
     }
 
+    let effectiveCompanyId = assessment.companyId || null;
+    if (!effectiveCompanyId && invitedByUserId) {
+      const hrMember = await prisma.companyMember.findFirst({
+        where: { userId: invitedByUserId },
+        select: { companyId: true },
+      });
+      if (hrMember?.companyId) {
+        effectiveCompanyId = hrMember.companyId;
+      }
+    }
+
     const dbCandidates = await attemptRepository.findCandidatesByIds(
       uniqueCandidateIds
     );
 
-    const candidateMap = new Map(
-      dbCandidates.map((candidate) => [candidate.id, candidate])
-    );
+    const candidateMap = new Map();
+    for (const c of dbCandidates) {
+      if (c.id) candidateMap.set(c.id, c);
+      if (c.userId) candidateMap.set(c.userId, c);
+      if (c.email) candidateMap.set(c.email.toLowerCase(), c);
+    }
 
     const results = [];
     const emailJobs = [];
@@ -901,10 +915,68 @@ class AttemptService {
       }
 
       try {
-        const effectiveCandidateId = candidate.id || candidateId;
         const result = await runTransaction(async (tx) => {
+          // Resolve or auto-create candidateProfile so foreign key candidateId matches CandidateProfile table
+          let candidateProfile = await tx.candidateProfile.findFirst({
+            where: {
+              OR: [
+                { id: candidateId },
+                { userId: candidateId },
+                ...(candidate.email ? [{ email: candidate.email.toLowerCase() }] : []),
+              ],
+            },
+          });
+
+          if (candidateProfile) {
+            if (!candidateProfile.companyId && effectiveCompanyId) {
+              candidateProfile = await tx.candidateProfile.update({
+                where: { id: candidateProfile.id },
+                data: { companyId: effectiveCompanyId },
+              });
+            }
+
+            if (effectiveCompanyId) {
+              await tx.companyCandidate.upsert({
+                where: {
+                  companyId_candidateId: {
+                    companyId: effectiveCompanyId,
+                    candidateId: candidateProfile.id,
+                  },
+                },
+                update: {},
+                create: {
+                  companyId: effectiveCompanyId,
+                  candidateId: candidateProfile.id,
+                },
+              });
+            }
+          } else if (candidate.email) {
+            const fName = (candidate.firstName || "").trim() || "Candidate";
+            const lName = (candidate.lastName || "").trim();
+            candidateProfile = await tx.candidateProfile.create({
+              data: {
+                email: candidate.email.toLowerCase(),
+                firstName: fName,
+                lastName: lName,
+                companyId: effectiveCompanyId,
+                ...(effectiveCompanyId && {
+                  companyCandidates: {
+                    create: { companyId: effectiveCompanyId },
+                  },
+                }),
+                metadata: { source: "BULK_INVITATION", inbound: true },
+              },
+            });
+          }
+
+          if (!candidateProfile) {
+            throw new Error(`Unable to resolve candidate profile for candidate ID ${candidateId}`);
+          }
+
+          const resolvedCandidateId = candidateProfile.id;
+
           const existing = await attemptRepository.findActiveInvitation(
-            { assessmentId, candidateId: effectiveCandidateId },
+            { assessmentId, candidateId: resolvedCandidateId },
             tx
           );
 
@@ -920,9 +992,9 @@ class AttemptService {
 
           const invitationData = attemptMapper.toCreateInvitationEntity({
             assessmentId,
-            candidateId: effectiveCandidateId,
+            candidateId: resolvedCandidateId,
             invitedByUserId,
-            email: candidate.email,
+            email: candidateProfile.email,
             tokenHash,
             expiresAt: invitationExpiresAt,
           });
