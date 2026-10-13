@@ -2314,6 +2314,22 @@ class AttemptRepository {
             title: true,
             maximumScore: true,
             passingScore: true,
+            games: {
+              select: {
+                game: {
+                  select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                  },
+                },
+              },
+            },
+            questions: {
+              select: {
+                questionId: true,
+              },
+            },
           },
         },
         answers: {
