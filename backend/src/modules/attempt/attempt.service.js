@@ -3596,7 +3596,7 @@ class AttemptService {
       );
     }
 
-    return runTransaction(async (tx) => {
+    const submissionResult = await runTransaction(async (tx) => {
       let currentAttempt = null;
 
       // 1. Try finding by ID if effective candidate assessment ID is a real DB ID (not att_...)
@@ -3838,78 +3838,6 @@ class AttemptService {
 
       attemptMetrics.recordAttemptSubmitted();
 
-      // Persist candidate game results to GameResult table
-      if (effectiveGameResults && typeof effectiveGameResults === "object") {
-        try {
-          const db = tx || prisma;
-          if (db.gameResult) {
-            const assessmentGames = attempt.assessment?.games || [];
-            const entries = Array.isArray(effectiveGameResults)
-              ? effectiveGameResults.map((g, i) => [g.gameId || `game-${i}`, g])
-              : Object.entries(effectiveGameResults);
-
-            for (const [key, gData] of entries) {
-              if (!gData || typeof gData !== "object") continue;
-              const searchKey = String(key || "").toLowerCase();
-
-              const matchedAssessmentGame = assessmentGames.find((ag) => {
-                const agGame = ag.game || {};
-                const agId = ag.gameId || agGame.id;
-                const agCode = (agGame.code || "").toLowerCase();
-                const agName = (agGame.name || "").toLowerCase();
-                return (
-                  agId === key ||
-                  agId === gData.gameId ||
-                  (agCode && (searchKey.includes(agCode) || agCode.includes(searchKey))) ||
-                  (agName && (searchKey.includes(agName) || agName.includes(searchKey)))
-                );
-              });
-
-              const resolvedGameId = matchedAssessmentGame?.gameId || gData.gameId;
-              if (resolvedGameId) {
-                const isSkipped = Boolean(
-                  gData.skipped ||
-                  gData.status === "SKIPPED" ||
-                  (Number(gData.score || 0) === 0 && (Number(gData.timeTaken || 0) === 0 || Number(gData.moves || 0) === 0))
-                );
-                const finalScore = isSkipped ? 0 : Math.round(Number(gData.score ?? 0));
-                const finalAccuracy = isSkipped ? 0 : Math.round(Number(gData.accuracy ?? gData.score ?? 0));
-                const metricsObj = {
-                  ...gData,
-                  score: finalScore,
-                  accuracy: finalAccuracy,
-                  timeTaken: Number(gData.timeTaken || gData.timeSpent || 0),
-                  timeSpent: Number(gData.timeSpent || gData.timeTaken || 0),
-                  status: isSkipped ? "SKIPPED" : (gData.status || "COMPLETED"),
-                  skipped: isSkipped,
-                };
-
-                await db.gameResult.upsert({
-                  where: {
-                    candidateAssessmentId_gameId: {
-                      candidateAssessmentId: attempt.id,
-                      gameId: resolvedGameId,
-                    },
-                  },
-                  create: {
-                    candidateAssessmentId: attempt.id,
-                    gameId: resolvedGameId,
-                    score: finalScore,
-                    metrics: metricsObj,
-                  },
-                  update: {
-                    score: finalScore,
-                    metrics: metricsObj,
-                  },
-                });
-              }
-            }
-          }
-        } catch (_gamePersistErr) {
-          // Gracefully continue without interrupting submission
-        }
-      }
-
       await attemptAuditService.recordAttemptAudit({
         event: "ATTEMPT_SUBMITTED",
         attemptId: attempt.id,
@@ -3966,6 +3894,110 @@ class AttemptService {
         unansweredCount,
       };
     });
+
+    // Safely persist candidate game results outside the critical transaction
+    const effectiveGameResultsForBg = gameResults || {};
+    if (submissionResult?.attemptId && effectiveGameResultsForBg && typeof effectiveGameResultsForBg === "object") {
+      setImmediate(async () => {
+        try {
+          if (prisma.gameResult) {
+            const dbGames = await prisma.game.findMany({ select: { id: true, code: true, name: true } });
+            const entries = Array.isArray(effectiveGameResultsForBg)
+              ? effectiveGameResultsForBg.map((g, i) => [g.gameId || `game-${i}`, g])
+              : Object.entries(effectiveGameResultsForBg);
+
+            const clean = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+            for (const [key, gData] of entries) {
+              if (!gData || typeof gData !== "object") continue;
+              const searchKey = String(key || "").toLowerCase();
+              const cleanSearch = clean(searchKey);
+              const cleanGameId = clean(gData.gameId);
+              const cleanSlug = clean(gData.slug);
+              const cleanTitle = clean(gData.title || gData.name);
+
+              const matchedGame = dbGames.find((bg) => {
+                const bgId = bg.id;
+                const bgCode = (bg.code || "").toLowerCase();
+                const bgName = (bg.name || "").toLowerCase();
+                const cleanCode = clean(bgCode);
+                const cleanName = clean(bgName);
+
+                // 1. Direct ID match
+                if (bgId === key || bgId === gData.gameId) return true;
+
+                // 2. Clean match without underscores or hyphens (e.g. "nqueens" === "nqueens")
+                if (cleanCode && (cleanCode === cleanSearch || cleanCode === cleanGameId || cleanCode === cleanSlug)) return true;
+                if (cleanName && (cleanName === cleanSearch || cleanName === cleanGameId || cleanName === cleanTitle)) return true;
+
+                // 3. Keyword-based matching
+                if (searchKey.includes("queen") || cleanSlug.includes("queen") || cleanTitle.includes("queen") || cleanGameId.includes("queen")) {
+                  if (bgCode.includes("queen") || bgName.includes("queen") || cleanCode.includes("queen")) return true;
+                }
+                if (searchKey.includes("zip") || searchKey.includes("path") || cleanSlug.includes("zip") || cleanTitle.includes("zip")) {
+                  if (bgCode.includes("zip") || bgCode.includes("path") || bgName.includes("zip") || bgName.includes("path")) return true;
+                }
+                if (searchKey.includes("tango") || cleanSlug.includes("tango") || cleanTitle.includes("tango")) {
+                  if (bgCode.includes("tango") || bgName.includes("tango")) return true;
+                }
+                if (searchKey.includes("sudoku") || cleanSlug.includes("sudoku") || cleanTitle.includes("sudoku")) {
+                  if (bgCode.includes("sudoku") || bgName.includes("sudoku")) return true;
+                }
+                if (searchKey.includes("mahjong") || cleanSlug.includes("mahjong") || cleanTitle.includes("mahjong")) {
+                  if (bgCode.includes("mahjong") || bgName.includes("mahjong")) return true;
+                }
+
+                // 4. Substring contains match
+                return (
+                  (bgCode && (searchKey.includes(bgCode) || bgCode.includes(searchKey))) ||
+                  (bgName && (searchKey.includes(bgName) || bgName.includes(searchKey)))
+                );
+              });
+
+              if (matchedGame?.id) {
+                const isSkipped = Boolean(
+                  gData.skipped ||
+                  gData.status === "SKIPPED" ||
+                  (Number(gData.score || 0) === 0 && (Number(gData.timeTaken || 0) === 0 || Number(gData.moves || 0) === 0))
+                );
+                const finalScore = isSkipped ? 0 : Math.round(Number(gData.score ?? 0));
+                const finalAccuracy = isSkipped ? 0 : Math.round(Number(gData.accuracy ?? gData.score ?? 0));
+                const metricsObj = {
+                  ...gData,
+                  score: finalScore,
+                  accuracy: finalAccuracy,
+                  timeTaken: Number(gData.timeTaken || gData.timeSpent || 0),
+                  timeSpent: Number(gData.timeSpent || gData.timeTaken || 0),
+                  status: isSkipped ? "SKIPPED" : (gData.status || "COMPLETED"),
+                  skipped: isSkipped,
+                };
+
+                await prisma.gameResult.upsert({
+                  where: {
+                    candidateAssessmentId_gameId: {
+                      candidateAssessmentId: submissionResult.attemptId,
+                      gameId: matchedGame.id,
+                    },
+                  },
+                  create: {
+                    candidateAssessmentId: submissionResult.attemptId,
+                    gameId: matchedGame.id,
+                    score: finalScore,
+                    metrics: metricsObj,
+                  },
+                  update: {
+                    score: finalScore,
+                    metrics: metricsObj,
+                  },
+                });
+              }
+            }
+          }
+        } catch (_bgErr) { }
+      });
+    }
+
+    return submissionResult;
   }
 
   /**

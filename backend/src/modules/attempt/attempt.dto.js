@@ -886,24 +886,41 @@ const toHRAttemptListResponse = (attempt) => {
     answers: Array.isArray(attempt.answers) ? attempt.answers : [],
     attemptQuestions: Array.isArray(attempt.attemptQuestions) ? attempt.attemptQuestions : [],
     gameResults: (() => {
-      if (Array.isArray(attempt.gameResults) && attempt.gameResults.length > 0) {
-        return attempt.gameResults;
-      }
+      const dbResults = Array.isArray(attempt.gameResults) ? [...attempt.gameResults] : [];
       if (attempt.auditLogs?.[0]?.metadata?.gameResults) {
         const rawAudit = attempt.auditLogs[0].metadata.gameResults;
-        const entries = Array.isArray(rawAudit) ? rawAudit : Object.values(rawAudit);
-        return entries.filter((g) => g && typeof g === "object").map((g, idx) => ({
-          gameId: g.gameId || `game-${idx}`,
-          score: Number(g.score ?? 0),
-          metrics: g,
-          game: {
-            id: g.gameId || `game-${idx}`,
-            name: g.title || g.name || g.slug || null,
-            code: g.slug || g.code || null,
-          },
-        }));
+        const entries = Array.isArray(rawAudit)
+          ? rawAudit.map((g, idx) => ({ key: `game-${idx}`, data: g }))
+          : Object.entries(rawAudit).map(([k, v]) => ({ key: k, data: v }));
+
+        entries.filter((e) => e.data && typeof e.data === "object").forEach(({ key, data: g }, idx) => {
+          const gKey = String(key || g.slug || g.gameId || g.title || g.name || "").toLowerCase();
+          const alreadyExists = dbResults.some((dbr) => {
+            const dKey = String(dbr.gameId || dbr.game?.code || dbr.game?.name || "").toLowerCase();
+            return (
+              dKey === gKey ||
+              (gKey.includes("queen") && dKey.includes("queen")) ||
+              (gKey.includes("zip") && dKey.includes("zip")) ||
+              (gKey.includes("tango") && dKey.includes("tango")) ||
+              (gKey.includes("sudoku") && dKey.includes("sudoku")) ||
+              (gKey.includes("mahjong") && dKey.includes("mahjong"))
+            );
+          });
+          if (!alreadyExists) {
+            dbResults.push({
+              gameId: g.gameId || key || `game-${idx}`,
+              score: Number(g.score ?? 0),
+              metrics: g,
+              game: {
+                id: g.gameId || key || `game-${idx}`,
+                name: g.title || g.name || (gKey.includes("queen") ? "N-Queens Spatial Logic" : g.slug || "Cognitive Game"),
+                code: g.slug || g.code || (gKey.includes("queen") ? "N_QUEENS" : "GAME"),
+              },
+            });
+          }
+        });
       }
-      return [];
+      return dbResults;
     })(),
     assessment: attempt.assessment
       ? {
