@@ -1405,8 +1405,6 @@ class AttemptRepository {
           id: true,
           email: true,
           name: true,
-          firstName: true,
-          lastName: true,
           status: true,
         },
       });
@@ -1431,12 +1429,15 @@ class AttemptRepository {
 
     for (const u of users) {
       if (!resultMap.has(u.id)) {
+        const nameParts = (u.name || "").trim().split(/\s+/);
+        const firstName = nameParts[0] || "Candidate";
+        const lastName = nameParts.slice(1).join(" ") || "";
         const candidateObj = {
           id: u.id,
           email: u.email,
-          name: u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Candidate",
-          firstName: u.firstName,
-          lastName: u.lastName,
+          name: u.name || "Candidate",
+          firstName,
+          lastName,
           status: u.status || "ACTIVE",
         };
         resultMap.set(u.id, candidateObj);

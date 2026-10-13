@@ -1093,31 +1093,46 @@ class AttemptService {
     }
     const effectiveBulkCompanyName = bulkCompanyName || "HireQuest";
 
-    for (const job of emailJobs) {
-      try {
-        const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
-        const candidateProfile = candidateMap.get(job.candidateId) || {};
-        const candidateName = (candidateProfile.name || "Candidate").trim();
+    // Background Non-blocking Email Dispatch with Parallel Batches (Sub-second API response)
+    if (emailJobs.length > 0) {
+      setImmediate(async () => {
+        try {
+          const sendSingleEmail = async (job) => {
+            try {
+              const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
+              const candidateProfile = candidateMap.get(job.candidateId) || {};
+              const candidateName = (candidateProfile.name || "Candidate").trim();
 
-        const emailContent = buildInvitationEmail({
-          candidateName,
-          assessmentTitle: assessment.title,
-          testLink,
-          expiresAt: job.expiresAt,
-          companyName: effectiveBulkCompanyName,
-        });
+              const emailContent = buildInvitationEmail({
+                candidateName,
+                assessmentTitle: assessment.title,
+                testLink,
+                expiresAt: job.expiresAt,
+                companyName: effectiveBulkCompanyName,
+              });
 
-        await sendEmail({
-          to: job.email,
-          subject: emailContent.subject,
-          text: emailContent.text,
-          html: emailContent.html,
-        });
+              await sendEmail({
+                to: job.email,
+                subject: emailContent.subject,
+                text: emailContent.text,
+                html: emailContent.html,
+              });
 
-        await attemptRepository.updateInvitationStatus(job.invitationId, "SENT");
-      } catch (err) {
-        console.error(`Failed to send bulk invitation email to ${job.email}:`, err.message);
-      }
+              await attemptRepository.updateInvitationStatus(job.invitationId, "SENT");
+            } catch (err) {
+              console.error(`Failed to send bulk invitation email to ${job.email}:`, err.message);
+            }
+          };
+
+          const BATCH_SIZE = 5;
+          for (let i = 0; i < emailJobs.length; i += BATCH_SIZE) {
+            const batch = emailJobs.slice(i, i + BATCH_SIZE);
+            await Promise.allSettled(batch.map(sendSingleEmail));
+          }
+        } catch (dispatchErr) {
+          console.error("Background bulk invitation email dispatch error:", dispatchErr.message);
+        }
+      });
     }
 
     return {
