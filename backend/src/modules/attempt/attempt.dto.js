@@ -885,7 +885,26 @@ const toHRAttemptListResponse = (attempt) => {
     interview: specificInterview,
     answers: Array.isArray(attempt.answers) ? attempt.answers : [],
     attemptQuestions: Array.isArray(attempt.attemptQuestions) ? attempt.attemptQuestions : [],
-    gameResults: Array.isArray(attempt.gameResults) ? attempt.gameResults : [],
+    gameResults: (() => {
+      if (Array.isArray(attempt.gameResults) && attempt.gameResults.length > 0) {
+        return attempt.gameResults;
+      }
+      if (attempt.auditLogs?.[0]?.metadata?.gameResults) {
+        const rawAudit = attempt.auditLogs[0].metadata.gameResults;
+        const entries = Array.isArray(rawAudit) ? rawAudit : Object.values(rawAudit);
+        return entries.filter((g) => g && typeof g === "object").map((g, idx) => ({
+          gameId: g.gameId || `game-${idx}`,
+          score: Number(g.score ?? 0),
+          metrics: g,
+          game: {
+            id: g.gameId || `game-${idx}`,
+            name: g.title || g.name || g.slug || null,
+            code: g.slug || g.code || null,
+          },
+        }));
+      }
+      return [];
+    })(),
     assessment: attempt.assessment
       ? {
           id: attempt.assessment.id,

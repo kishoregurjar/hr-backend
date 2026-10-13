@@ -2358,6 +2358,11 @@ class AttemptRepository {
             },
           },
         },
+        auditLogs: {
+          where: { event: "ATTEMPT_SUBMITTED" },
+          select: { metadata: true },
+          take: 1,
+        },
       },
     });
   }

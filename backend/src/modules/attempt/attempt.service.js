@@ -3838,6 +3838,78 @@ class AttemptService {
 
       attemptMetrics.recordAttemptSubmitted();
 
+      // Persist candidate game results to GameResult table
+      if (effectiveGameResults && typeof effectiveGameResults === "object") {
+        try {
+          const db = tx || prisma;
+          if (db.gameResult) {
+            const assessmentGames = attempt.assessment?.games || [];
+            const entries = Array.isArray(effectiveGameResults)
+              ? effectiveGameResults.map((g, i) => [g.gameId || `game-${i}`, g])
+              : Object.entries(effectiveGameResults);
+
+            for (const [key, gData] of entries) {
+              if (!gData || typeof gData !== "object") continue;
+              const searchKey = String(key || "").toLowerCase();
+
+              const matchedAssessmentGame = assessmentGames.find((ag) => {
+                const agGame = ag.game || {};
+                const agId = ag.gameId || agGame.id;
+                const agCode = (agGame.code || "").toLowerCase();
+                const agName = (agGame.name || "").toLowerCase();
+                return (
+                  agId === key ||
+                  agId === gData.gameId ||
+                  (agCode && (searchKey.includes(agCode) || agCode.includes(searchKey))) ||
+                  (agName && (searchKey.includes(agName) || agName.includes(searchKey)))
+                );
+              });
+
+              const resolvedGameId = matchedAssessmentGame?.gameId || gData.gameId;
+              if (resolvedGameId) {
+                const isSkipped = Boolean(
+                  gData.skipped ||
+                  gData.status === "SKIPPED" ||
+                  (Number(gData.score || 0) === 0 && (Number(gData.timeTaken || 0) === 0 || Number(gData.moves || 0) === 0))
+                );
+                const finalScore = isSkipped ? 0 : Math.round(Number(gData.score ?? 0));
+                const finalAccuracy = isSkipped ? 0 : Math.round(Number(gData.accuracy ?? gData.score ?? 0));
+                const metricsObj = {
+                  ...gData,
+                  score: finalScore,
+                  accuracy: finalAccuracy,
+                  timeTaken: Number(gData.timeTaken || gData.timeSpent || 0),
+                  timeSpent: Number(gData.timeSpent || gData.timeTaken || 0),
+                  status: isSkipped ? "SKIPPED" : (gData.status || "COMPLETED"),
+                  skipped: isSkipped,
+                };
+
+                await db.gameResult.upsert({
+                  where: {
+                    candidateAssessmentId_gameId: {
+                      candidateAssessmentId: attempt.id,
+                      gameId: resolvedGameId,
+                    },
+                  },
+                  create: {
+                    candidateAssessmentId: attempt.id,
+                    gameId: resolvedGameId,
+                    score: finalScore,
+                    metrics: metricsObj,
+                  },
+                  update: {
+                    score: finalScore,
+                    metrics: metricsObj,
+                  },
+                });
+              }
+            }
+          }
+        } catch (_gamePersistErr) {
+          // Gracefully continue without interrupting submission
+        }
+      }
+
       await attemptAuditService.recordAttemptAudit({
         event: "ATTEMPT_SUBMITTED",
         attemptId: attempt.id,
@@ -3847,6 +3919,7 @@ class AttemptService {
           attemptNumber: attempt.attemptNumber,
           score: normalizedPercentage,
           passed: isPassed,
+          gameResults: effectiveGameResults,
         },
         tx,
       });
