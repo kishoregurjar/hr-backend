@@ -348,10 +348,15 @@ class QuestionService {
       );
     }
 
-    // 4. Pre-fetch existing question titles in 1 batch query (Case-Insensitive & Space-Resilient)
+    // 4. Pre-fetch existing question titles strictly for incoming items (Targeted indexed lookup)
+    const incomingTitles = questionsList
+      .map((q) => (q.title || q.question || "").trim())
+      .filter(Boolean);
+
     const existingQuestions = await prisma.question.findMany({
       where: {
         ...(companyId ? { OR: [{ companyId }, { companyId: null }] } : {}),
+        title: { in: incomingTitles },
       },
       select: { title: true },
     });
@@ -360,7 +365,9 @@ class QuestionService {
       existingQuestions.map((q) => QuestionMapper.normalizeTitle(q.title)).filter(Boolean)
     );
 
-    // 5. Ingest questions with in-memory resolution & lean atomic database writes
+    // 5. In-memory validation and data preparation (0 DB round trips)
+    const validItemsToInsert = [];
+
     for (let i = 0; i < questionsList.length; i++) {
       const item = questionsList[i];
       const rawTitle = item.title || item.question || "";
@@ -384,6 +391,9 @@ class QuestionService {
         });
         continue;
       }
+
+      // Add to set immediately to prevent duplicates within the same batch
+      existingTitleSet.add(normalizedTitle);
 
       try {
         // Resolve Category in-memory (0 DB round trips)
@@ -479,32 +489,50 @@ class QuestionService {
         const questionData = QuestionMapper.toCreateEntity(questionPayload, userId, companyId);
         const optionsData = QuestionMapper.toOptionEntities(options);
 
-        // Fast atomic insert with lean select
-        const createdItem = await questionRepository.createLean(
-          prisma,
+        validItemsToInsert.push({
+          index: i,
+          rawTitle,
           questionData,
           optionsData,
-          resolvedTagIds
-        );
-
-        created.push({
-          id: createdItem.id,
-          title: createdItem.title,
-          status: createdItem.status,
-          type: createdItem.type,
-          difficulty: createdItem.difficulty,
+          resolvedTagIds,
         });
-
-        existingTitleSet.add(normalizedTitle);
       } catch (err) {
-        logger.error({ err, title: rawTitle }, "Error importing single question in bulk");
         errors.push({
           index: i,
           title: rawTitle,
-          reason: err.message || "Failed to create question.",
+          reason: err.message || "Failed to prepare question data.",
         });
       }
     }
+
+    // 6. Execute atomic inserts in parallel (Massive speedup across DB pool)
+    await Promise.all(
+      validItemsToInsert.map(async ({ index, rawTitle, questionData, optionsData, resolvedTagIds }) => {
+        try {
+          const createdItem = await questionRepository.createLean(
+            prisma,
+            questionData,
+            optionsData,
+            resolvedTagIds
+          );
+
+          created.push({
+            id: createdItem.id,
+            title: createdItem.title,
+            status: createdItem.status,
+            type: createdItem.type,
+            difficulty: createdItem.difficulty,
+          });
+        } catch (err) {
+          logger.error({ err, title: rawTitle }, "Error importing single question in bulk");
+          errors.push({
+            index,
+            title: rawTitle,
+            reason: err.message || "Failed to create question.",
+          });
+        }
+      })
+    );
 
     return {
       message: `${created.length} questions imported successfully.`,
