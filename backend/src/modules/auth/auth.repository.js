@@ -9,6 +9,19 @@ const AUTH_USER_SELECT = Object.freeze({
   password: true,
   createdAt: true,
   updatedAt: true,
+  companyMembers: {
+    select: {
+      companyId: true,
+      role: true,
+      company: {
+        select: {
+          id: true,
+          status: true,
+          name: true,
+        },
+      },
+    },
+  },
 });
 
 class AuthRepository {

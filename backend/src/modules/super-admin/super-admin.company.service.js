@@ -296,6 +296,28 @@ const updateCompanyStatus = async (
     status
   );
 
+  // Invalidate cached user sessions and context for all company members
+  try {
+    const { clearCompanyContextCache } = require("../company/company.context");
+    const { clearUserCache } = require("../../middleware/requireAuth");
+    const authRepository = require("../auth/auth.repository");
+
+    const members = await prisma.companyMember.findMany({
+      where: { companyId },
+      select: { userId: true },
+    });
+
+    for (const member of members) {
+      if (clearUserCache) clearUserCache(member.userId);
+      if (clearCompanyContextCache) clearCompanyContextCache(member.userId);
+      if (status === SUPER_ADMIN_COMPANY_CONSTANTS.STATUS.SUSPENDED) {
+        await authRepository.revokeAllUserRefreshTokens(prisma, member.userId);
+      }
+    }
+  } catch (cacheErr) {
+    console.error("[updateCompanyStatus] Member session cache invalidation warning:", cacheErr);
+  }
+
   await auditService.createAuditLog({
     companyId,
     actorUserId,
