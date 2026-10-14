@@ -787,14 +787,50 @@ class AttemptService {
     let effectiveCandidateIds = Array.isArray(candidateIds) ? [...candidateIds] : [];
 
     if (Array.isArray(candidates) && candidates.length > 0) {
+      let existingEmails = new Set();
+      if (effectiveCandidateIds.length > 0) {
+        try {
+          const profilesForProvidedIds = await prisma.candidateProfile.findMany({
+            where: {
+              OR: [
+                { id: { in: effectiveCandidateIds } },
+                { userId: { in: effectiveCandidateIds } },
+              ],
+            },
+            select: { id: true, userId: true, email: true },
+          });
+          for (const p of profilesForProvidedIds) {
+            if (p.email) existingEmails.add(p.email.toLowerCase());
+          }
+        } catch (_) {}
+      }
+
       for (const item of candidates) {
+        const itemId = typeof item === "object" ? (item?.candidateId || item?.id) : undefined;
+        if (itemId && effectiveCandidateIds.includes(itemId)) {
+          continue;
+        }
+
         const email = typeof item === "string" ? item.trim() : item?.email?.trim();
         const firstName = typeof item === "object" ? item?.firstName : undefined;
         const lastName = typeof item === "object" ? item?.lastName : undefined;
 
         if (email) {
           const normalizedEmail = email.toLowerCase();
-          const candidate = await runTransaction(async (tx) => {
+          if (existingEmails.has(normalizedEmail)) {
+            continue;
+          }
+
+          const candidateProfileId = await runTransaction(async (tx) => {
+            let candidateProfile = await tx.candidateProfile.findUnique({
+              where: { email: normalizedEmail },
+              select: { id: true, companyId: true },
+            });
+
+            if (candidateProfile) {
+              return candidateProfile.id;
+            }
+
             let found = await tx.user.findUnique({
               where: { email: normalizedEmail },
               select: { id: true, email: true, role: true, status: true },
@@ -814,10 +850,29 @@ class AttemptService {
                 select: { id: true, email: true, role: true, status: true },
               });
             }
-            return found;
+
+            const fName = (firstName || "").trim() || "Candidate";
+            const lName = (lastName || "").trim();
+            candidateProfile = await tx.candidateProfile.create({
+              data: {
+                email: normalizedEmail,
+                firstName: fName,
+                lastName: lName,
+                userId: found?.id || null,
+                companyId: null,
+                metadata: { source: "BULK_INVITATION", inbound: true },
+              },
+              select: { id: true },
+            });
+
+            return candidateProfile.id;
           });
-          if (candidate && candidate.id && !effectiveCandidateIds.includes(candidate.id)) {
-            effectiveCandidateIds.push(candidate.id);
+
+          if (candidateProfileId) {
+            existingEmails.add(normalizedEmail);
+            if (!effectiveCandidateIds.includes(candidateProfileId)) {
+              effectiveCandidateIds.push(candidateProfileId);
+            }
           }
         }
       }
