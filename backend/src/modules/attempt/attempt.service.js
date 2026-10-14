@@ -785,63 +785,95 @@ class AttemptService {
     }
 
     let effectiveCandidateIds = Array.isArray(candidateIds) ? [...candidateIds] : [];
-    const incomingCandidates = Array.isArray(candidates) ? candidates : [];
-    const incomingEmails = incomingCandidates
-      .map((item) => (typeof item === "string" ? item.trim() : item?.email?.trim()))
-      .filter(Boolean)
-      .map((e) => e.toLowerCase());
 
-    // 1. Resolve or batch-create Users for any email invitations without N+1 loops
-    if (incomingEmails.length > 0) {
-      const existingUsers = await prisma.user.findMany({
-        where: { email: { in: incomingEmails } },
-        select: { id: true, email: true, role: true, status: true },
-      });
-
-      const userByEmail = new Map(existingUsers.map((u) => [u.email.toLowerCase(), u]));
-      const missingCandidates = incomingCandidates.filter((item) => {
-        const em = (typeof item === "string" ? item.trim() : item?.email?.trim() || "").toLowerCase();
-        return em && !userByEmail.has(em);
-      });
-
-      if (missingCandidates.length > 0) {
-        // Compute dummy random password hash ONCE for the batch to eliminate event-loop freezing
-        const defaultCandidateHash = await bcrypt.hash(crypto.randomBytes(16).toString("hex"), 8);
-
-        await prisma.user.createMany({
-          data: missingCandidates.map((item) => {
-            const em = (typeof item === "string" ? item.trim() : item?.email?.trim() || "").toLowerCase();
-            const fn = typeof item === "object" ? item.firstName : undefined;
-            const ln = typeof item === "object" ? item.lastName : undefined;
-            const fullName = [fn, ln].filter(Boolean).join(" ").trim() || "Candidate";
-            return {
-              email: em,
-              password: defaultCandidateHash,
-              name: fullName,
-              role: "CANDIDATE",
-              status: "ACTIVE",
-            };
-          }),
-          skipDuplicates: true,
-        });
-
-        const createdUsers = await prisma.user.findMany({
-          where: {
-            email: {
-              in: missingCandidates.map((item) =>
-                (typeof item === "string" ? item.trim() : item?.email?.trim() || "").toLowerCase()
-              ),
+    if (Array.isArray(candidates) && candidates.length > 0) {
+      let existingEmails = new Set();
+      if (effectiveCandidateIds.length > 0) {
+        try {
+          const profilesForProvidedIds = await prisma.candidateProfile.findMany({
+            where: {
+              OR: [
+                { id: { in: effectiveCandidateIds } },
+                { userId: { in: effectiveCandidateIds } },
+              ],
             },
-          },
-          select: { id: true, email: true, role: true, status: true },
-        });
-
-        createdUsers.forEach((u) => userByEmail.set(u.email.toLowerCase(), u));
+            select: { id: true, userId: true, email: true },
+          });
+          for (const p of profilesForProvidedIds) {
+            if (p.email) existingEmails.add(p.email.toLowerCase());
+          }
+        } catch (_) {}
       }
 
-      for (const u of userByEmail.values()) {
-        if (u.id && !effectiveCandidateIds.includes(u.id)) {
-          effectiveCandidateIds.push(u.id);
+      for (const item of candidates) {
+        const itemId = typeof item === "object" ? (item?.candidateId || item?.id) : undefined;
+        if (itemId && effectiveCandidateIds.includes(itemId)) {
+          continue;
+        }
+
+        const email = typeof item === "string" ? item.trim() : item?.email?.trim();
+        const firstName = typeof item === "object" ? item?.firstName : undefined;
+        const lastName = typeof item === "object" ? item?.lastName : undefined;
+
+        if (email) {
+          const normalizedEmail = email.toLowerCase();
+          if (existingEmails.has(normalizedEmail)) {
+            continue;
+          }
+
+          const candidateProfileId = await runTransaction(async (tx) => {
+            let candidateProfile = await tx.candidateProfile.findUnique({
+              where: { email: normalizedEmail },
+              select: { id: true, companyId: true },
+            });
+
+            if (candidateProfile) {
+              return candidateProfile.id;
+            }
+
+            let found = await tx.user.findUnique({
+              where: { email: normalizedEmail },
+              select: { id: true, email: true, role: true, status: true },
+            });
+            if (!found) {
+              const fullName = [firstName, lastName].filter(Boolean).join(" ").trim() || "Candidate";
+              const randomPassword = crypto.randomBytes(32).toString("hex");
+              const hashedPassword = await bcrypt.hash(randomPassword, 10);
+              found = await tx.user.create({
+                data: {
+                  email: normalizedEmail,
+                  password: hashedPassword,
+                  name: fullName,
+                  role: "CANDIDATE",
+                  status: "ACTIVE",
+                },
+                select: { id: true, email: true, role: true, status: true },
+              });
+            }
+
+            const fName = (firstName || "").trim() || "Candidate";
+            const lName = (lastName || "").trim();
+            candidateProfile = await tx.candidateProfile.create({
+              data: {
+                email: normalizedEmail,
+                firstName: fName,
+                lastName: lName,
+                userId: found?.id || null,
+                companyId: null,
+                metadata: { source: "BULK_INVITATION", inbound: true },
+              },
+              select: { id: true },
+            });
+
+            return candidateProfile.id;
+          });
+
+          if (candidateProfileId) {
+            existingEmails.add(normalizedEmail);
+            if (!effectiveCandidateIds.includes(candidateProfileId)) {
+              effectiveCandidateIds.push(candidateProfileId);
+            }
+          }
         }
       }
     }
@@ -1192,7 +1224,7 @@ class AttemptService {
 
     // 8. Background Non-blocking Email Dispatch with Parallel Batches (Sub-second API response)
     if (emailJobs.length > 0) {
-      setImmediate(async () => {
+      global.setImmediate(async () => {
         try {
           const clientUrl = env.frontend.url;
           const sendSingleEmail = async (job) => {
@@ -3996,7 +4028,7 @@ class AttemptService {
     // Safely persist candidate game results outside the critical transaction
     const effectiveGameResultsForBg = gameResults || {};
     if (submissionResult?.attemptId && effectiveGameResultsForBg && typeof effectiveGameResultsForBg === "object") {
-      setImmediate(async () => {
+      global.setImmediate(async () => {
         try {
           if (prisma.gameResult) {
             const dbGames = await prisma.game.findMany({ select: { id: true, code: true, name: true } });
