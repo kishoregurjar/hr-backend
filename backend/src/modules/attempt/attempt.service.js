@@ -785,40 +785,63 @@ class AttemptService {
     }
 
     let effectiveCandidateIds = Array.isArray(candidateIds) ? [...candidateIds] : [];
+    const incomingCandidates = Array.isArray(candidates) ? candidates : [];
+    const incomingEmails = incomingCandidates
+      .map((item) => (typeof item === "string" ? item.trim() : item?.email?.trim()))
+      .filter(Boolean)
+      .map((e) => e.toLowerCase());
 
-    if (Array.isArray(candidates) && candidates.length > 0) {
-      for (const item of candidates) {
-        const email = typeof item === "string" ? item.trim() : item?.email?.trim();
-        const firstName = typeof item === "object" ? item?.firstName : undefined;
-        const lastName = typeof item === "object" ? item?.lastName : undefined;
+    // 1. Resolve or batch-create Users for any email invitations without N+1 loops
+    if (incomingEmails.length > 0) {
+      const existingUsers = await prisma.user.findMany({
+        where: { email: { in: incomingEmails } },
+        select: { id: true, email: true, role: true, status: true },
+      });
 
-        if (email) {
-          const normalizedEmail = email.toLowerCase();
-          const candidate = await runTransaction(async (tx) => {
-            let found = await tx.user.findUnique({
-              where: { email: normalizedEmail },
-              select: { id: true, email: true, role: true, status: true },
-            });
-            if (!found) {
-              const fullName = [firstName, lastName].filter(Boolean).join(" ").trim() || "Candidate";
-              const randomPassword = crypto.randomBytes(32).toString("hex");
-              const hashedPassword = await bcrypt.hash(randomPassword, 10);
-              found = await tx.user.create({
-                data: {
-                  email: normalizedEmail,
-                  password: hashedPassword,
-                  name: fullName,
-                  role: "CANDIDATE",
-                  status: "ACTIVE",
-                },
-                select: { id: true, email: true, role: true, status: true },
-              });
-            }
-            return found;
-          });
-          if (candidate && candidate.id && !effectiveCandidateIds.includes(candidate.id)) {
-            effectiveCandidateIds.push(candidate.id);
-          }
+      const userByEmail = new Map(existingUsers.map((u) => [u.email.toLowerCase(), u]));
+      const missingCandidates = incomingCandidates.filter((item) => {
+        const em = (typeof item === "string" ? item.trim() : item?.email?.trim() || "").toLowerCase();
+        return em && !userByEmail.has(em);
+      });
+
+      if (missingCandidates.length > 0) {
+        // Compute dummy random password hash ONCE for the batch to eliminate event-loop freezing
+        const defaultCandidateHash = await bcrypt.hash(crypto.randomBytes(16).toString("hex"), 8);
+
+        await prisma.user.createMany({
+          data: missingCandidates.map((item) => {
+            const em = (typeof item === "string" ? item.trim() : item?.email?.trim() || "").toLowerCase();
+            const fn = typeof item === "object" ? item.firstName : undefined;
+            const ln = typeof item === "object" ? item.lastName : undefined;
+            const fullName = [fn, ln].filter(Boolean).join(" ").trim() || "Candidate";
+            return {
+              email: em,
+              password: defaultCandidateHash,
+              name: fullName,
+              role: "CANDIDATE",
+              status: "ACTIVE",
+            };
+          }),
+          skipDuplicates: true,
+        });
+
+        const createdUsers = await prisma.user.findMany({
+          where: {
+            email: {
+              in: missingCandidates.map((item) =>
+                (typeof item === "string" ? item.trim() : item?.email?.trim() || "").toLowerCase()
+              ),
+            },
+          },
+          select: { id: true, email: true, role: true, status: true },
+        });
+
+        createdUsers.forEach((u) => userByEmail.set(u.email.toLowerCase(), u));
+      }
+
+      for (const u of userByEmail.values()) {
+        if (u.id && !effectiveCandidateIds.includes(u.id)) {
+          effectiveCandidateIds.push(u.id);
         }
       }
     }
@@ -848,9 +871,16 @@ class AttemptService {
 
     const invitationExpiresAt = this.calculateInvitationExpiry(expiresAt);
 
-    const assessment = await assessmentRepository.findById(assessmentId, {
-      detailed: false,
-    });
+    // 2. Fetch Assessment and HR Company in parallel (Zero redundant queries)
+    const [assessment, hrMember] = await Promise.all([
+      assessmentRepository.findById(assessmentId, { detailed: false }),
+      invitedByUserId
+        ? prisma.companyMember.findFirst({
+            where: { userId: invitedByUserId },
+            select: { companyId: true, company: { select: { name: true } } },
+          })
+        : null,
+    ]);
 
     if (!assessment) {
       throw new NotFoundError(
@@ -866,17 +896,33 @@ class AttemptService {
       );
     }
 
-    let effectiveCompanyId = assessment.companyId || null;
-    if (!effectiveCompanyId && invitedByUserId) {
-      const hrMember = await prisma.companyMember.findFirst({
-        where: { userId: invitedByUserId },
-        select: { companyId: true },
-      });
-      if (hrMember?.companyId) {
-        effectiveCompanyId = hrMember.companyId;
-      }
+    if (assessment.status === "DRAFT") {
+      try {
+        await prisma.assessment.update({
+          where: { id: assessmentId },
+          data: { status: "PUBLISHED" },
+        });
+        assessment.status = "PUBLISHED";
+      } catch (_) {}
     }
 
+    let effectiveCompanyId = assessment.companyId || hrMember?.companyId || null;
+    let effectiveBulkCompanyName = hrMember?.company?.name || null;
+
+    if (!effectiveBulkCompanyName && assessment.createdById) {
+      try {
+        const creatorMember = await prisma.companyMember.findFirst({
+          where: { userId: assessment.createdById },
+          select: { company: { select: { name: true } } },
+        });
+        effectiveBulkCompanyName = creatorMember?.company?.name || null;
+      } catch (_) {}
+    }
+    if (!effectiveBulkCompanyName) {
+      effectiveBulkCompanyName = "HireQuest";
+    }
+
+    // 3. Batch candidate lookup
     const dbCandidates = await attemptRepository.findCandidatesByIds(
       uniqueCandidateIds
     );
@@ -888,7 +934,114 @@ class AttemptService {
       if (c.email) candidateMap.set(c.email.toLowerCase(), c);
     }
 
+    // 4. Batch resolve and link CandidateProfiles
+    const candidateEmails = dbCandidates.map((c) => c.email?.toLowerCase()).filter(Boolean);
+    const existingProfiles = await prisma.candidateProfile.findMany({
+      where: {
+        OR: [
+          { id: { in: uniqueCandidateIds } },
+          { userId: { in: uniqueCandidateIds } },
+          ...(candidateEmails.length > 0 ? [{ email: { in: candidateEmails } }] : []),
+        ],
+      },
+    });
+
+    const profileMap = new Map();
+    for (const p of existingProfiles) {
+      if (p.id) profileMap.set(p.id, p);
+      if (p.userId) profileMap.set(p.userId, p);
+      if (p.email) profileMap.set(p.email.toLowerCase(), p);
+    }
+
+    // Create any missing CandidateProfile records in bulk
+    const profilesToCreate = [];
+    for (const candidateId of uniqueCandidateIds) {
+      const candidate = candidateMap.get(candidateId);
+      if (!candidate) continue;
+      const existingProfile =
+        profileMap.get(candidateId) ||
+        (candidate.email ? profileMap.get(candidate.email.toLowerCase()) : null);
+
+      if (!existingProfile && candidate.email) {
+        const fName = (candidate.firstName || "").trim() || "Candidate";
+        const lName = (candidate.lastName || "").trim();
+        profilesToCreate.push({
+          email: candidate.email.toLowerCase(),
+          firstName: fName,
+          lastName: lName,
+          companyId: effectiveCompanyId,
+          metadata: { source: "BULK_INVITATION", inbound: true },
+        });
+      }
+    }
+
+    if (profilesToCreate.length > 0) {
+      await prisma.candidateProfile.createMany({
+        data: profilesToCreate,
+        skipDuplicates: true,
+      });
+
+      const newlyCreatedProfiles = await prisma.candidateProfile.findMany({
+        where: { email: { in: profilesToCreate.map((p) => p.email) } },
+      });
+
+      for (const p of newlyCreatedProfiles) {
+        if (p.id) profileMap.set(p.id, p);
+        if (p.userId) profileMap.set(p.userId, p);
+        if (p.email) profileMap.set(p.email.toLowerCase(), p);
+      }
+    }
+
+    // Link CompanyCandidate in bulk (non-blocking)
+    if (effectiveCompanyId) {
+      const companyCandidatePairs = [];
+      for (const p of profileMap.values()) {
+        if (p.id) {
+          companyCandidatePairs.push({
+            companyId: effectiveCompanyId,
+            candidateId: p.id,
+          });
+        }
+      }
+      if (companyCandidatePairs.length > 0) {
+        try {
+          await prisma.companyCandidate.createMany({
+            data: companyCandidatePairs,
+            skipDuplicates: true,
+          });
+        } catch (_) {}
+      }
+    }
+
+    // 5. Batch Fetch All Active Invitations in ONE Query (Zero N+1)
+    const allProfileIds = Array.from(new Set(Array.from(profileMap.values()).map((p) => p.id)));
+    const activeInvitations = await prisma.invitation.findMany({
+      where: {
+        assessmentId,
+        candidateId: { in: allProfileIds },
+        status: {
+          in: ["PENDING", "SENT", "OPENED"],
+        },
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      select: {
+        id: true,
+        candidateId: true,
+      },
+      orderBy: {
+        expiresAt: "desc",
+      },
+    });
+
+    const activeInvitationByCandidateId = new Map(
+      activeInvitations.map((inv) => [inv.candidateId, inv])
+    );
+
+    // 6. In-Memory Validation & Preparation
     const results = [];
+    const invitationsToCreate = [];
     const emailJobs = [];
 
     for (const candidateId of uniqueCandidateIds) {
@@ -914,146 +1067,113 @@ class AttemptService {
         continue;
       }
 
-      try {
-        const result = await runTransaction(async (tx) => {
-          // Resolve or auto-create candidateProfile so foreign key candidateId matches CandidateProfile table
-          let candidateProfile = await tx.candidateProfile.findFirst({
-            where: {
-              OR: [
-                { id: candidateId },
-                { userId: candidateId },
-                ...(candidate.email ? [{ email: candidate.email.toLowerCase() }] : []),
-              ],
-            },
-          });
+      const candidateProfile =
+        profileMap.get(candidateId) ||
+        (candidate.email ? profileMap.get(candidate.email.toLowerCase()) : null);
 
-          if (candidateProfile) {
-            if (!candidateProfile.companyId && effectiveCompanyId) {
-              candidateProfile = await tx.candidateProfile.update({
-                where: { id: candidateProfile.id },
-                data: { companyId: effectiveCompanyId },
-              });
-            }
+      if (!candidateProfile) {
+        results.push({
+          candidateId,
+          status: BULK_INVITATION_RESULT_STATUS.FAILED,
+          code: INVITATION_ERROR_CODES.CANDIDATE_NOT_FOUND,
+          message: `Unable to resolve candidate profile for candidate ID ${candidateId}`,
+        });
+        continue;
+      }
 
-            if (effectiveCompanyId) {
-              await tx.companyCandidate.upsert({
-                where: {
-                  companyId_candidateId: {
-                    companyId: effectiveCompanyId,
-                    candidateId: candidateProfile.id,
-                  },
-                },
-                update: {},
-                create: {
-                  companyId: effectiveCompanyId,
-                  candidateId: candidateProfile.id,
-                },
-              });
-            }
-          } else if (candidate.email) {
-            const fName = (candidate.firstName || "").trim() || "Candidate";
-            const lName = (candidate.lastName || "").trim();
-            candidateProfile = await tx.candidateProfile.create({
-              data: {
-                email: candidate.email.toLowerCase(),
-                firstName: fName,
-                lastName: lName,
-                companyId: effectiveCompanyId,
-                ...(effectiveCompanyId && {
-                  companyCandidates: {
-                    create: { companyId: effectiveCompanyId },
-                  },
-                }),
-                metadata: { source: "BULK_INVITATION", inbound: true },
-              },
-            });
-          }
+      const resolvedCandidateId = candidateProfile.id;
 
-          if (!candidateProfile) {
-            throw new Error(`Unable to resolve candidate profile for candidate ID ${candidateId}`);
-          }
+      // Duplicate Check
+      const existing = activeInvitationByCandidateId.get(resolvedCandidateId);
+      if (existing) {
+        results.push({
+          candidateId,
+          status: BULK_INVITATION_RESULT_STATUS.DUPLICATE,
+          code: INVITATION_ERROR_CODES.DUPLICATE_INVITATION,
+          invitationId: existing.id,
+          message: "This candidate already has an active invitation for this assessment.",
+        });
+        continue;
+      }
 
-          const resolvedCandidateId = candidateProfile.id;
+      const rawToken = attemptMapper.generateInvitationToken();
+      const tokenHash = attemptMapper.hashInvitationToken(rawToken);
 
-          const existing = await attemptRepository.findActiveInvitation(
-            { assessmentId, candidateId: resolvedCandidateId },
-            tx
-          );
+      const invitationData = attemptMapper.toCreateInvitationEntity({
+        assessmentId,
+        candidateId: resolvedCandidateId,
+        invitedByUserId,
+        email: candidateProfile.email,
+        tokenHash,
+        expiresAt: invitationExpiresAt,
+      });
 
-          if (existing) {
-            return {
-              duplicate: true,
-              invitation: existing,
-            };
-          }
+      invitationsToCreate.push({
+        candidateId,
+        resolvedCandidateId,
+        invitationData,
+        rawToken,
+        candidate,
+        candidateProfile,
+      });
+    }
 
-          const rawToken = attemptMapper.generateInvitationToken();
-          const tokenHash = attemptMapper.hashInvitationToken(rawToken);
-
-          const invitationData = attemptMapper.toCreateInvitationEntity({
-            assessmentId,
-            candidateId: resolvedCandidateId,
-            invitedByUserId,
-            email: candidateProfile.email,
-            tokenHash,
-            expiresAt: invitationExpiresAt,
-          });
-
-          const invitation = await attemptRepository.createInvitation(
-            invitationData,
-            tx
-          );
-
+    // 7. Parallel Batch Insertion (Chunks of 25)
+    const CHUNK_SIZE = 25;
+    for (let i = 0; i < invitationsToCreate.length; i += CHUNK_SIZE) {
+      const chunk = invitationsToCreate.slice(i, i + CHUNK_SIZE);
+      const createdBatch = await Promise.allSettled(
+        chunk.map(async (item) => {
+          const inv = await attemptRepository.createInvitation(item.invitationData);
           return {
-            duplicate: false,
-            invitation,
-            rawToken,
+            ...item,
+            invitation: inv,
           };
-        });
+        })
+      );
 
-        if (result.duplicate) {
+      for (let j = 0; j < createdBatch.length; j++) {
+        const res = createdBatch[j];
+        const item = chunk[j];
+
+        if (res.status === "fulfilled") {
+          const inv = res.value.invitation;
+          activeInvitationByCandidateId.set(item.resolvedCandidateId, inv);
+
           results.push({
-            candidateId,
-            status: BULK_INVITATION_RESULT_STATUS.DUPLICATE,
-            code: INVITATION_ERROR_CODES.DUPLICATE_INVITATION,
-            invitationId: result.invitation.id,
-            message: "This candidate already has an active invitation for this assessment.",
+            candidateId: item.candidateId,
+            status: BULK_INVITATION_RESULT_STATUS.CREATED,
+            invitationId: inv.id,
+            email: item.candidate.email,
           });
-          continue;
+
+          emailJobs.push({
+            invitationId: inv.id,
+            candidateId: item.candidateId,
+            email: item.candidate.email,
+            rawToken: item.rawToken,
+            assessmentId,
+            expiresAt: inv.expiresAt,
+          });
+        } else {
+          const error = res.reason;
+          const isDuplicate =
+            error?.code === "P2002" ||
+            error?.code === INVITATION_ERROR_CODES.DUPLICATE_INVITATION;
+
+          results.push({
+            candidateId: item.candidateId,
+            status: isDuplicate
+              ? BULK_INVITATION_RESULT_STATUS.DUPLICATE
+              : BULK_INVITATION_RESULT_STATUS.FAILED,
+            code: isDuplicate
+              ? INVITATION_ERROR_CODES.DUPLICATE_INVITATION
+              : error?.code || "INVITATION_CREATION_FAILED",
+            message: isDuplicate
+              ? "An active invitation already exists."
+              : "Invitation could not be created.",
+          });
         }
-
-        results.push({
-          candidateId,
-          status: BULK_INVITATION_RESULT_STATUS.CREATED,
-          invitationId: result.invitation.id,
-          email: candidate.email,
-        });
-
-        emailJobs.push({
-          invitationId: result.invitation.id,
-          candidateId,
-          email: candidate.email,
-          rawToken: result.rawToken,
-          assessmentId,
-          expiresAt: result.invitation.expiresAt,
-        });
-      } catch (error) {
-        const isDuplicate =
-          error.code === "P2002" ||
-          error.code === INVITATION_ERROR_CODES.DUPLICATE_INVITATION;
-
-        results.push({
-          candidateId,
-          status: isDuplicate
-            ? BULK_INVITATION_RESULT_STATUS.DUPLICATE
-            : BULK_INVITATION_RESULT_STATUS.FAILED,
-          code: isDuplicate
-            ? INVITATION_ERROR_CODES.DUPLICATE_INVITATION
-            : error.code || "INVITATION_CREATION_FAILED",
-          message: isDuplicate
-            ? "An active invitation already exists."
-            : "Invitation could not be created.",
-        });
       }
     }
 
@@ -1070,38 +1190,16 @@ class AttemptService {
       ).length,
     };
 
-    // Automated Email Dispatch for Bulk Invitations
-    const clientUrl = env.frontend.url;
-    let bulkCompanyName = null;
-    if (invitedByUserId) {
-      try {
-        const hrMember = await prisma.companyMember.findFirst({
-          where: { userId: invitedByUserId },
-          select: { company: { select: { name: true } } },
-        });
-        bulkCompanyName = hrMember?.company?.name || null;
-      } catch (_) {}
-    }
-    if (!bulkCompanyName && assessment.createdById) {
-      try {
-        const creatorMember = await prisma.companyMember.findFirst({
-          where: { userId: assessment.createdById },
-          select: { company: { select: { name: true } } },
-        });
-        bulkCompanyName = creatorMember?.company?.name || null;
-      } catch (_) {}
-    }
-    const effectiveBulkCompanyName = bulkCompanyName || "HireQuest";
-
-    // Background Non-blocking Email Dispatch with Parallel Batches (Sub-second API response)
+    // 8. Background Non-blocking Email Dispatch with Parallel Batches (Sub-second API response)
     if (emailJobs.length > 0) {
       setImmediate(async () => {
         try {
+          const clientUrl = env.frontend.url;
           const sendSingleEmail = async (job) => {
             try {
               const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
-              const candidateProfile = candidateMap.get(job.candidateId) || {};
-              const candidateName = (candidateProfile.name || "Candidate").trim();
+              const candidateObj = candidateMap.get(job.candidateId) || {};
+              const candidateName = (candidateObj.name || "Candidate").trim();
 
               const emailContent = buildInvitationEmail({
                 candidateName,
@@ -1124,9 +1222,9 @@ class AttemptService {
             }
           };
 
-          const BATCH_SIZE = 5;
-          for (let i = 0; i < emailJobs.length; i += BATCH_SIZE) {
-            const batch = emailJobs.slice(i, i + BATCH_SIZE);
+          const EMAIL_BATCH_SIZE = 5;
+          for (let i = 0; i < emailJobs.length; i += EMAIL_BATCH_SIZE) {
+            const batch = emailJobs.slice(i, i + EMAIL_BATCH_SIZE);
             await Promise.allSettled(batch.map(sendSingleEmail));
           }
         } catch (dispatchErr) {
