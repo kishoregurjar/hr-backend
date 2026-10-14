@@ -160,6 +160,17 @@ class AuthController {
     const userId = req.user.id;
     const companies = await authService.getUserCompanies(userId);
 
+    if (
+      req.user.role !== "SUPER_ADMIN" &&
+      companies.length > 0 &&
+      companies.every((c) => c.status === "SUSPENDED")
+    ) {
+      const error = new Error("Your company account has been suspended.");
+      error.statusCode = 403;
+      error.code = "COMPANY_SUSPENDED";
+      throw error;
+    }
+
     return SuccessResponse.send(
       res,
       {

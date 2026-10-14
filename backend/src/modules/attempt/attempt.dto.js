@@ -56,13 +56,17 @@ const toAssessmentSummary = (assessment) => {
       ? assessment.games.map((ag) => {
           const g = ag.game || ag;
           const diff = ag.config?.difficulty || g.config?.difficulty || ag.difficulty || g.difficulty || assessment.difficulty || "MEDIUM";
+          const gameCode = String(g.code || g.slug || ag.gameId || "").toUpperCase();
+          const isQueens = gameCode === "N_QUEENS" || gameCode.includes("QUEEN");
+          const safeName = isQueens && g.name === "Mahjong Tile Match" ? "N-Queens Spatial Logic" : (g.name || g.title || "Cognitive Game");
+          const safeTitle = isQueens && (g.title === "Mahjong Tile Match" || !g.title) ? "N-Queens Spatial Logic" : (g.title || g.name || "Cognitive Game");
           return {
             id: g.id || ag.gameId,
             gameId: g.id || ag.gameId,
             code: g.code || g.slug || ag.gameId,
             slug: g.slug || g.code || ag.gameId,
-            title: g.title || g.name || "Cognitive Game",
-            name: g.name || g.title || "Cognitive Game",
+            title: safeTitle,
+            name: safeName,
             sequence: ag.sequence ?? 1,
             weight: ag.weight ?? 1,
             difficulty: diff,
