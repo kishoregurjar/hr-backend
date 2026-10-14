@@ -519,6 +519,14 @@ class AssessmentRepository {
 
     const gameMap = new Map();
     allDbGames.forEach((g) => {
+      // In-place healing for existing N_QUEENS record with legacy fallback name
+      if (g.code === "N_QUEENS" && g.name !== "N-Queens Spatial Logic") {
+        g.name = "N-Queens Spatial Logic";
+        db.game.update({
+          where: { id: g.id },
+          data: { name: "N-Queens Spatial Logic" },
+        }).catch(() => {});
+      }
       gameMap.set(g.id.toLowerCase(), g.id);
       if (g.code) {
         gameMap.set(g.code.toLowerCase(), g.id);
@@ -543,13 +551,26 @@ class AssessmentRepository {
           where: { code: canonCode },
         });
         if (!createdGame) {
+          const gameNames = {
+            ZIP_PATHFINDER: "Zip Pathfinder",
+            TANGO: "Tango Deduction",
+            MINI_SUDOKU: "Mini Sudoku",
+            MAHJONG_TILE_MATCH: "Mahjong Tile Match",
+            N_QUEENS: "N-Queens Spatial Logic",
+          };
           createdGame = await db.game.create({
             data: {
               code: canonCode,
-              name: canonCode === "ZIP_PATHFINDER" ? "Zip Pathfinder" : canonCode === "TANGO" ? "Tango Deduction" : canonCode === "MINI_SUDOKU" ? "Mini Sudoku" : "Mahjong Tile Match",
+              name: gameNames[canonCode] || "Cognitive Game",
               isActive: true,
             },
           });
+        } else if (canonCode === "N_QUEENS" && createdGame.name !== "N-Queens Spatial Logic") {
+          await db.game.update({
+            where: { id: createdGame.id },
+            data: { name: "N-Queens Spatial Logic" },
+          }).catch(() => {});
+          createdGame.name = "N-Queens Spatial Logic";
         }
         targetId = createdGame.id;
         gameMap.set(canonCode.toLowerCase(), targetId);

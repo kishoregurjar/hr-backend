@@ -293,7 +293,11 @@ class AuthService {
 
     const isCurrentValid = await comparePassword(payload.currentPassword, user.password);
     if (!isCurrentValid) {
-      throw new BadRequestError("Current password is incorrect.", "INCORRECT_CURRENT_PASSWORD");
+      throw new BadRequestError("Your current password is incorrect. Please check and try again.", "INCORRECT_CURRENT_PASSWORD");
+    }
+
+    if (payload.currentPassword === payload.newPassword) {
+      throw new BadRequestError("New password cannot be the same as your current password.", "SAME_PASSWORD");
     }
 
     const hashedNewPassword = await hashPassword(payload.newPassword);

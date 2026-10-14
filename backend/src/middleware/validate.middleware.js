@@ -72,9 +72,11 @@ const validateRequest = (schema, targetKey) => async (req, res, next) => {
         };
       });
 
+      const primaryMessage = details[0]?.message || "Request validation failed.";
+
       return next(
         badRequest(
-          "Request validation failed.",
+          primaryMessage,
           "VALIDATION_ERROR",
           details
         )
