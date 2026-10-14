@@ -63,6 +63,7 @@ app.use(cookieParser());
  * 3. CORS Policy
  */
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 /**
  * 4. Helmet Security Headers
