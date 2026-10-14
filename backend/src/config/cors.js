@@ -9,27 +9,38 @@ const env = require("./env");
  * ==========================================================
  */
 
-// Parse comma-separated CLIENT_URL values from env
-const allowedOrigins = (env.cors.origin || "")
-  .split(",")
-  .map((url) => url.trim())
+// Parse comma-separated CLIENT_URL / CORS_ORIGINS values strictly from environment variables
+const rawAllowedOrigins = [
+  ...(env.cors.allowedOrigins || []),
+  ...(env.cors.origin ? [env.cors.origin] : []),
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_URL,
+  process.env.CORS_ORIGINS,
+]
+  .filter(Boolean)
+  .flatMap((url) => String(url).split(","))
+  .map((url) => url.trim().replace(/\/+$/, ""))
   .filter(Boolean);
+
+const allowedOrigins = Array.from(new Set(rawAllowedOrigins));
 
 const corsOptions = {
   origin: function (origin, callback) {
     // 1. Allow non-browser requests (Postman, mobile apps, server-to-server)
     if (!origin) return callback(null, true);
 
+    const cleanOrigin = origin.replace(/\/+$/, "");
+
     // 2. In development mode, allow localhost and any ngrok tunnel origins
     if (
       env.nodeEnv === "development" &&
-      (origin.includes("localhost") || origin.includes("ngrok") || origin.includes("127.0.0.1"))
+      (cleanOrigin.includes("localhost") || cleanOrigin.includes("ngrok") || cleanOrigin.includes("127.0.0.1"))
     ) {
       return callback(null, true);
     }
 
-    // 3. Match whitelisted production origins
-    if (allowedOrigins.includes(origin)) {
+    // 3. Match whitelisted production origins strictly from environment variables
+    if (allowedOrigins.includes(cleanOrigin)) {
       return callback(null, true);
     }
 
@@ -46,7 +57,7 @@ const corsOptions = {
 
   credentials: true,
 
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
 
   allowedHeaders: [
     "Content-Type",
@@ -55,11 +66,13 @@ const corsOptions = {
     "Accept",
     "ngrok-skip-browser-warning",
     "X-Company-Id",
+    "x-company-id",
     "X-Request-Id",
     "Cache-Control",
   ],
 
   exposedHeaders: ["Set-Cookie", "X-Request-Id"],
+  optionsSuccessStatus: 204,
 };
 
 module.exports = corsOptions;
