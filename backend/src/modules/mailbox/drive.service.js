@@ -139,6 +139,22 @@ async function downloadDriveFile({ drive, fileId, maxSizeBytes = MAX_RESUME_SIZE
   } catch (err) {
     const status = err.response?.status || err.code || err.status;
     const msg = String(err.message || "");
+
+    const isServiceDisabled =
+      msg.toLowerCase().includes("service_disabled") ||
+      msg.toLowerCase().includes("accessnotconfigured") ||
+      msg.toLowerCase().includes("has not been used in project") ||
+      msg.toLowerCase().includes("it is disabled");
+
+    if (isServiceDisabled) {
+      const error = new Error(
+        "Google Drive API is disabled in Google Cloud Project. Please enable Drive API in GCP Console."
+      );
+      error.code = "DRIVE_API_DISABLED";
+      error.status = 403;
+      throw error;
+    }
+
     const isPermissionError =
       status === 403 ||
       msg.toLowerCase().includes("insufficient") ||

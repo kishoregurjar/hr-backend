@@ -15,12 +15,7 @@ const {
   notFound,
   conflict,
 } = require("../../utils/app-error");
-const {
-  extractMimeElements,
-  extractDriveFileIds,
-  createDriveClient,
-  downloadDriveFile,
-} = require("./drive.service");
+const driveService = require("./drive.service");
 
 function createOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -152,7 +147,315 @@ const activeMailboxSyncs = new Set();
 
 const isSyncInProgress = (userId) => activeMailboxSyncs.has(userId);
 
-async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange = null) {
+/**
+ * Executes async mapper functions over items with bounded concurrency.
+ *
+ * @template T, R
+ * @param {T[]} items
+ * @param {(item: T, index: number) => Promise<R>} mapper
+ * @param {number} concurrency
+ * @returns {Promise<R[]>}
+ */
+async function pMap(items, mapper, concurrency = 3) {
+  if (!items || items.length === 0) return [];
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workers = [];
+  const workerCount = Math.min(concurrency, items.length);
+  for (let i = 0; i < workerCount; i++) {
+    workers.push(worker());
+  }
+
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Processes a single Gmail message (direct attachments and Drive files) with
+ * proper idempotency and multi-resume partial error accounting.
+ */
+async function processSingleGmailMessage({
+  msg,
+  gmail,
+  drive,
+  mailbox,
+  userCompanyId,
+  userId,
+  existingEvent,
+}) {
+  let emailEvent = existingEvent;
+  let internalDate = null;
+  const processedResumeIds = [];
+  const itemErrors = [];
+  let newResumesCount = 0;
+
+  try {
+    if (!emailEvent) {
+      emailEvent = await resumeRepository.createInboundEmailEventSafely({
+        provider: "google_mailbox",
+        providerMessageId: msg.id,
+        recipientEmail: mailbox.email,
+      });
+    } else if (emailEvent.status !== "PROCESSING") {
+      await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
+        status: "PROCESSING",
+      });
+    }
+
+    const fullMsg = await gmail.users.messages.get({
+      userId: "me",
+      id: msg.id,
+    });
+
+    if (fullMsg.data.internalDate) {
+      internalDate = parseInt(fullMsg.data.internalDate, 10);
+    }
+
+    const payload = fullMsg.data.payload || {};
+    const headers = payload.headers || [];
+    const subject = headers.find((h) => h.name.toLowerCase() === "subject")?.value || "";
+    const sender = headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
+    const replyTo = headers.find((h) => h.name.toLowerCase() === "reply-to")?.value || "";
+
+    if (emailEvent && emailEvent.id) {
+      await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
+        subject,
+        senderEmail: sender,
+      });
+    }
+
+    const { attachments, plainTextBody, htmlBody } = driveService.extractMimeElements(payload);
+    const driveFileIds = driveService.extractDriveFileIds(plainTextBody, htmlBody);
+
+    let finalEmailBody = plainTextBody.trim();
+    if (!finalEmailBody && htmlBody) {
+      finalEmailBody = htmlBody
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<\/div>|<\/p>|<br\s*\/?>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/\n\s*\n/g, "\n\n")
+        .replace(/&nbsp;/g, " ")
+        .trim();
+    }
+    if (finalEmailBody.length > 5000) {
+      finalEmailBody = finalEmailBody.substring(0, 5000) + "\n...[Message truncated]";
+    }
+
+    const parsedSender = parseSender(sender);
+    const forwardInfo = detectForwardedEmail({
+      subject,
+      text: finalEmailBody,
+      sender: parsedSender.email || sender,
+      replyTo,
+    });
+
+    const candidateSourceEmail = forwardInfo.isForwarded
+      ? forwardInfo.candidateEmail
+      : (parsedSender.email || sender);
+
+    // 1. Process direct email attachments
+    for (const att of attachments) {
+      try {
+        const attachment = await gmail.users.messages.attachments.get({
+          userId: "me",
+          messageId: msg.id,
+          id: att.attachmentId,
+        });
+
+        const buffer = Buffer.from(attachment.data.data, "base64");
+        const ext = ("." + (att.filename.split(".").pop() || "")).toLowerCase();
+        let inferredMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (ext === ".pdf") inferredMime = "application/pdf";
+        else if (ext === ".doc") inferredMime = "application/msword";
+
+        const resumeResult = await resumeService.processResume({
+          file: {
+            buffer,
+            originalname: att.filename,
+            mimetype: att.mimeType || inferredMime,
+            size: buffer.length,
+          },
+          source: "INBOUND_EMAIL",
+          sourceEmail: candidateSourceEmail,
+          isForwarded: forwardInfo.isForwarded,
+          inboundEmail: null,
+          uploadedByUserId: userId,
+          companyId: userCompanyId,
+          emailSubject: subject,
+          emailBody: finalEmailBody,
+          providerMessageId: msg.id,
+        });
+
+        const resId = resumeResult?.resumeProcessing?.id || resumeResult?.id;
+        if (resId) {
+          processedResumeIds.push(resId);
+        }
+        if (!resumeResult?.duplicate) {
+          newResumesCount++;
+        }
+
+        if (resumeResult?.candidateId && !resumeResult?.duplicate) {
+          await prisma.candidateProfile.updateMany({
+            where: { userId: resumeResult.candidateId, companyId: null },
+            data: { companyId: userCompanyId },
+          });
+
+          if (typeof attemptService.clearCandidatesCache === "function") {
+            attemptService.clearCandidatesCache();
+          }
+        }
+      } catch (attachmentError) {
+        console.warn(
+          `[MailboxSync] Direct attachment "${att.filename}" failed for message ${msg.id}:`,
+          attachmentError.message
+        );
+        itemErrors.push({
+          source: "DIRECT_ATTACHMENT",
+          name: att.filename,
+          code: attachmentError.code || "ATTACHMENT_PROCESSING_FAILED",
+          message: attachmentError.message,
+        });
+      }
+    }
+
+    // 2. Process Google Drive resume links
+    for (const fileId of driveFileIds) {
+      try {
+        const driveFile = await driveService.downloadDriveFile({
+          drive,
+          fileId,
+        });
+
+        const resumeResult = await resumeService.processResume({
+          file: {
+            buffer: driveFile.buffer,
+            originalname: driveFile.originalname,
+            mimetype: driveFile.mimetype,
+            size: driveFile.size,
+          },
+          source: "INBOUND_EMAIL",
+          sourceEmail: candidateSourceEmail,
+          isForwarded: forwardInfo.isForwarded,
+          inboundEmail: null,
+          uploadedByUserId: userId,
+          companyId: userCompanyId,
+          emailSubject: subject,
+          emailBody: finalEmailBody,
+          providerMessageId: msg.id,
+        });
+
+        const resId = resumeResult?.resumeProcessing?.id || resumeResult?.id;
+        if (resId) {
+          processedResumeIds.push(resId);
+        }
+        if (!resumeResult?.duplicate) {
+          newResumesCount++;
+        }
+
+        if (resumeResult?.candidateId && !resumeResult?.duplicate) {
+          await prisma.candidateProfile.updateMany({
+            where: { userId: resumeResult.candidateId, companyId: null },
+            data: { companyId: userCompanyId },
+          });
+
+          if (typeof attemptService.clearCandidatesCache === "function") {
+            attemptService.clearCandidatesCache();
+          }
+        }
+      } catch (driveError) {
+        console.warn(
+          `[MailboxSync] Google Drive file ${fileId} failed for message ${msg.id}:`,
+          driveError.message
+        );
+        itemErrors.push({
+          source: "GOOGLE_DRIVE",
+          fileId,
+          code: driveError.code || "DRIVE_PROCESSING_FAILED",
+          message: driveError.message,
+        });
+      }
+    }
+
+    // 3. Update InboundEmailEvent status accurately
+    const totalDiscovered = attachments.length + driveFileIds.length;
+
+    if (totalDiscovered === 0) {
+      if (emailEvent?.id) {
+        await resumeRepository.markInboundEmailEventCompleted(emailEvent.id, null);
+      }
+      return {
+        success: true,
+        processedResumes: 0,
+        failed: false,
+        internalDate,
+      };
+    }
+
+    if (itemErrors.length === 0) {
+      // All discovered items succeeded!
+      if (emailEvent?.id) {
+        await resumeRepository.markInboundEmailEventCompleted(
+          emailEvent.id,
+          processedResumeIds[0] || null
+        );
+      }
+      return {
+        success: true,
+        processedResumes: newResumesCount,
+        failed: false,
+        internalDate,
+      };
+    }
+
+    // Multi-resume partial or complete failure: Mark FAILED so it remains retryable
+    const isPartial = processedResumeIds.length > 0;
+    const errCode = isPartial ? "PARTIAL_ATTACHMENT_FAILURE" : (itemErrors[0]?.code || "PROCESSING_FAILED");
+    const errMsg = isPartial
+      ? `${processedResumeIds.length} of ${totalDiscovered} resumes succeeded. Remaining failed: ${itemErrors.map((e) => `[${e.code}] ${e.message}`).join("; ")}`
+      : itemErrors.map((e) => `[${e.code}] ${e.message}`).join("; ");
+
+    if (emailEvent?.id) {
+      await resumeRepository.markInboundEmailEventFailed(emailEvent.id, errCode, errMsg);
+    }
+
+    return {
+      success: false,
+      processedResumes: newResumesCount,
+      failed: true,
+      internalDate,
+      error: errMsg,
+    };
+  } catch (msgError) {
+    console.warn(`[MailboxSync] Error processing message ${msg.id}:`, msgError.message);
+    if (emailEvent?.id) {
+      try {
+        await resumeRepository.markInboundEmailEventFailed(
+          emailEvent.id,
+          msgError.code || "MESSAGE_PROCESSING_ERROR",
+          msgError.message
+        );
+      } catch (_) {}
+    }
+    return {
+      success: false,
+      processedResumes: 0,
+      failed: true,
+      internalDate,
+      error: msgError.message,
+    };
+  }
+}
+
+async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange = null) {
   if (activeMailboxSyncs.has(userId)) {
     throw conflict(
       "Mailbox sync is already in progress for your account. Please wait a moment.",
@@ -183,65 +486,69 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange
     });
 
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-    const drive = createDriveClient(oauth2Client);
+    const drive = driveService.createDriveClient(oauth2Client);
 
-    let processedCount = 0;
-    let pageToken = null;
-    let isCustomDateRange = !!customDateRange;
+    const isCustomDateRange = !!customDateRange;
+    let queryStr = "((has:attachment (filename:pdf OR filename:docx OR filename:doc)) OR has:drive) -from:me";
 
     if (isCustomDateRange) {
-      pageToken = customDateRange.pageToken || null;
+      const fromDateObj = new Date(customDateRange.fromDate);
+      fromDateObj.setDate(fromDateObj.getDate() - 1);
+      const fromStr = fromDateObj.toISOString().split("T")[0].replace(/-/g, "/");
+
+      const toDateObj = new Date(customDateRange.toDate);
+      toDateObj.setDate(toDateObj.getDate() + 1);
+      const toStr = toDateObj.toISOString().split("T")[0].replace(/-/g, "/");
+
+      queryStr += ` after:${fromStr} before:${toStr}`;
     } else {
-      pageToken = mailbox.backfillComplete ? null : (mailbox.backfillPageToken || null);
-      if (pageToken && !pageToken.startsWith("v3:")) {
-        pageToken = null; // Discard stale token from old query version
-      } else if (pageToken) {
-        pageToken = pageToken.replace("v3:", "");
+      let effectiveSinceMs = null;
+      if (mailbox.lastSyncedAt) {
+        // 60-second overlap buffer to prevent missing in-flight emails or clock skew
+        effectiveSinceMs = mailbox.lastSyncedAt.getTime() - 60000;
+      } else {
+        // Fresh mailbox: 30-day initial window prevents unbounded scanning of entire inbox
+        effectiveSinceMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
       }
+
+      // Check for oldest unrecovered FAILED event to make sure failures remain retryable
+      try {
+        const oldestFailed = await prisma.inboundEmailEvent.findFirst({
+          where: {
+            recipientEmail: mailbox.email,
+            status: "FAILED",
+          },
+          orderBy: { createdAt: "asc" },
+          select: { createdAt: true },
+        });
+        if (oldestFailed?.createdAt) {
+          const failedSinceMs = oldestFailed.createdAt.getTime() - 60000;
+          effectiveSinceMs = Math.min(effectiveSinceMs, failedSinceMs);
+        }
+      } catch (_) {}
+
+      const epoch = Math.max(0, Math.floor(effectiveSinceMs / 1000));
+      queryStr += ` after:${epoch}`;
     }
-    
-    let keepFetching = true;
+
+    let pageToken = isCustomDateRange ? (customDateRange.pageToken || null) : null;
     let pagesScanned = 0;
-    let maxInternalDate = null;
-    const MAX_NEW_RESUMES_PER_BATCH = 15;
     const MAX_PAGES_PER_SYNC = 5;
     const startTime = Date.now();
-    let hitTimeCap = false;
-    let syncAborted = false;
 
-    const shouldContinueFetching = () => {
-      if (!keepFetching) return false;
-      if (isCustomDateRange) return true;
-      if (mailbox.backfillComplete) {
-        return processedCount < MAX_NEW_RESUMES_PER_BATCH && pagesScanned < MAX_PAGES_PER_SYNC;
-      }
-      return true;
-    };
+    let totalScanned = 0;
+    let totalSkipped = 0;
+    let totalProcessedResumes = 0;
+    let totalFailed = 0;
+    let highestSuccessInternalDate = null;
+    let lowestFailureInternalDate = null;
 
-    while (shouldContinueFetching()) {
+    while (pagesScanned < MAX_PAGES_PER_SYNC) {
       if (Date.now() - startTime >= maxDurationMs) {
-        hitTimeCap = true;
-        syncAborted = true;
         break;
       }
 
       pagesScanned++;
-      let queryStr = "((has:attachment (filename:pdf OR filename:docx OR filename:doc)) OR has:drive) -from:me";
-      if (isCustomDateRange) {
-        const fromDateObj = new Date(customDateRange.fromDate);
-        fromDateObj.setDate(fromDateObj.getDate() - 1);
-        const fromStr = fromDateObj.toISOString().split("T")[0].replace(/-/g, "/");
-        
-        const toDateObj = new Date(customDateRange.toDate);
-        toDateObj.setDate(toDateObj.getDate() + 1);
-        const toStr = toDateObj.toISOString().split("T")[0].replace(/-/g, "/");
-        
-        queryStr += ` after:${fromStr} before:${toStr}`;
-      } else if (mailbox.backfillComplete && mailbox.lastSyncedAt) {
-        const epoch = Math.floor(mailbox.lastSyncedAt.getTime() / 1000) - 1;
-        queryStr += ` after:${epoch}`;
-      }
-
       const listParams = {
         userId: "me",
         q: queryStr,
@@ -258,285 +565,71 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange
         break;
       }
 
-      // Fix 2: Batched dedup check
+      totalScanned += messages.length;
+
+      // Batched lookup of existing InboundEmailEvents
       const messageIds = messages.map((m) => m.id);
       const existingEvents = await resumeRepository.findInboundEmailEventsByMessageIds(
         "google_mailbox",
         messageIds
       );
+      const eventMap = new Map(existingEvents.map((e) => [e.providerMessageId, e]));
 
-      const completedIds = new Set(
-        existingEvents
-          .filter((e) => e.status === "COMPLETED")
-          .map((e) => e.providerMessageId)
-      );
-
-      let abortedMidPage = false;
+      const actionableMsgs = [];
 
       for (const msg of messages) {
-        try {
-          if (Date.now() - startTime >= maxDurationMs) {
-            keepFetching = false;
-            hitTimeCap = true;
-            abortedMidPage = true;
-            syncAborted = true;
-            break;
+        const existing = eventMap.get(msg.id);
+        if (existing && existing.status === "COMPLETED") {
+          totalSkipped++;
+          const existingDate = existing.receivedAt ? existing.receivedAt.getTime() : null;
+          if (existingDate && (!highestSuccessInternalDate || existingDate > highestSuccessInternalDate)) {
+            highestSuccessInternalDate = existingDate;
           }
-
-          if (!isCustomDateRange && mailbox.backfillComplete && processedCount >= MAX_NEW_RESUMES_PER_BATCH) {
-            keepFetching = false;
-            abortedMidPage = true;
-            syncAborted = true;
-            break;
-          }
-
-          // Fix 2: Use in-memory Set for skip check
-          if (completedIds.has(msg.id)) {
-            continue;
-          }
-
-          // Fix 3: Close race-condition window by creating the event safely BEFORE Gmail get()
-          const emailEvent = await resumeRepository.createInboundEmailEventSafely({
-            provider: "google_mailbox",
-            providerMessageId: msg.id,
-            recipientEmail: mailbox.email,
-            // senderEmail and subject omitted here since we don't have fullMsg yet.
-          });
-
-          const fullMsg = await gmail.users.messages.get({
-            userId: "me",
-            id: msg.id,
-          });
-
-          if (fullMsg.data.internalDate) {
-            const msgDate = parseInt(fullMsg.data.internalDate, 10);
-            if (!maxInternalDate || msgDate > maxInternalDate) {
-              maxInternalDate = msgDate;
-            }
-          }
-
-          const payload = fullMsg.data.payload || {};
-          const headers = payload.headers || [];
-          const subject =
-            headers.find((h) => h.name.toLowerCase() === "subject")?.value || "";
-          const sender =
-            headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
-          const replyTo =
-            headers.find((h) => h.name.toLowerCase() === "reply-to")?.value || "";
-
-          if (emailEvent && emailEvent.id) {
-            await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
-              subject,
-              senderEmail: sender,
-            });
-          }
-
-          const { attachments, plainTextBody, htmlBody } = extractMimeElements(payload);
-          const driveFileIds = extractDriveFileIds(plainTextBody, htmlBody);
-
-          let finalEmailBody = plainTextBody.trim();
-          if (!finalEmailBody && htmlBody) {
-             finalEmailBody = htmlBody.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                                      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                                      .replace(/<\/div>|<\/p>|<br\s*\/?>/gi, '\n')
-                                      .replace(/<[^>]+>/g, '')
-                                      .replace(/\n\s*\n/g, '\n\n')
-                                      .replace(/&nbsp;/g, ' ')
-                                      .trim();
-          }
-          if (finalEmailBody.length > 5000) {
-            finalEmailBody = finalEmailBody.substring(0, 5000) + "\n...[Message truncated]";
-          }
-
-          const parsedSender = parseSender(sender);
-          const forwardInfo = detectForwardedEmail({
-            subject,
-            text: finalEmailBody,
-            sender: parsedSender.email || sender,
-            replyTo,
-          });
-
-          const candidateSourceEmail = forwardInfo.isForwarded
-            ? forwardInfo.candidateEmail
-            : (parsedSender.email || sender);
-
-          const processedResumeIds = [];
-          const itemErrors = [];
-
-          // 1. Process direct email attachments
-          for (const att of attachments) {
-            try {
-              const attachment = await gmail.users.messages.attachments.get({
-                userId: "me",
-                messageId: msg.id,
-                id: att.attachmentId,
-              });
-
-              const buffer = Buffer.from(attachment.data.data, "base64");
-              const ext = ("." + (att.filename.split(".").pop() || "")).toLowerCase();
-              let inferredMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-              if (ext === ".pdf") inferredMime = "application/pdf";
-              else if (ext === ".doc") inferredMime = "application/msword";
-
-              const resumeResult = await resumeService.processResume({
-                file: {
-                  buffer,
-                  originalname: att.filename,
-                  mimetype: att.mimeType || inferredMime,
-                  size: buffer.length,
-                },
-                source: "INBOUND_EMAIL",
-                sourceEmail: candidateSourceEmail,
-                isForwarded: forwardInfo.isForwarded,
-                inboundEmail: null,
-                uploadedByUserId: userId,
-                companyId: userCompanyId,
-                emailSubject: subject,
-                emailBody: finalEmailBody,
-                providerMessageId: msg.id,
-              });
-
-              const resId = resumeResult?.resumeProcessing?.id || resumeResult?.id;
-              if (resId) {
-                processedResumeIds.push(resId);
-              }
-              if (!resumeResult?.duplicate) {
-                processedCount++;
-              }
-
-              if (resumeResult?.candidateId && !resumeResult?.duplicate) {
-                await prisma.candidateProfile.updateMany({
-                  where: { userId: resumeResult.candidateId, companyId: null },
-                  data: { companyId: userCompanyId }
-                });
-                
-                if (typeof attemptService.clearCandidatesCache === "function") {
-                  attemptService.clearCandidatesCache();
-                }
-              }
-            } catch (attachmentError) {
-              console.warn(
-                `[MailboxSync] Direct attachment "${att.filename}" failed for message ${msg.id}:`,
-                attachmentError.message
-              );
-              itemErrors.push({
-                source: "DIRECT_ATTACHMENT",
-                name: att.filename,
-                code: attachmentError.code || "ATTACHMENT_PROCESSING_FAILED",
-                message: attachmentError.message,
-              });
-            }
-          }
-
-          // 2. Process Google Drive resume links
-          for (const fileId of driveFileIds) {
-            try {
-              const driveFile = await downloadDriveFile({
-                drive,
-                fileId,
-              });
-
-              const resumeResult = await resumeService.processResume({
-                file: {
-                  buffer: driveFile.buffer,
-                  originalname: driveFile.originalname,
-                  mimetype: driveFile.mimetype,
-                  size: driveFile.size,
-                },
-                source: "INBOUND_EMAIL",
-                sourceEmail: candidateSourceEmail,
-                isForwarded: forwardInfo.isForwarded,
-                inboundEmail: null,
-                uploadedByUserId: userId,
-                companyId: userCompanyId,
-                emailSubject: subject,
-                emailBody: finalEmailBody,
-                providerMessageId: msg.id,
-              });
-
-              const resId = resumeResult?.resumeProcessing?.id || resumeResult?.id;
-              if (resId) {
-                processedResumeIds.push(resId);
-              }
-              if (!resumeResult?.duplicate) {
-                processedCount++;
-              }
-
-              if (resumeResult?.candidateId && !resumeResult?.duplicate) {
-                await prisma.candidateProfile.updateMany({
-                  where: { userId: resumeResult.candidateId, companyId: null },
-                  data: { companyId: userCompanyId }
-                });
-                
-                if (typeof attemptService.clearCandidatesCache === "function") {
-                  attemptService.clearCandidatesCache();
-                }
-              }
-            } catch (driveError) {
-              console.warn(
-                `[MailboxSync] Google Drive file ${fileId} failed for message ${msg.id}:`,
-                driveError.message
-              );
-              itemErrors.push({
-                source: "GOOGLE_DRIVE",
-                fileId,
-                code: driveError.code || "DRIVE_PROCESSING_FAILED",
-                message: driveError.message,
-              });
-            }
-          }
-
-          // 3. Update InboundEmailEvent status accurately
-          const totalDiscovered = attachments.length + driveFileIds.length;
-
-          if (processedResumeIds.length > 0) {
-            // At least one resume succeeded
-            if (emailEvent?.id) {
-              await resumeRepository.markInboundEmailEventCompleted(
-                emailEvent.id,
-                processedResumeIds[0]
-              );
-            }
-          } else if (totalDiscovered > 0 && itemErrors.length > 0) {
-            // Resumes/links were present, but all failed!
-            const primaryErr = itemErrors[0];
-            if (emailEvent?.id) {
-              await resumeRepository.markInboundEmailEventFailed(
-                emailEvent.id,
-                primaryErr.code,
-                primaryErr.message
-              );
-            }
-          } else {
-            // No attachments or Drive links were present in the email
-            if (emailEvent?.id && emailEvent.status !== "COMPLETED") {
-              await resumeRepository.markInboundEmailEventCompleted(
-                emailEvent.id,
-                null
-              );
-            }
-          }
-        } catch (msgError) {
-          console.warn(
-            `[MailboxSync] Error processing message ${msg.id}:`,
-            msgError.message
-          );
-          if (emailEvent?.id) {
-            try {
-              await resumeRepository.markInboundEmailEventFailed(
-                emailEvent.id,
-                msgError.code || "MESSAGE_PROCESSING_ERROR",
-                msgError.message
-              );
-            } catch (failErr) {
-              // Ignore secondary failure update error
-            }
-          }
+        } else {
+          actionableMsgs.push(msg);
         }
       }
 
-      if (abortedMidPage) {
+      // In incremental mode, if every message in the page is already completed, we've caught up!
+      if (actionableMsgs.length === 0 && !isCustomDateRange) {
         break;
+      }
+
+      // Process actionable messages with bounded concurrency (3 concurrent workers)
+      const pageResults = await pMap(
+        actionableMsgs,
+        async (msg) => {
+          return await processSingleGmailMessage({
+            msg,
+            gmail,
+            drive,
+            mailbox,
+            userCompanyId,
+            userId,
+            existingEvent: eventMap.get(msg.id),
+          });
+        },
+        3
+      );
+
+      for (const item of pageResults) {
+        if (item.processedResumes > 0) {
+          totalProcessedResumes += item.processedResumes;
+        }
+        if (item.failed) {
+          totalFailed++;
+          if (item.internalDate) {
+            if (!lowestFailureInternalDate || item.internalDate < lowestFailureInternalDate) {
+              lowestFailureInternalDate = item.internalDate;
+            }
+          }
+        } else {
+          if (item.internalDate) {
+            if (!highestSuccessInternalDate || item.internalDate > highestSuccessInternalDate) {
+              highestSuccessInternalDate = item.internalDate;
+            }
+          }
+        }
       }
 
       pageToken = res.data.nextPageToken || null;
@@ -545,46 +638,56 @@ async function syncMailboxForUser(userId, maxDurationMs = 20000, customDateRange
       }
     }
 
-    const fullyExhausted = !syncAborted && !pageToken;
     const existingLastSynced = mailbox.lastSyncedAt ? mailbox.lastSyncedAt.getTime() : 0;
-    
+    let newCheckpoint = null;
+
     if (!isCustomDateRange) {
-      const syncStatusUpdate = { lastError: null };
-      
-      if (maxInternalDate && (fullyExhausted || !mailbox.backfillComplete)) {
-        syncStatusUpdate.lastSyncedAt = new Date(Math.max(existingLastSynced, maxInternalDate));
+      if (lowestFailureInternalDate) {
+        // Critical safety invariant: Never advance checkpoint past unhandled or failed items!
+        const safeCheckpointMs = lowestFailureInternalDate - 1000;
+        newCheckpoint = new Date(Math.max(existingLastSynced, safeCheckpointMs));
+      } else if (highestSuccessInternalDate) {
+        newCheckpoint = new Date(Math.max(existingLastSynced, highestSuccessInternalDate));
       } else if (!mailbox.lastSyncedAt) {
-        syncStatusUpdate.lastSyncedAt = new Date();
+        newCheckpoint = new Date();
+      } else {
+        newCheckpoint = mailbox.lastSyncedAt;
       }
 
-      if (!mailbox.backfillComplete) {
-        if (pageToken) {
-          syncStatusUpdate.backfillPageToken = "v3:" + pageToken;
-        } else {
-          syncStatusUpdate.backfillComplete = true;
-          syncStatusUpdate.backfillPageToken = null;
-        }
-      }
+      const syncStatusUpdate = {
+        lastError: null,
+        lastSyncedAt: newCheckpoint,
+        backfillComplete: true,
+        backfillPageToken: null,
+      };
 
       await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
     } else if (
       customDateRange?.isCronDateRangeSync ||
       customDateRange?.isFutureDateSync
     ) {
-      if (maxInternalDate) {
+      if (highestSuccessInternalDate && !lowestFailureInternalDate) {
         const existingDateRangeLastSynced = mailbox.dateRangeLastSyncedAt ? mailbox.dateRangeLastSyncedAt.getTime() : 0;
-        const newDateRangeLastSynced = new Date(Math.max(existingDateRangeLastSynced, maxInternalDate));
+        const newDateRangeLastSynced = new Date(Math.max(existingDateRangeLastSynced, highestSuccessInternalDate));
         await repository.updateMailboxSyncStatus(userId, {
-          dateRangeLastSyncedAt: newDateRangeLastSynced
+          dateRangeLastSyncedAt: newDateRangeLastSynced,
         });
       }
     }
 
-    console.info(`[MailboxSync] Sync completed for ${mailbox.email}. Total new resumes ingested: ${processedCount}`);
+    const durationMs = Date.now() - startTime;
+    console.info(
+      `[MailboxSync] Completed for ${mailbox.email} in ${durationMs}ms: scanned=${totalScanned}, skipped=${totalSkipped}, newResumes=${totalProcessedResumes}, failed=${totalFailed}`
+    );
 
     return {
       success: true,
-      processedResumes: processedCount,
+      scanned: totalScanned,
+      skipped: totalSkipped,
+      processedResumes: totalProcessedResumes,
+      failed: totalFailed,
+      durationMs,
+      lastSyncedAt: newCheckpoint || mailbox.lastSyncedAt,
       syncedAt: new Date(),
       nextPageToken: isCustomDateRange ? pageToken : undefined,
     };
@@ -661,40 +764,11 @@ function startBackgroundSync(userId, dateRangeOptions = null) {
           dateRangeSyncEnabled: true,
           dateRangeSyncFrom: dateRangeOptions.dateRangeSyncFrom,
           dateRangeSyncTo: dateRangeOptions.dateRangeSyncTo,
-          dateRangeLastSyncedAt: dateRangeOptions.dateRangeSyncFrom
+          dateRangeLastSyncedAt: dateRangeOptions.dateRangeSyncFrom,
         });
       }
 
-      let isFirstRun = true;
-      let dateRangePageToken = null;
-      
-      while (true) {
-        const mailbox = await repository.findMailboxByUserId(userId);
-        if (!dateRangeOptions && (!mailbox || (!isFirstRun && mailbox.backfillComplete))) {
-          break;
-        }
-        isFirstRun = false;
-
-        const optionsToPass = dateRangeOptions 
-          ? { ...dateRangeOptions, pageToken: dateRangePageToken }
-          : null;
-
-        const syncRes = await syncMailboxForUser(userId, 180000, optionsToPass);
-
-        if (dateRangeOptions) {
-          dateRangePageToken = syncRes.nextPageToken || null;
-          if (!dateRangePageToken) {
-            break;
-          }
-        } else {
-          const updatedMailbox = await repository.findMailboxByUserId(userId);
-          if (!updatedMailbox || updatedMailbox.backfillComplete) {
-            break;
-          }
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
+      await syncMailboxForUser(userId, 60000, dateRangeOptions);
     } catch (error) {
       if (error?.code === "MAILBOX_SYNC_IN_PROGRESS") {
         return;

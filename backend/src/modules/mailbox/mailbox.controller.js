@@ -126,14 +126,41 @@ async function syncMailboxNow(req, res, next) {
         dateRangeSyncFrom: from,
         dateRangeSyncTo: toInclusive
       };
+
+      if (isFutureDateSync) {
+        const repository = require("./mailbox.repository");
+        await repository.updateMailboxSyncStatus(user.id, {
+          dateRangeSyncEnabled: true,
+          dateRangeSyncFrom: from,
+          dateRangeSyncTo: toInclusive,
+          dateRangeLastSyncedAt: from,
+        });
+      }
     }
 
-    service.startBackgroundSync(user.id, dateRangeOptions);
+    const result = await service.syncMailboxForUser(user.id, 25000, dateRangeOptions);
 
-    return res.status(202).json({
+    let message = "Mailbox up to date. No new resume emails found.";
+    if (result.processedResumes > 0) {
+      message = `Synced ${result.scanned} email(s). ${result.processedResumes} new candidate resume(s) processed.`;
+    } else if (result.skipped > 0) {
+      message = `Mailbox up to date. ${result.scanned} email(s) scanned (${result.skipped} already processed).`;
+    }
+
+    return res.status(200).json({
       success: true,
-      code: "MAILBOX_SYNC_STARTED",
-      message: "Mailbox sync started in background.",
+      code: "MAILBOX_SYNC_COMPLETED",
+      message,
+      processedResumes: result.processedResumes,
+      scanned: result.scanned,
+      skipped: result.skipped,
+      failed: result.failed,
+      durationMs: result.durationMs,
+      data: {
+        ...result,
+        message,
+        code: "MAILBOX_SYNC_COMPLETED",
+      },
     });
   } catch (error) {
     return next(error);

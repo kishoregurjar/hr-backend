@@ -59,19 +59,28 @@ function sanitizeProcessingError(error) {
     "PDF_TEXT_EXTRACTION_FAILED",
     "DOCX_TEXT_EXTRACTION_FAILED",
     "CANDIDATE_EMAIL_NOT_FOUND",
+    "CANDIDATE_EMAIL_CONFLICT",
     "RESUME_REVIEW_REQUIRED",
+    "NOT_A_RESUME",
+    "NOT_A_TECH_RESUME",
   ]);
 
   const code = allowedCodes.has(error.code)
     ? error.code
     : "RESUME_PROCESSING_FAILED";
 
+  let message = "Resume processing failed";
+  if (code === "RESUME_REVIEW_REQUIRED") {
+    message = "Resume requires manual review";
+  } else if (code === "CANDIDATE_EMAIL_CONFLICT") {
+    message = error.message || "Resume email belongs to a non-candidate account";
+  } else if (error.message && code !== "RESUME_PROCESSING_FAILED") {
+    message = error.message;
+  }
+
   return {
     code,
-    message:
-      code === "RESUME_REVIEW_REQUIRED"
-        ? "Resume requires manual review"
-        : "Resume processing failed",
+    message,
   };
 }
 
@@ -232,6 +241,29 @@ function buildStorageKey({ fileHash, fileType }) {
   return `resumes/${fileHash.slice(0, 2)}/${fileHash}.${extension}`;
 }
 
+const candidateLocks = new Map();
+
+async function withCandidateLock(email, fn) {
+  if (!email) return fn();
+  const key = String(email).trim().toLowerCase();
+  while (candidateLocks.has(key)) {
+    try {
+      await candidateLocks.get(key);
+    } catch (_) {}
+  }
+  let resolveLock;
+  const lockPromise = new Promise((resolve) => {
+    resolveLock = resolve;
+  });
+  candidateLocks.set(key, lockPromise);
+  try {
+    return await fn();
+  } finally {
+    candidateLocks.delete(key);
+    resolveLock();
+  }
+}
+
 async function createCandidateIfRequired({
   extractedData,
   sourceEmail = null,
@@ -258,7 +290,28 @@ async function createCandidateIfRequired({
       email = sourceEmailValid || extractedEmailValid;
     } else {
       // Direct candidate submission: candidate's actual sending email takes precedence.
-      email = sourceEmailValid || extractedEmailValid || fallbackEmailValid;
+      // Exception: If sender is a staff member of the target company or a SUPER_ADMIN,
+      // and the resume contains an extracted candidate email different from sender,
+      // the sender is submitting/forwarding on behalf of a candidate. Honor the candidate email.
+      let isStaffSender = false;
+      if (sourceEmailValid && extractedEmailValid && sourceEmailValid !== extractedEmailValid) {
+        try {
+          const senderUser = await repository.findCandidateByEmail(sourceEmailValid, tx || prisma);
+          if (senderUser) {
+            if (senderUser.role === "SUPER_ADMIN") {
+              isStaffSender = true;
+            } else if (companyId && Array.isArray(senderUser.companyMembers)) {
+              isStaffSender = senderUser.companyMembers.some((m) => m.companyId === companyId);
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (isStaffSender) {
+        email = extractedEmailValid;
+      } else {
+        email = sourceEmailValid || extractedEmailValid || fallbackEmailValid;
+      }
     }
   } else {
     email = sourceEmailValid || extractedEmailValid || fallbackEmailValid;
@@ -287,85 +340,121 @@ async function createCandidateIfRequired({
     if (emailBody) safeExtractedData.emailBody = emailBody;
   }
 
-  const existingCandidate = await repository.findCandidateByEmail(email, tx);
+  return await withCandidateLock(email, async () => {
+    const db = tx || prisma;
+    const existingCandidate = await repository.findCandidateByEmail(email, db);
 
-  if (existingCandidate) {
-    if (existingCandidate.role === "SUPER_ADMIN") {
-      throw createApplicationError(
-        "CANDIDATE_EMAIL_CONFLICT",
-        "Resume email belongs to a non-candidate account",
-        409
-      );
-    }
-
-    let isTargetCompanyMember = false;
-    if (companyId) {
-      if (Array.isArray(existingCandidate.companyMembers)) {
-        isTargetCompanyMember = existingCandidate.companyMembers.some(
-          (m) => m.companyId === companyId
+    if (existingCandidate) {
+      if (existingCandidate.role === "SUPER_ADMIN") {
+        throw createApplicationError(
+          "CANDIDATE_EMAIL_CONFLICT",
+          "Resume email belongs to a non-candidate account",
+          409
         );
-      } else if (tx?.companyMember?.findFirst) {
-        const member = await tx.companyMember.findFirst({
-          where: { userId: existingCandidate.id, companyId },
-          select: { id: true },
-        });
-        isTargetCompanyMember = !!member;
       }
+
+      let isTargetCompanyMember = false;
+      if (companyId) {
+        if (Array.isArray(existingCandidate.companyMembers)) {
+          isTargetCompanyMember = existingCandidate.companyMembers.some(
+            (m) => m.companyId === companyId
+          );
+        } else if (db?.companyMember?.findFirst) {
+          const member = await db.companyMember.findFirst({
+            where: { userId: existingCandidate.id, companyId },
+            select: { id: true },
+          });
+          isTargetCompanyMember = !!member;
+        }
+      }
+
+      if (isTargetCompanyMember) {
+        throw createApplicationError(
+          "CANDIDATE_EMAIL_CONFLICT",
+          "Resume email belongs to a non-candidate account",
+          409
+        );
+      }
+
+      await repository.ensureCandidateProfile(existingCandidate, safeExtractedData, companyId, db);
+
+      return {
+        candidate: existingCandidate,
+        created: false,
+      };
     }
 
-    if (isTargetCompanyMember) {
-      throw createApplicationError(
-        "CANDIDATE_EMAIL_CONFLICT",
-        "Resume email belongs to a non-candidate account",
-        409
-      );
-    }
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
-    await repository.ensureCandidateProfile(existingCandidate, safeExtractedData, companyId, tx);
-
-    return {
-      candidate: existingCandidate,
-      created: false,
-    };
-  }
-
-  const temporaryPassword = generateTemporaryPassword();
-  const passwordHash = await bcrypt.hash(temporaryPassword, 12);
-
-  const candidateData = buildCandidateCreateData({
-    extractedData: {
-      ...safeExtractedData,
-      email,
-    },
-    passwordHash,
-  });
-
-  try {
-    const candidate = await repository.createCandidate(candidateData, tx);
-    await repository.ensureCandidateProfile(candidate, safeExtractedData, companyId, tx);
-
-    return {
-      candidate,
-      created: true,
-    };
-  } catch (error) {
-    if (error?.code === "P2002") {
-      const concurrentCandidate = await repository.findCandidateByEmail(
+    const candidateData = buildCandidateCreateData({
+      extractedData: {
+        ...safeExtractedData,
         email,
-        tx
-      );
+      },
+      passwordHash,
+    });
 
-      if (concurrentCandidate) {
-        await repository.ensureCandidateProfile(concurrentCandidate, safeExtractedData, companyId, tx);
-        return {
-          candidate: concurrentCandidate,
-          created: false,
-        };
+    try {
+      const candidate = await repository.createCandidate(candidateData, db);
+      await repository.ensureCandidateProfile(candidate, safeExtractedData, companyId, db);
+
+      return {
+        candidate,
+        created: true,
+      };
+    } catch (error) {
+      if (error?.code === "P2002") {
+        // Fallback on clean connection to prevent 25P02 transaction abortion
+        const recoveryDb = (tx && tx !== prisma && typeof tx.$executeRaw === "function") ? prisma : db;
+        const concurrentCandidate = await repository.findCandidateByEmail(
+          email,
+          recoveryDb
+        );
+
+        if (concurrentCandidate) {
+          if (concurrentCandidate.role === "SUPER_ADMIN") {
+            throw createApplicationError(
+              "CANDIDATE_EMAIL_CONFLICT",
+              "Resume email belongs to a non-candidate account",
+              409
+            );
+          }
+
+          let isTargetCompanyMember = false;
+          if (companyId) {
+            if (Array.isArray(concurrentCandidate.companyMembers)) {
+              isTargetCompanyMember = concurrentCandidate.companyMembers.some(
+                (m) => m.companyId === companyId
+              );
+            } else if (recoveryDb?.companyMember?.findFirst) {
+              const member = await recoveryDb.companyMember.findFirst({
+                where: { userId: concurrentCandidate.id, companyId },
+                select: { id: true },
+              });
+              isTargetCompanyMember = !!member;
+            }
+          }
+
+          if (isTargetCompanyMember) {
+            throw createApplicationError(
+              "CANDIDATE_EMAIL_CONFLICT",
+              "Resume email belongs to a non-candidate account",
+              409
+            );
+          }
+
+          await repository.ensureCandidateProfile(concurrentCandidate, safeExtractedData, companyId, recoveryDb);
+          return {
+            candidate: concurrentCandidate,
+            created: false,
+          };
+        }
       }
-    }
 
-    throw error;
-  }
+      throw error;
+    }
+  });
 }
 
 async function resolveInboundJob({
@@ -392,13 +481,14 @@ async function resolveInboundJob({
   return null;
 }
 
-async function resolveDirectUploadJob({ jobId, tx }) {
+async function resolveDirectUploadJob({ jobId, tx = prisma }) {
   if (!jobId) {
     return null;
   }
 
-  if (tx) {
-    const job = await tx.job.findFirst({
+  const db = tx || prisma;
+  if (db?.job?.findFirst) {
+    const job = await db.job.findFirst({
       where: {
         id: jobId,
         deletedAt: null,
@@ -707,44 +797,39 @@ async function processResume({
       throw error;
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const job = isInbound
-        ? await resolveInboundJob({
-          inboundEmail,
-          subjectCode,
-          repository: {
-            findJobByInboundEmail: (email) => repository.findJobByInboundEmail(email, tx),
-            findJobByCode: (code) => repository.findJobByCode(code, tx),
-          },
-        })
-        : await resolveDirectUploadJob({
-          jobId,
-          tx,
-        });
-
-      let effectiveCompanyId = companyId || job?.companyId || null;
-      if (!effectiveCompanyId && effectiveUploadedByUserId && tx?.companyMember?.findFirst) {
-        const member = await tx.companyMember.findFirst({
-          where: { userId: effectiveUploadedByUserId },
-          select: { companyId: true },
-        });
-        if (member?.companyId) {
-          effectiveCompanyId = member.companyId;
-        }
-      }
-
-      const candidateResult = await createCandidateIfRequired({
-        extractedData,
-        sourceEmail,
-        fallbackEmail: inboundEmail,
-        isForwarded,
-        tx,
-        companyId: effectiveCompanyId,
-        source,
-        emailSubject,
-        emailBody,
+    const job = isInbound
+      ? await resolveInboundJob({
+        inboundEmail,
+        subjectCode,
+        repository,
+      })
+      : await resolveDirectUploadJob({
+        jobId,
       });
 
+    let effectiveCompanyId = companyId || job?.companyId || null;
+    if (!effectiveCompanyId && effectiveUploadedByUserId && prisma?.companyMember?.findFirst) {
+      const member = await prisma.companyMember.findFirst({
+        where: { userId: effectiveUploadedByUserId },
+        select: { companyId: true },
+      });
+      if (member?.companyId) {
+        effectiveCompanyId = member.companyId;
+      }
+    }
+
+    const candidateResult = await createCandidateIfRequired({
+      extractedData,
+      sourceEmail,
+      fallbackEmail: inboundEmail,
+      isForwarded,
+      companyId: effectiveCompanyId,
+      source,
+      emailSubject,
+      emailBody,
+    });
+
+    const result = await prisma.$transaction(async (tx) => {
       const application = await createApplicationIfRequired({
         job,
         candidate: candidateResult.candidate,
