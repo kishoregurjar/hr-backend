@@ -4336,6 +4336,7 @@ class AttemptService {
         firstName: item.firstName,
         lastName: item.lastName,
         email: item.email,
+        resumeExtractedEmail: item.metadata?.resumeExtractedEmail || null,
         phoneNumber: item.phoneNumber || null,
         status,
         source: item.metadata?.source || (item.metadata?.inbound ? "EMAIL_EXTRACTION" : "MANUAL"),

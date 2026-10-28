@@ -139,6 +139,19 @@ describe("Global Error Handler Middleware Suite", () => {
     assert.equal(res.body.code, "RESOURCE_NOT_FOUND");
   });
 
+  it("Prisma database connection error -> 503 DATABASE_CONNECTION_ERROR", () => {
+    const prismaError = new Error("FATAL: (ENOTFOUND) tenant/user postgres.nuoryjugxrcaufcuvuxe not found");
+    prismaError.name = "PrismaClientInitializationError";
+
+    const res = createMockRes();
+    errorHandler(prismaError, mockReq, res, () => {});
+
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body.success, false);
+    assert.equal(res.body.code, "DATABASE_CONNECTION_ERROR");
+    assert.equal(res.body.message, "Database service is temporarily unavailable. Please try again shortly.");
+  });
+
   it("should format Zod validation error correctly via normalizeError", () => {
     const zodError = new Error("Validation error");
     zodError.name = "ZodError";

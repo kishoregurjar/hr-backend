@@ -8,7 +8,8 @@ const {
 } = require("./resume.constants");
 
 const {
-  buildInboundEmailIdentity
+  buildInboundEmailIdentity,
+  detectForwardedEmail,
 } = require("./email.extractor.service");
 
 function createError(code, message, statusCode = 400) {
@@ -70,6 +71,33 @@ async function reserveInboundEvent({
     );
   }
 
+  const existing =
+    await resumeRepository.findInboundEmailEvent(
+      provider,
+      providerMessageId
+    );
+
+  if (existing) {
+    if (existing.status === "COMPLETED") {
+      return {
+        type: "COMPLETED",
+        event: existing
+      };
+    }
+
+    if (existing.status === "PROCESSING") {
+      return {
+        type: "PROCESSING",
+        event: existing
+      };
+    }
+
+    return {
+      type: "FAILED",
+      event: existing
+    };
+  }
+
   const event =
     await resumeRepository.createInboundEmailEventSafely({
       provider,
@@ -80,50 +108,9 @@ async function reserveInboundEvent({
       status: "PROCESSING"
     });
 
-  if (event) {
-    return {
-      type: "NEW",
-      event
-    };
-  }
-
-  const existing =
-    await resumeRepository.findInboundEmailEvent(
-      provider,
-      providerMessageId
-    );
-
-  if (!existing) {
-    throw createError(
-      RESUME_ERROR_CODES.INBOUND_EVENT_PROCESSING,
-      "Unable to reserve inbound email event.",
-      503
-    );
-  }
-
-  if (existing.status === "COMPLETED") {
-    return {
-      type: "COMPLETED",
-      event: existing
-    };
-  }
-
-  if (existing.status === "PROCESSING") {
-    return {
-      type: "PROCESSING",
-      event: existing
-    };
-  }
-
-  /*
-   * FAILED events are intentionally not automatically reused.
-   *
-   * This prevents duplicate processing of a permanently invalid
-   * email while allowing a controlled retry endpoint/job later.
-   */
   return {
-    type: "FAILED",
-    event: existing
+    type: "NEW",
+    event
   };
 }
 
@@ -198,6 +185,17 @@ async function processInboundEmail({
 
     const resumeService = getResumeService();
 
+    const forwardInfo = detectForwardedEmail({
+      subject: normalized.subject,
+      text: normalized.text || "",
+      sender: normalized.senderEmail,
+      replyTo: normalized.replyTo || "",
+    });
+
+    const candidateSourceEmail = forwardInfo.isForwarded
+      ? forwardInfo.candidateEmail
+      : normalized.senderEmail;
+
     /*
      * Each supported resume attachment is processed independently.
      * The inbound event itself remains idempotent.
@@ -216,6 +214,14 @@ async function processInboundEmail({
 
           inboundEmail:
             normalized.recipientEmail,
+
+          sourceEmail: candidateSourceEmail,
+
+          isForwarded: forwardInfo.isForwarded,
+
+          emailSubject: normalized.subject || null,
+
+          emailBody: normalized.text || null,
 
           subjectCode:
             normalized.subjectCode,

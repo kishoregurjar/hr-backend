@@ -117,17 +117,28 @@ const normalizeError = (error) => {
       : 500;
   const isClientError = statusCode >= 400 && statusCode < 500;
 
-  return new AppError(
-    isProd && !isClientError && !error?.isOperational
-      ? "An unexpected server error occurred."
-      : error?.message || "An unexpected server error occurred.",
-    {
-      statusCode,
-      code: error?.code || error?.errorCode || "INTERNAL_SERVER_ERROR",
-      details: isProd ? null : error?.details || null,
-      isOperational: error?.isOperational ?? isClientError,
-    }
-  );
+  const hasInternalLeak =
+    typeof error?.message === "string" &&
+    (error.message.includes("Invalid `") ||
+      error.message.includes("invocation in") ||
+      error.message.includes("PrismaClient") ||
+      error.message.includes("FATAL:") ||
+      error.message.includes("\x1b") ||
+      error.message.includes("\u001b") ||
+      error.message.includes("\\src\\") ||
+      error.message.includes("/src/"));
+
+  let sanitizedMessage = error?.message || "An unexpected server error occurred.";
+  if (hasInternalLeak || (isProd && !isClientError && !error?.isOperational)) {
+    sanitizedMessage = "An unexpected server error occurred.";
+  }
+
+  return new AppError(sanitizedMessage, {
+    statusCode,
+    code: error?.code || error?.errorCode || "INTERNAL_SERVER_ERROR",
+    details: isProd ? null : error?.details || null,
+    isOperational: error?.isOperational ?? isClientError,
+  });
 };
 
 const errorMiddleware = (error, req, res, _next) => {
