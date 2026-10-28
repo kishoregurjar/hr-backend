@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-10-28T04:09:56.457Z",
+  "targetCompany": {
+    "id": "cmvqkgij6009orfbo8xj7zkzt",
+    "name": "Facebook Company",
+    "slug": "facebook-company"
+  },
+  "targetOwner": {
+    "id": "82b304fe-2581-47e8-ba71-1268a48919fb",
+    "email": "vs2917239@gmail.com"
+  },
+  "recordsToReset": {
+    "resumeProcessing": {
+      "id": "cmvqnbals0003tew02ixxnpei",
+      "candidateId": null,
+      "source": "INBOUND_EMAIL",
+      "status": "FAILED",
+      "fileType": "PDF",
+      "fileName": "Resume (2).pdf",
+      "mimeType": "application/pdf",
+      "fileSize": 83116,
+      "fileHash": "9f39ce8ec9b2827e3945b9c3fc9305d8a42b0f42436687e1d40b49628d95cd69",
+      "storageKey": "resumes/9f/9f39ce8ec9b2827e3945b9c3fc9305d8a42b0f42436687e1d40b49628d95cd69.pdf",
+      "parserVersion": "1.0.0",
+      "extractedData": null,
+      "confidenceScore": null,
+      "errorCode": "RESUME_PROCESSING_FAILED",
+      "errorMessage": "Resume processing failed",
+      "processedAt": "2026-10-27T12:12:22.280Z",
+      "createdAt": "2026-10-27T12:12:21.232Z",
+      "updatedAt": "2026-10-27T12:12:22.282Z",
+      "applications": []
+    },
+    "inboundEmailEvent": {
+      "id": "cmvqnb8y80002tew0067l41jh",
+      "provider": "google_mailbox",
+      "providerMessageId": "1a17d413b2abd390",
+      "recipientEmail": "vs2917239@gmail.com",
+      "senderEmail": "Rohit Panchal <rohitpanchal958466@gmail.com>",
+      "subject": "Backend developer",
+      "status": "COMPLETED",
+      "resumeProcessingId": null,
+      "receivedAt": "2026-10-27T12:12:19.089Z",
+      "completedAt": "2026-10-27T12:12:22.474Z",
+      "errorCode": null,
+      "errorMessage": null,
+      "createdAt": "2026-10-27T12:12:19.089Z",
+      "updatedAt": "2026-10-27T12:12:22.476Z"
+    },
+    "mailboxStateBefore": {
+      "id": "cmvqnax1o0001tew00t1w9ki3",
+      "userId": "82b304fe-2581-47e8-ba71-1268a48919fb",
+      "email": "vs2917239@gmail.com",
+      "lastSyncedAt": null,
+      "dateRangeLastSyncedAt": "2026-10-27T12:06:15.000Z",
+      "backfillComplete": false,
+      "backfillPageToken": null,
+      "lastError": null,
+      "isSyncActive": true,
+      "dateRangeSyncEnabled": true,
+      "dateRangeSyncFrom": "2026-10-24T00:00:00.000Z",
+      "dateRangeSyncTo": "2026-10-28T23:59:59.999Z"
+    }
+  },
+  "microsoftBaseline": {
+    "members": 1,
+    "candidates": 5,
+    "companyCandidates": 5,
+    "questions": 40,
+    "gameConfigs": 1
+  }
+}

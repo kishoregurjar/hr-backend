@@ -68,6 +68,14 @@ async function findCandidateByEmail(email, db = prisma) {
     where: {
       email: email.trim().toLowerCase(),
     },
+    include: {
+      companyMembers: {
+        select: {
+          companyId: true,
+          role: true,
+        },
+      },
+    },
   });
 }
 

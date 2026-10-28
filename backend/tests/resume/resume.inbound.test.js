@@ -59,23 +59,18 @@ describe("Inbound Email Idempotency & Retry Suite", () => {
       },
     };
 
-    // Request #1: First time processing
-    const req1 = await reserveInboundEvent({
-      provider: "sendgrid",
-      providerMessageId: "msg_unique_1001",
-      recipientEmail: payload.recipientEmail,
-      senderEmail: payload.senderEmail,
-      subject: payload.subject,
-    });
+    const resumeRepository = require("../../src/modules/resume/resume.repository");
+    const origCreate = resumeRepository.createInboundEmailEventSafely;
+    const origFind = resumeRepository.findInboundEmailEvent;
+    const origMark = resumeRepository.markInboundEmailEventCompleted;
 
-    assert.equal(req1.type, "NEW");
+    resumeRepository.createInboundEmailEventSafely = mockRepo.createInboundEmailEventSafely;
+    resumeRepository.findInboundEmailEvent = mockRepo.findInboundEmailEvent;
+    resumeRepository.markInboundEmailEventCompleted = mockRepo.markInboundEmailEventCompleted;
 
-    // Mark event completed (simulating successful pipeline execution)
-    await mockRepo.markInboundEmailEventCompleted(req1.event.id, "res_proc_999");
-
-    // Requests #2, #3, #4, #5: Duplicate provider retries
-    for (let i = 2; i <= 5; i++) {
-      const retryReq = await reserveInboundEvent({
+    try {
+      // Request #1: First time processing
+      const req1 = await reserveInboundEvent({
         provider: "sendgrid",
         providerMessageId: "msg_unique_1001",
         recipientEmail: payload.recipientEmail,
@@ -83,9 +78,29 @@ describe("Inbound Email Idempotency & Retry Suite", () => {
         subject: payload.subject,
       });
 
-      assert.equal(retryReq.type, "COMPLETED");
-      assert.equal(retryReq.event.status, "COMPLETED");
-      assert.equal(retryReq.event.resumeProcessingId, "res_proc_999");
+      assert.equal(req1.type, "NEW");
+
+      // Mark event completed (simulating successful pipeline execution)
+      await mockRepo.markInboundEmailEventCompleted(req1.event.id, "res_proc_999");
+
+      // Requests #2, #3, #4, #5: Duplicate provider retries
+      for (let i = 2; i <= 5; i++) {
+        const retryReq = await reserveInboundEvent({
+          provider: "sendgrid",
+          providerMessageId: "msg_unique_1001",
+          recipientEmail: payload.recipientEmail,
+          senderEmail: payload.senderEmail,
+          subject: payload.subject,
+        });
+
+        assert.equal(retryReq.type, "COMPLETED");
+        assert.equal(retryReq.event.status, "COMPLETED");
+        assert.equal(retryReq.event.resumeProcessingId, "res_proc_999");
+      }
+    } finally {
+      resumeRepository.createInboundEmailEventSafely = origCreate;
+      resumeRepository.findInboundEmailEvent = origFind;
+      resumeRepository.markInboundEmailEventCompleted = origMark;
     }
   });
 });

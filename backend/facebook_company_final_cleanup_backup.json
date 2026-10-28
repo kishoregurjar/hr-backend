@@ -1,0 +1,228 @@
+{
+  "timestamp": "2026-10-28T05:03:31.421Z",
+  "targetCompany": {
+    "id": "cmvqkgij6009orfbo8xj7zkzt",
+    "name": "Facebook Company",
+    "slug": "facebook-company"
+  },
+  "targetOwner": {
+    "id": "82b304fe-2581-47e8-ba71-1268a48919fb",
+    "email": "vs2917239@gmail.com"
+  },
+  "recordsToReset": {
+    "inboundEmailEvents": [
+      {
+        "id": "cmvrmew7j0004tebogxx20ntq",
+        "provider": "google_mailbox",
+        "providerMessageId": "1a17d413b2abd390",
+        "recipientEmail": "vs2917239@gmail.com",
+        "senderEmail": "Rohit Panchal <rohitpanchal958466@gmail.com>",
+        "subject": "Backend developer",
+        "status": "COMPLETED",
+        "resumeProcessingId": null,
+        "receivedAt": "2026-10-28T04:34:55.760Z",
+        "completedAt": "2026-10-28T04:34:59.487Z",
+        "errorCode": null,
+        "errorMessage": null,
+        "createdAt": "2026-10-28T04:34:55.760Z",
+        "updatedAt": "2026-10-28T04:34:59.489Z"
+      }
+    ],
+    "resumeProcessing": [
+      {
+        "id": "cmvrmexgr0005teboch1jxq4d",
+        "candidateId": "263cf85f-12b5-4cfc-81bc-5218dc9e9a58",
+        "source": "INBOUND_EMAIL",
+        "status": "REVIEW_REQUIRED",
+        "fileType": "PDF",
+        "fileName": "Resume (2).pdf",
+        "mimeType": "application/pdf",
+        "fileSize": 83116,
+        "fileHash": "9f39ce8ec9b2827e3945b9c3fc9305d8a42b0f42436687e1d40b49628d95cd69",
+        "storageKey": "resumes/9f/9f39ce8ec9b2827e3945b9c3fc9305d8a42b0f42436687e1d40b49628d95cd69.pdf",
+        "parserVersion": "1.0.0",
+        "extractedData": {
+          "name": "Rohit Panchal",
+          "email": "523110064@nitkkr.ac.in",
+          "phone": "+917224012604",
+          "skills": [
+            "C++",
+            "CSS3",
+            "Express.js",
+            "Git",
+            "GitHub",
+            "HTML5",
+            "JavaScript",
+            "MongoDB",
+            "Next.js",
+            "Node.js",
+            "PostgreSQL",
+            "Prisma",
+            "Python",
+            "React.js",
+            "Redis",
+            "REST APIs",
+            "SQL",
+            "Tailwind CSS"
+          ],
+          "totalExperienceYears": null
+        },
+        "confidenceScore": null,
+        "errorCode": "JOB_NOT_RESOLVED",
+        "errorMessage": "Inbound email job could not be automatically resolved",
+        "processedAt": null,
+        "createdAt": "2026-10-28T04:34:57.388Z",
+        "updatedAt": "2026-10-28T04:34:58.926Z",
+        "applications": []
+      }
+    ],
+    "companyCandidates": [
+      {
+        "companyId": "cmvqkgij6009orfbo8xj7zkzt",
+        "candidateId": "cmvrmeycg0007tebokq01ls4k",
+        "createdAt": "2026-10-28T04:34:58.618Z",
+        "candidate": {
+          "id": "cmvrmeycg0007tebokq01ls4k",
+          "userId": "263cf85f-12b5-4cfc-81bc-5218dc9e9a58",
+          "companyId": "cmvqkgij6009orfbo8xj7zkzt",
+          "email": "rohitpanchal958466@gmail.com",
+          "firstName": "Rohit",
+          "lastName": "Panchal",
+          "phoneNumber": "+917224012604",
+          "metadata": {
+            "skills": [
+              "C++",
+              "CSS3",
+              "Express.js",
+              "Git",
+              "GitHub",
+              "HTML5",
+              "JavaScript",
+              "MongoDB",
+              "Next.js",
+              "Node.js",
+              "PostgreSQL",
+              "Prisma",
+              "Python",
+              "React.js",
+              "Redis",
+              "REST APIs",
+              "SQL",
+              "Tailwind CSS"
+            ],
+            "source": "EMAIL_EXTRACTION",
+            "emailBody": "Hi",
+            "emailSubject": "Backend developer",
+            "extractedSkills": [
+              "C++",
+              "CSS3",
+              "Express.js",
+              "Git",
+              "GitHub",
+              "HTML5",
+              "JavaScript",
+              "MongoDB",
+              "Next.js",
+              "Node.js",
+              "PostgreSQL",
+              "Prisma",
+              "Python",
+              "React.js",
+              "Redis",
+              "REST APIs",
+              "SQL",
+              "Tailwind CSS"
+            ],
+            "resumeExtractedEmail": "523110064@nitkkr.ac.in"
+          },
+          "createdAt": "2026-10-28T04:34:58.528Z",
+          "updatedAt": "2026-10-28T04:34:58.528Z"
+        }
+      }
+    ],
+    "companyOwnedProfiles": [
+      {
+        "id": "cmvrmeycg0007tebokq01ls4k",
+        "userId": "263cf85f-12b5-4cfc-81bc-5218dc9e9a58",
+        "companyId": "cmvqkgij6009orfbo8xj7zkzt",
+        "email": "rohitpanchal958466@gmail.com",
+        "firstName": "Rohit",
+        "lastName": "Panchal",
+        "phoneNumber": "+917224012604",
+        "metadata": {
+          "skills": [
+            "C++",
+            "CSS3",
+            "Express.js",
+            "Git",
+            "GitHub",
+            "HTML5",
+            "JavaScript",
+            "MongoDB",
+            "Next.js",
+            "Node.js",
+            "PostgreSQL",
+            "Prisma",
+            "Python",
+            "React.js",
+            "Redis",
+            "REST APIs",
+            "SQL",
+            "Tailwind CSS"
+          ],
+          "source": "EMAIL_EXTRACTION",
+          "emailBody": "Hi",
+          "emailSubject": "Backend developer",
+          "extractedSkills": [
+            "C++",
+            "CSS3",
+            "Express.js",
+            "Git",
+            "GitHub",
+            "HTML5",
+            "JavaScript",
+            "MongoDB",
+            "Next.js",
+            "Node.js",
+            "PostgreSQL",
+            "Prisma",
+            "Python",
+            "React.js",
+            "Redis",
+            "REST APIs",
+            "SQL",
+            "Tailwind CSS"
+          ],
+          "resumeExtractedEmail": "523110064@nitkkr.ac.in"
+        },
+        "createdAt": "2026-10-28T04:34:58.528Z",
+        "updatedAt": "2026-10-28T04:34:58.528Z",
+        "companyCandidates": [
+          {
+            "companyId": "cmvqkgij6009orfbo8xj7zkzt",
+            "candidateId": "cmvrmeycg0007tebokq01ls4k",
+            "createdAt": "2026-10-28T04:34:58.618Z"
+          }
+        ],
+        "invitations": [],
+        "attempts": []
+      }
+    ],
+    "jobs": [],
+    "jobApplications": [],
+    "invitations": [],
+    "attempts": [],
+    "questions": [],
+    "gameConfigs": [],
+    "supportRequests": [],
+    "idempotencyKeys": [],
+    "mailboxStateBefore": null
+  },
+  "microsoftBaseline": {
+    "members": 1,
+    "candidates": 5,
+    "companyCandidates": 5,
+    "questions": 40,
+    "gameConfigs": 1
+  }
+}

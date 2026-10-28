@@ -512,6 +512,58 @@ function normalizeInboundEmail(payload) {
   };
 }
 
+/**
+ * Detects if an email is forwarded and safely extracts the original candidate email.
+ *
+ * Safety rules:
+ * 1. An email is identified as forwarded if subject starts with Fwd/FW or body contains standard forward headers.
+ * 2. If forwarded, outer sender is NEVER used as the candidate email.
+ * 3. An original candidate email is extracted from forwarded body headers (e.g. From: Name <email@example.com>).
+ * 4. Reply-To is NEVER trusted on its own; it is only accepted if it matches either the forwarded body email or the resume text email.
+ * 5. If no candidate email can be reliably corroborated, candidateEmail is null, triggering safe fallback to resume email.
+ */
+function detectForwardedEmail({ subject = "", text = "", sender = "", replyTo = "", resumeEmail = "" }) {
+  const normSubject = typeof subject === "string" ? subject.trim() : "";
+  const normText = typeof text === "string" ? text : "";
+  const normReplyTo = normalizeEmail(replyTo);
+  const normSender = normalizeEmail(sender);
+  const normResumeEmail = normalizeEmail(resumeEmail);
+
+  const isFwdSubject = /^(?:fwd?|fw):\s*/i.test(normSubject);
+  const isFwdBody = /(?:---------- Forwarded message ---------|-----Original Message-----|Begin forwarded message:)/i.test(normText);
+  const isForwarded = isFwdSubject || isFwdBody;
+
+  if (!isForwarded) {
+    return {
+      isForwarded: false,
+      candidateEmail: null,
+    };
+  }
+
+  let candidateEmail = null;
+
+  // 1. Check body forward block for: From: [Name] <email@example.com> or From: email@example.com
+  const fromMatch = normText.match(/(?:---------- Forwarded message ---------|-----Original Message-----|Begin forwarded message:)[\s\S]*?From:\s*(?:([^<\n\r]+)<)?([^\s>\n\r]+@[^\s>\n\r]+)>?/i);
+  if (fromMatch && fromMatch[2]) {
+    const candidateExtracted = normalizeEmail(fromMatch[2]);
+    if (candidateExtracted && candidateExtracted !== normSender) {
+      candidateEmail = candidateExtracted;
+    }
+  }
+
+  // 2. Reply-To safety check: Only accept replyTo if corroborated by matching the resume text email
+  if (!candidateEmail && normReplyTo && normReplyTo !== normSender) {
+    if (normResumeEmail && normReplyTo === normResumeEmail) {
+      candidateEmail = normReplyTo;
+    }
+  }
+
+  return {
+    isForwarded: true,
+    candidateEmail,
+  };
+}
+
 module.exports = {
   normalizeEmail,
   normalizeSubject,
@@ -524,10 +576,12 @@ module.exports = {
   validateAttachments,
   extractSubjectJobCode,
   buildInboundEmailIdentity,
+  detectForwardedEmail,
   // Backward compatibility exports
   normalizeEmailAddress: normalizeEmail,
   isSupportedAttachment,
   verifyWebhookSignature,
   normalizeInboundEmail,
 };
+
 

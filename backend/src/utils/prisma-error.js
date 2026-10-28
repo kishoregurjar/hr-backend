@@ -7,10 +7,38 @@ const handlePrismaError = (error) => {
     return null;
   }
 
+  // Handle Prisma Database Connection & Initialization Errors
+  if (
+    error.name === "PrismaClientInitializationError" ||
+    error.code === "P1000" ||
+    error.code === "P1001" ||
+    error.code === "P1002" ||
+    error.code === "P1003" ||
+    error.code === "P1017" ||
+    (typeof error.message === "string" && (
+      error.message.includes("Can't reach database server") ||
+      error.message.includes("Error querying the database") ||
+      error.message.includes("FATAL: (ENOTFOUND)") ||
+      error.message.includes("tenant/user")
+    ))
+  ) {
+    return new AppError("Database service is temporarily unavailable. Please try again shortly.", {
+      statusCode: 503,
+      code: "DATABASE_CONNECTION_ERROR",
+      isOperational: true,
+    });
+  }
+
   // Handle PrismaClientValidationError / Raw Query Dumps
   if (
     error.name === "PrismaClientValidationError" ||
-    (typeof error.message === "string" && error.message.includes("Invalid `db."))
+    error.name === "PrismaClientUnknownRequestError" ||
+    error.name === "PrismaClientRustPanicError" ||
+    (typeof error.message === "string" && (
+      error.message.includes("Invalid `db.") ||
+      error.message.includes("Invalid `client.") ||
+      error.message.includes("invocation in")
+    ))
   ) {
     return new AppError("Database request validation failed. Please verify submitted fields.", {
       statusCode: 400,

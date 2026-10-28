@@ -232,9 +232,37 @@ function buildStorageKey({ fileHash, fileType }) {
   return `resumes/${fileHash.slice(0, 2)}/${fileHash}.${extension}`;
 }
 
-async function createCandidateIfRequired({ extractedData, fallbackEmail, tx, companyId = null, source = null, emailSubject = null, emailBody = null }) {
+async function createCandidateIfRequired({
+  extractedData,
+  sourceEmail = null,
+  fallbackEmail = null,
+  isForwarded = false,
+  tx,
+  companyId = null,
+  source = null,
+  emailSubject = null,
+  emailBody = null
+}) {
   const extractedEmailValid = normalizeEmail(extractedData?.email);
-  const email = extractedEmailValid || normalizeEmail(fallbackEmail);
+  const sourceEmailValid = normalizeEmail(sourceEmail);
+  const fallbackEmailValid = normalizeEmail(fallbackEmail);
+
+  let email = null;
+  if (source === "DIRECT_UPLOAD") {
+    // Direct upload by HR/SuperAdmin: resume email takes precedence
+    email = extractedEmailValid || fallbackEmailValid;
+  } else if (source === "INBOUND_EMAIL") {
+    if (isForwarded) {
+      // Forwarded: only use candidate email if reliably extracted from forward block (sourceEmailValid).
+      // Never use the recruiter/outer sender address. Otherwise, fall back to extracted resume email.
+      email = sourceEmailValid || extractedEmailValid;
+    } else {
+      // Direct candidate submission: candidate's actual sending email takes precedence.
+      email = sourceEmailValid || extractedEmailValid || fallbackEmailValid;
+    }
+  } else {
+    email = sourceEmailValid || extractedEmailValid || fallbackEmailValid;
+  }
 
   if (!email) {
     throw createApplicationError(
@@ -244,10 +272,14 @@ async function createCandidateIfRequired({ extractedData, fallbackEmail, tx, com
     );
   }
 
-  const isFallback = !extractedEmailValid && !!normalizeEmail(fallbackEmail);
+  const isFallback = !extractedEmailValid && !!normalizeEmail(fallbackEmail || sourceEmail);
   const safeExtractedData = { ...(extractedData || {}) };
   if (isFallback) {
     safeExtractedData.email = email;
+  }
+  // Preserve resume-extracted email in metadata if it differs from authoritative contact email
+  if (extractedEmailValid && extractedEmailValid !== email) {
+    safeExtractedData.resumeExtractedEmail = extractedEmailValid;
   }
   if (source === "INBOUND_EMAIL") {
     safeExtractedData.source = "EMAIL_EXTRACTION";
@@ -258,7 +290,30 @@ async function createCandidateIfRequired({ extractedData, fallbackEmail, tx, com
   const existingCandidate = await repository.findCandidateByEmail(email, tx);
 
   if (existingCandidate) {
-    if (existingCandidate.role !== "CANDIDATE") {
+    if (existingCandidate.role === "SUPER_ADMIN") {
+      throw createApplicationError(
+        "CANDIDATE_EMAIL_CONFLICT",
+        "Resume email belongs to a non-candidate account",
+        409
+      );
+    }
+
+    let isTargetCompanyMember = false;
+    if (companyId) {
+      if (Array.isArray(existingCandidate.companyMembers)) {
+        isTargetCompanyMember = existingCandidate.companyMembers.some(
+          (m) => m.companyId === companyId
+        );
+      } else if (tx?.companyMember?.findFirst) {
+        const member = await tx.companyMember.findFirst({
+          where: { userId: existingCandidate.id, companyId },
+          select: { id: true },
+        });
+        isTargetCompanyMember = !!member;
+      }
+    }
+
+    if (isTargetCompanyMember) {
       throw createApplicationError(
         "CANDIDATE_EMAIL_CONFLICT",
         "Resume email belongs to a non-candidate account",
@@ -461,6 +516,8 @@ async function processResume({
   source = "DIRECT_UPLOAD",
   jobId = null,
   inboundEmail = null,
+  sourceEmail = null,
+  isForwarded = false,
   subjectCode = null,
   storageService = defaultInMemoryStorageService,
   uploadedByUserId = null,
@@ -651,16 +708,6 @@ async function processResume({
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const candidateResult = await createCandidateIfRequired({
-        extractedData,
-        fallbackEmail: inboundEmail,
-        tx,
-        companyId,
-        source,
-        emailSubject,
-        emailBody,
-      });
-
       const job = isInbound
         ? await resolveInboundJob({
           inboundEmail,
@@ -675,6 +722,28 @@ async function processResume({
           tx,
         });
 
+      let effectiveCompanyId = companyId || job?.companyId || null;
+      if (!effectiveCompanyId && effectiveUploadedByUserId && tx?.companyMember?.findFirst) {
+        const member = await tx.companyMember.findFirst({
+          where: { userId: effectiveUploadedByUserId },
+          select: { companyId: true },
+        });
+        if (member?.companyId) {
+          effectiveCompanyId = member.companyId;
+        }
+      }
+
+      const candidateResult = await createCandidateIfRequired({
+        extractedData,
+        sourceEmail,
+        fallbackEmail: inboundEmail,
+        isForwarded,
+        tx,
+        companyId: effectiveCompanyId,
+        source,
+        emailSubject,
+        emailBody,
+      });
 
       const application = await createApplicationIfRequired({
         job,
@@ -709,6 +778,7 @@ async function processResume({
         candidate: candidateResult.candidate,
         application,
         resumeProcessing: completedResume,
+        effectiveCompanyId,
       };
     });
 
@@ -719,7 +789,7 @@ async function processResume({
       });
     }
 
-    const targetCompanyId = result.candidate?.companyId || companyId;
+    const targetCompanyId = result.effectiveCompanyId || result.candidate?.companyId || companyId;
     if (targetCompanyId) {
        socketService.emitToCompany(targetCompanyId, "CANDIDATES_REFRESH_REQUIRED", { candidateId: result.candidate.id });
     }
@@ -827,6 +897,7 @@ module.exports = {
   buildStorageKey,
   resolveInboundJob,
   resolveDirectUploadJob,
+  createCandidateIfRequired,
 };
 
 

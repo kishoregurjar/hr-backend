@@ -28,8 +28,8 @@ describe("Resume Service Security & Logic Suite", () => {
     );
   });
 
-  it("rejects file > 5MB limit", () => {
-    const largeBuffer = Buffer.alloc(5 * 1024 * 1024 + 1);
+  it("rejects file > MAX_RESUME_SIZE limit", () => {
+    const largeBuffer = Buffer.alloc(20 * 1024 * 1024 + 1);
     assert.throws(
       () => validateUploadedFile({ buffer: largeBuffer }),
       (err) => err.code === "RESUME_FILE_TOO_LARGE" && err.statusCode === 413
