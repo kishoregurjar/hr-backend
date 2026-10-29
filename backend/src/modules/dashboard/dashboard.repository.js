@@ -51,8 +51,17 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
     submittedAttempts,
     recentCandidates,
   ] = await Promise.all([
-    // Total Candidates (Strictly filtered by companyId)
-    companyId ? db.candidateProfile.count({ where: { companyId } }) : 0,
+    // Total Candidates (Strictly filtered by companyId or companyCandidates)
+    companyId
+      ? db.candidateProfile.count({
+          where: {
+            OR: [
+              { companyId },
+              { companyCandidates: { some: { companyId } } },
+            ],
+          },
+        })
+      : 0,
 
     // Parsed Resumes Count (Scoped to user's connected mailbox)
     userMailbox?.email
@@ -118,21 +127,26 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
       })
       : 0,
 
-    // Recent Candidates (Strictly filtered by companyId)
+    // Recent Candidates (Strictly filtered by companyId or companyCandidates)
     companyId
       ? db.candidateProfile.findMany({
-        where: { companyId },
-        take: 5,
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phoneNumber: true,
-          createdAt: true,
-        },
-      })
+          where: {
+            OR: [
+              { companyId },
+              { companyCandidates: { some: { companyId } } },
+            ],
+          },
+          take: 5,
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+            createdAt: true,
+          },
+        })
       : [],
   ]);
 

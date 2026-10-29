@@ -143,6 +143,148 @@ function parseSender(senderStr) {
   return { email: null, name: null };
 }
 
+/**
+ * Conservative relevance filtering:
+ * Skips clearly unrelated emails (e.g. invoices, receipts, shipping updates, calendar RSVPs, security alerts).
+ * Crucial rule: Uncertain messages (including generic subjects, applicant names, or empty subjects)
+ * must NOT be rejected. They must proceed directly to document verification.
+ */
+function isClearlyUnrelatedEmail(subject = "", sender = "", body = "") {
+  const sub = String(subject || "").toLowerCase().trim();
+  const from = String(sender || "").toLowerCase().trim();
+
+  // 1. If subject contains explicit resume / candidate / job application keywords, it is NEVER unrelated
+  const applicationKeywordsRegex =
+    /\b(resume|cv|curriculum\s+vitae|application|applying|applicant|candidate|job|position|internship|hiring|portfolio|profile)\b/i;
+  if (applicationKeywordsRegex.test(sub)) {
+    return false;
+  }
+
+  // 2. Known automated unrelated sender domains or addresses
+  const unrelatedSenders = [
+    "no-reply", "noreply", "billing", "receipts", "orders", "notifications",
+    "delivery", "shipping", "mailer-daemon", "security", "support@uber", "auto-confirm"
+  ];
+  const isUnrelatedSender = unrelatedSenders.some((s) => from.includes(s));
+
+  // 3. Clearly unrelated subject patterns
+  const unrelatedSubjectPatterns = [
+    /\b(invoice|receipt|payment\s+received|bill\s+due|statement|order\s+confirmation|shipping\s+update|delivery\s+update|tracking\s+number)\b/i,
+    /\b(security\s+alert|password\s+reset|verify\s+your\s+email|two-factor\s+authentication|2fa\s+code)\b/i,
+    /\b(invitation\s+declined|invitation\s+accepted|flight\s+booking|hotel\s+reservation|uber\s+trip|amazon\s+order)\b/i,
+    /\b(newsletter|weekly\s+digest|promotional\s+offer|discount\s+coupon)\b/i,
+  ];
+
+  const matchesUnrelatedSubject = unrelatedSubjectPatterns.some((pattern) => pattern.test(sub));
+  if (matchesUnrelatedSubject) {
+    return true;
+  }
+
+  // 4. Automated sender with transaction / billing body markers
+  if (
+    isUnrelatedSender &&
+    /\b(total\s+amount|order\s+id|transaction\s+id|billing\s+address|shipping\s+address)\b/i.test(body)
+  ) {
+    return true;
+  }
+
+  // Uncertain messages MUST proceed to document verification
+  return false;
+}
+
+/**
+ * Resolves exact millisecond start and end bounds for a date range in a given timezone.
+ *
+ * @param {string|Date|number} fromDate - e.g. "2026-10-29", ISO string, or Date
+ * @param {string|Date|number} toDate - e.g. "2026-10-29", ISO string, or Date
+ * @param {string} [timezone="UTC"] - IANA timezone (e.g. "Asia/Kolkata", "America/New_York", "UTC")
+ * @returns {{ startTimestampMs: number, endTimestampMs: number, fromDateStr: string, toDateStr: string }|null}
+ */
+function resolveDateRangeBounds(fromDate, toDate, timezone = "UTC") {
+  if (!fromDate || !toDate) return null;
+
+  function parseBound(val, isEndOfDay) {
+    if (val instanceof Date) {
+      if (isNaN(val.getTime())) return null;
+      if (isEndOfDay) {
+        const d = new Date(val);
+        d.setUTCHours(23, 59, 59, 999);
+        return d.getTime();
+      }
+      return val.getTime();
+    }
+    if (typeof val === "number") {
+      return isNaN(val) ? null : val;
+    }
+    if (typeof val === "string") {
+      const trimmed = val.trim();
+      const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+      if (isDateOnly) {
+        const timeStr = isEndOfDay ? "23:59:59.999" : "00:00:00.000";
+        const [year, month, day] = trimmed.split("-").map(Number);
+        const [hour, minute, secMs] = timeStr.split(":");
+        const [second, ms] = secMs.split(".").map(Number);
+        const utcEpoch = Date.UTC(year, month - 1, day, Number(hour), Number(minute), second, ms || 0);
+
+        if (!timezone || timezone.toUpperCase() === "UTC") {
+          return utcEpoch;
+        }
+
+        try {
+          const formatter = new Intl.DateTimeFormat("en-US", {
+            timeZone: timezone,
+            year: "numeric",
+            month: "numeric",
+            day: "numeric",
+            hour: "numeric",
+            minute: "numeric",
+            second: "numeric",
+            hour12: false,
+          });
+          const d = new Date(utcEpoch);
+          const parts = formatter.formatToParts(d);
+          const p = {};
+          for (const part of parts) p[part.type] = part.value;
+          const h = p.hour === "24" ? 0 : Number(p.hour);
+          const localInTz = Date.UTC(
+            Number(p.year),
+            Number(p.month) - 1,
+            Number(p.day),
+            h,
+            Number(p.minute),
+            Number(p.second),
+            ms || 0
+          );
+          const offset = localInTz - utcEpoch;
+          return utcEpoch - offset;
+        } catch (_) {
+          return utcEpoch;
+        }
+      }
+      const parsed = new Date(trimmed);
+      if (!isNaN(parsed.getTime())) {
+        if (isEndOfDay && !trimmed.includes("T")) {
+          parsed.setUTCHours(23, 59, 59, 999);
+        }
+        return parsed.getTime();
+      }
+    }
+    return null;
+  }
+
+  const startTimestampMs = parseBound(fromDate, false);
+  const endTimestampMs = parseBound(toDate, true);
+
+  if (startTimestampMs === null || endTimestampMs === null) return null;
+
+  return {
+    startTimestampMs,
+    endTimestampMs,
+    fromDateStr: new Date(startTimestampMs).toISOString().split("T")[0],
+    toDateStr: new Date(endTimestampMs).toISOString().split("T")[0],
+  };
+}
+
 const activeMailboxSyncs = new Set();
 
 const isSyncInProgress = (userId) => activeMailboxSyncs.has(userId);
@@ -190,6 +332,7 @@ async function processSingleGmailMessage({
   userCompanyId,
   userId,
   existingEvent,
+  customDateRange,
 }) {
   let emailEvent = existingEvent;
   let internalDate = null;
@@ -225,10 +368,48 @@ async function processSingleGmailMessage({
     const sender = headers.find((h) => h.name.toLowerCase() === "from")?.value || "";
     const replyTo = headers.find((h) => h.name.toLowerCase() === "reply-to")?.value || "";
 
+    // STRICT SERVER-SIDE DATE-RANGE GUARD:
+    // Only messages whose internalDate falls strictly within the requested [startTimestampMs, endTimestampMs]
+    // may be processed. Out-of-range messages must be skipped immediately without downloading attachments,
+    // parsing resumes, or creating candidates.
+    const reqStartMs = customDateRange?.startTimestampMs ?? null;
+    const reqEndMs = customDateRange?.endTimestampMs ?? null;
+    const isOutOfRange = (
+      (reqStartMs !== null && internalDate !== null && internalDate < reqStartMs) ||
+      (reqEndMs !== null && internalDate !== null && internalDate > reqEndMs)
+    );
+
+    if (isOutOfRange) {
+      console.info(
+        `[MailboxSync] Skipped message ${msg.id}: internalDate ${new Date(internalDate).toISOString()} is outside requested range ${new Date(reqStartMs).toISOString()} - ${new Date(reqEndMs).toISOString()}`
+      );
+      if (emailEvent && emailEvent.id) {
+        await resumeRepository.markInboundEmailEventCompleted(emailEvent.id, null);
+        try {
+          await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
+            subject,
+            senderEmail: sender,
+            ...(internalDate ? { receivedAt: new Date(internalDate) } : {}),
+            errorCode: "SKIPPED_OUT_OF_DATE_RANGE",
+            errorMessage: `Message date (${new Date(internalDate).toISOString()}) is outside requested sync range (${new Date(reqStartMs).toISOString()} to ${new Date(reqEndMs).toISOString()})`,
+          });
+        } catch (_) {}
+      }
+      return {
+        success: true,
+        processedResumes: 0,
+        skipped: true,
+        skippedOutOfRange: true,
+        failed: false,
+        internalDate,
+      };
+    }
+
     if (emailEvent && emailEvent.id) {
       await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
         subject,
         senderEmail: sender,
+        ...(internalDate ? { receivedAt: new Date(internalDate) } : {}),
       });
     }
 
@@ -262,16 +443,97 @@ async function processSingleGmailMessage({
       ? forwardInfo.candidateEmail
       : (parsedSender.email || sender);
 
+    const totalDiscovered = attachments.length + driveFileIds.length;
+
+    if (totalDiscovered === 0) {
+      if (emailEvent?.id) {
+        await resumeRepository.markInboundEmailEventCompleted(emailEvent.id, null);
+      }
+      return {
+        success: true,
+        processedResumes: 0,
+        skipped: true,
+        failed: false,
+        internalDate,
+      };
+    }
+
+    if (isClearlyUnrelatedEmail(subject, sender, finalEmailBody)) {
+      if (emailEvent?.id) {
+        await resumeRepository.markInboundEmailEventCompleted(emailEvent.id, null);
+        try {
+          await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
+            errorCode: "SKIPPED_UNRELATED",
+            errorMessage: "Skipped as clearly unrelated email: " + (subject || "No Subject"),
+          });
+        } catch (_) {}
+      }
+      return {
+        success: true,
+        processedResumes: 0,
+        skipped: true,
+        skippedUnrelated: true,
+        failed: false,
+        internalDate,
+      };
+    }
+
+    const DETERMINISTIC_ERROR_CODES = new Set([
+      "NOT_A_TECH_RESUME",
+      "NOT_A_RESUME",
+      "RESUME_TEXT_EXTRACTION_FAILED",
+      "RESUME_FILE_EMPTY",
+      "INVALID_FILE_SIGNATURE",
+      "UNSUPPORTED_FILE_TYPE",
+      "RESUME_FILE_TOO_LARGE",
+      "DRIVE_FILE_NOT_FOUND",
+      "CANDIDATE_EMAIL_CONFLICT",
+      "SKIPPED_UNRELATED",
+    ]);
+
+    const isDeterministic = (err) => {
+      if (!err) return false;
+      if (err.isDeterministic) return true;
+      const code = err.code || "";
+      if (DETERMINISTIC_ERROR_CODES.has(code)) return true;
+      const msg = String(err.message || "").toLowerCase();
+      return (
+        msg.includes("fewer than 2 valid technical skills") ||
+        msg.includes("non-tech candidate profile") ||
+        msg.includes("not a resume") ||
+        msg.includes("jd_language_detected") ||
+        msg.includes("unsupported") ||
+        msg.includes("invalid file signature") ||
+        msg.includes("belongs to a non-candidate account") ||
+        msg.includes("invalid pdf structure")
+      );
+    };
+
     // 1. Process direct email attachments
     for (const att of attachments) {
       try {
+        const MAX_RESUME_SIZE = 20 * 1024 * 1024;
+        if (att.size && att.size > MAX_RESUME_SIZE) {
+          const sizeErr = new Error("Attachment exceeds maximum allowed resume size (20MB)");
+          sizeErr.code = "RESUME_FILE_TOO_LARGE";
+          sizeErr.isDeterministic = true;
+          throw sizeErr;
+        }
+
         const attachment = await gmail.users.messages.attachments.get({
           userId: "me",
           messageId: msg.id,
           id: att.attachmentId,
         });
 
-        const buffer = Buffer.from(attachment.data.data, "base64");
+        const rawData = attachment.data?.data;
+        const buffer = rawData ? Buffer.from(rawData, "base64") : Buffer.alloc(0);
+        if (!buffer || buffer.length === 0) {
+          const emptyErr = new Error("Resume file is empty");
+          emptyErr.code = "RESUME_FILE_EMPTY";
+          emptyErr.isDeterministic = true;
+          throw emptyErr;
+        }
         const ext = ("." + (att.filename.split(".").pop() || "")).toLowerCase();
         let inferredMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         if (ext === ".pdf") inferredMime = "application/pdf";
@@ -323,6 +585,7 @@ async function processSingleGmailMessage({
           name: att.filename,
           code: attachmentError.code || "ATTACHMENT_PROCESSING_FAILED",
           message: attachmentError.message,
+          isDeterministic: isDeterministic(attachmentError),
         });
       }
     }
@@ -381,27 +644,14 @@ async function processSingleGmailMessage({
           fileId,
           code: driveError.code || "DRIVE_PROCESSING_FAILED",
           message: driveError.message,
+          isDeterministic: isDeterministic(driveError),
         });
       }
     }
 
-    // 3. Update InboundEmailEvent status accurately
-    const totalDiscovered = attachments.length + driveFileIds.length;
-
-    if (totalDiscovered === 0) {
-      if (emailEvent?.id) {
-        await resumeRepository.markInboundEmailEventCompleted(emailEvent.id, null);
-      }
-      return {
-        success: true,
-        processedResumes: 0,
-        failed: false,
-        internalDate,
-      };
-    }
-
+    // 3. Update InboundEmailEvent status accurately with attachment isolation
     if (itemErrors.length === 0) {
-      // All discovered items succeeded!
+      // All discovered items succeeded
       if (emailEvent?.id) {
         await resumeRepository.markInboundEmailEventCompleted(
           emailEvent.id,
@@ -416,15 +666,71 @@ async function processSingleGmailMessage({
       };
     }
 
-    // Multi-resume partial or complete failure: Mark FAILED so it remains retryable
+    const hasTransientFailures = itemErrors.some((e) => !e.isDeterministic);
+
+    // Case A: At least one resume succeeded
+    if (processedResumeIds.length > 0) {
+      if (!hasTransientFailures) {
+        // Remaining items were deterministic auxiliary/non-resume files (e.g. cover letter or brochure)
+        // Primary candidate resume was successfully ingested! Complete event without retries.
+        if (emailEvent?.id) {
+          await resumeRepository.markInboundEmailEventCompleted(
+            emailEvent.id,
+            processedResumeIds[0]
+          );
+        }
+        return {
+          success: true,
+          processedResumes: newResumesCount,
+          failed: false,
+          internalDate,
+        };
+      }
+    }
+
+    // Case B: All items failed deterministically (e.g. clearly non-tech resume, cover letter only)
+    if (!hasTransientFailures) {
+      if (emailEvent?.id) {
+        await resumeRepository.markInboundEmailEventCompleted(emailEvent.id, null);
+        try {
+          await resumeRepository.updateInboundEmailEvent(emailEvent.id, {
+            errorCode: itemErrors[0]?.code || "SKIPPED_INELIGIBLE",
+            errorMessage: itemErrors.map((e) => `[${e.code}] ${e.message}`).join("; "),
+          });
+        } catch (_) {}
+      }
+      return {
+        success: true,
+        processedResumes: 0,
+        skipped: true,
+        failed: false,
+        internalDate,
+      };
+    }
+
+    // Case C: One or more potentially valid Tech resumes failed transiently: Mark FAILED for retry
     const isPartial = processedResumeIds.length > 0;
-    const errCode = isPartial ? "PARTIAL_ATTACHMENT_FAILURE" : (itemErrors[0]?.code || "PROCESSING_FAILED");
-    const errMsg = isPartial
-      ? `${processedResumeIds.length} of ${totalDiscovered} resumes succeeded. Remaining failed: ${itemErrors.map((e) => `[${e.code}] ${e.message}`).join("; ")}`
-      : itemErrors.map((e) => `[${e.code}] ${e.message}`).join("; ");
+    const transientErrors = itemErrors.filter((e) => !e.isDeterministic);
+    const errCode = isPartial
+      ? "PARTIAL_ATTACHMENT_FAILURE"
+      : (transientErrors[0]?.code || itemErrors[0]?.code || "PROCESSING_FAILED");
+    const rawErrMsg = isPartial
+      ? `${processedResumeIds.length} of ${totalDiscovered} resumes succeeded. Transiently failed: ${transientErrors.map((e) => `[${e.code}] ${e.message}`).join("; ")}`
+      : transientErrors.map((e) => `[${e.code}] ${e.message}`).join("; ");
+
+    // Bounded retries: track attempt count
+    const attemptMatch = (emailEvent?.errorMessage || "").match(/\[Attempt (\d+)\/3\]/);
+    const prevAttempt = attemptMatch ? parseInt(attemptMatch[1], 10) : 1;
+    const nextAttempt = prevAttempt + 1;
+    const isPermanent = nextAttempt > 3;
+
+    const finalErrCode = isPermanent ? "PERMANENT_FAILURE" : errCode;
+    const finalErrMsg = isPermanent
+      ? `[Attempt 3/3] [PERMANENT_FAILURE] Max retries exceeded. ${rawErrMsg}`
+      : `[Attempt ${nextAttempt}/3] ${rawErrMsg}`;
 
     if (emailEvent?.id) {
-      await resumeRepository.markInboundEmailEventFailed(emailEvent.id, errCode, errMsg);
+      await resumeRepository.markInboundEmailEventFailed(emailEvent.id, finalErrCode, finalErrMsg);
     }
 
     return {
@@ -432,7 +738,7 @@ async function processSingleGmailMessage({
       processedResumes: newResumesCount,
       failed: true,
       internalDate,
-      error: errMsg,
+      error: finalErrMsg,
     };
   } catch (msgError) {
     console.warn(`[MailboxSync] Error processing message ${msg.id}:`, msgError.message);
@@ -489,40 +795,49 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
     const drive = driveService.createDriveClient(oauth2Client);
 
     const isCustomDateRange = !!customDateRange;
-    let queryStr = "((has:attachment (filename:pdf OR filename:docx OR filename:doc)) OR has:drive) -from:me";
+    let bounds = null;
+    let startTimestampMs = null;
+    let endTimestampMs = null;
 
     if (isCustomDateRange) {
-      const fromDateObj = new Date(customDateRange.fromDate);
-      fromDateObj.setDate(fromDateObj.getDate() - 1);
-      const fromStr = fromDateObj.toISOString().split("T")[0].replace(/-/g, "/");
+      bounds = resolveDateRangeBounds(
+        customDateRange.dateRangeSyncFrom || customDateRange.fromDate,
+        customDateRange.dateRangeSyncTo || customDateRange.toDate,
+        customDateRange.timezone || "UTC"
+      );
+      startTimestampMs = customDateRange.startTimestampMs ?? bounds?.startTimestampMs ?? null;
+      endTimestampMs = customDateRange.endTimestampMs ?? bounds?.endTimestampMs ?? null;
+    }
 
-      const toDateObj = new Date(customDateRange.toDate);
-      toDateObj.setDate(toDateObj.getDate() + 1);
-      const toStr = toDateObj.toISOString().split("T")[0].replace(/-/g, "/");
+    const isBackfillMode = !isCustomDateRange && (!mailbox.lastSyncedAt || (mailbox.backfillPageToken && !mailbox.backfillComplete));
 
-      queryStr += ` after:${fromStr} before:${toStr}`;
+    let queryStr = "((has:attachment (filename:pdf OR filename:docx OR filename:doc)) OR has:drive) -from:me";
+
+    if (isCustomDateRange && startTimestampMs && endTimestampMs) {
+      const startEpochSec = Math.max(0, Math.floor(startTimestampMs / 1000) - 1);
+      const endEpochSec = Math.max(0, Math.ceil(endTimestampMs / 1000) + 1);
+      queryStr += ` after:${startEpochSec} before:${endEpochSec}`;
+    } else if (isBackfillMode) {
+      if (!mailbox.lastSyncedAt && !mailbox.backfillPageToken) {
+        const initialWindowMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        const epoch = Math.max(0, Math.floor(initialWindowMs / 1000));
+        queryStr += ` after:${epoch}`;
+      }
     } else {
       let effectiveSinceMs = null;
       if (mailbox.lastSyncedAt) {
         // 60-second overlap buffer to prevent missing in-flight emails or clock skew
         effectiveSinceMs = mailbox.lastSyncedAt.getTime() - 60000;
       } else {
-        // Fresh mailbox: 30-day initial window prevents unbounded scanning of entire inbox
         effectiveSinceMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
       }
 
       // Check for oldest unrecovered FAILED event to make sure failures remain retryable
       try {
-        const oldestFailed = await prisma.inboundEmailEvent.findFirst({
-          where: {
-            recipientEmail: mailbox.email,
-            status: "FAILED",
-          },
-          orderBy: { createdAt: "asc" },
-          select: { createdAt: true },
-        });
-        if (oldestFailed?.createdAt) {
-          const failedSinceMs = oldestFailed.createdAt.getTime() - 60000;
+        const oldestFailed = await resumeRepository.findOldestFailedInboundEvent(mailbox.email);
+        const failedDate = oldestFailed?.receivedAt || oldestFailed?.createdAt;
+        if (failedDate) {
+          const failedSinceMs = new Date(failedDate).getTime() - 60000;
           effectiveSinceMs = Math.min(effectiveSinceMs, failedSinceMs);
         }
       } catch (_) {}
@@ -531,13 +846,32 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
       queryStr += ` after:${epoch}`;
     }
 
-    let pageToken = isCustomDateRange ? (customDateRange.pageToken || null) : null;
+    let hasUnresolvedFailures = false;
+    if (!isCustomDateRange) {
+      try {
+        const failedCount = await resumeRepository.countUnrecoveredFailedInboundEvents(mailbox.email);
+        hasUnresolvedFailures = failedCount > 0;
+      } catch (_) {}
+    }
+
+    const BATCH_CONCURRENCY = parseInt(process.env.MAILBOX_SYNC_CONCURRENCY, 10) || 3;
+    const MAX_PAGES_PER_SYNC = parseInt(process.env.MAILBOX_MAX_PAGES_PER_SYNC, 10) || 5;
+    const GMAIL_PAGE_MAX_RESULTS = Math.min(
+      parseInt(process.env.MAILBOX_GMAIL_MAX_RESULTS, 10) || 100,
+      100
+    );
+
+    let pageToken = isCustomDateRange
+      ? (customDateRange.pageToken || null)
+      : (isBackfillMode ? (mailbox.backfillPageToken || null) : null);
+
     let pagesScanned = 0;
-    const MAX_PAGES_PER_SYNC = 5;
     const startTime = Date.now();
 
     let totalScanned = 0;
     let totalSkipped = 0;
+    let totalSkippedOutOfRange = 0;
+    let totalSkippedUnrelated = 0;
     let totalProcessedResumes = 0;
     let totalFailed = 0;
     let highestSuccessInternalDate = null;
@@ -552,16 +886,36 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
       const listParams = {
         userId: "me",
         q: queryStr,
-        maxResults: 25,
+        maxResults: GMAIL_PAGE_MAX_RESULTS,
       };
       if (pageToken) {
         listParams.pageToken = pageToken;
       }
 
-      const res = await gmail.users.messages.list(listParams);
+      let res;
+      try {
+        res = await gmail.users.messages.list(listParams);
+      } catch (listErr) {
+        const msgLower = (listErr?.message || "").toLowerCase();
+        const isInvalidPageToken =
+          listErr?.code === 400 ||
+          msgLower.includes("invalid pagetoken") ||
+          msgLower.includes("pagetoken is invalid");
+
+        if (isInvalidPageToken && pageToken) {
+          console.warn(`[MailboxSync] Invalid or expired pageToken: ${pageToken}. Resetting backfill.`);
+          await repository.updateMailboxSyncStatus(userId, { backfillPageToken: null });
+          delete listParams.pageToken;
+          res = await gmail.users.messages.list(listParams);
+        } else {
+          throw listErr;
+        }
+      }
+
       const messages = res.data.messages || [];
 
       if (messages.length === 0) {
+        pageToken = null;
         break;
       }
 
@@ -582,7 +936,9 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
         if (existing && existing.status === "COMPLETED") {
           totalSkipped++;
           const existingDate = existing.receivedAt ? existing.receivedAt.getTime() : null;
-          if (existingDate && (!highestSuccessInternalDate || existingDate > highestSuccessInternalDate)) {
+          const isInRange = (!startTimestampMs || !existingDate || existingDate >= startTimestampMs) &&
+                            (!endTimestampMs || !existingDate || existingDate <= endTimestampMs);
+          if (isInRange && existingDate && (!highestSuccessInternalDate || existingDate > highestSuccessInternalDate)) {
             highestSuccessInternalDate = existingDate;
           }
         } else {
@@ -590,12 +946,14 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
         }
       }
 
-      // In incremental mode, if every message in the page is already completed, we've caught up!
+      // In incremental mode, if every message in the page is already completed:
       if (actionableMsgs.length === 0 && !isCustomDateRange) {
-        break;
+        if (!isBackfillMode && !hasUnresolvedFailures) {
+          break;
+        }
       }
 
-      // Process actionable messages with bounded concurrency (3 concurrent workers)
+      // Process actionable messages with bounded concurrency
       const pageResults = await pMap(
         actionableMsgs,
         async (msg) => {
@@ -607,12 +965,28 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
             userCompanyId,
             userId,
             existingEvent: eventMap.get(msg.id),
+            customDateRange: isCustomDateRange
+              ? {
+                  ...customDateRange,
+                  startTimestampMs,
+                  endTimestampMs,
+                }
+              : null,
           });
         },
-        3
+        BATCH_CONCURRENCY
       );
 
       for (const item of pageResults) {
+        if (item.skipped) {
+          totalSkipped++;
+        }
+        if (item.skippedOutOfRange) {
+          totalSkippedOutOfRange++;
+        }
+        if (item.skippedUnrelated) {
+          totalSkippedUnrelated++;
+        }
         if (item.processedResumes > 0) {
           totalProcessedResumes += item.processedResumes;
         }
@@ -624,8 +998,10 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
             }
           }
         } else {
-          if (item.internalDate) {
-            if (!highestSuccessInternalDate || item.internalDate > highestSuccessInternalDate) {
+          if (item.internalDate && !item.skippedOutOfRange) {
+            const isInRange = (!startTimestampMs || item.internalDate >= startTimestampMs) &&
+                              (!endTimestampMs || item.internalDate <= endTimestampMs);
+            if (isInRange && (!highestSuccessInternalDate || item.internalDate > highestSuccessInternalDate)) {
               highestSuccessInternalDate = item.internalDate;
             }
           }
@@ -642,26 +1018,48 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
     let newCheckpoint = null;
 
     if (!isCustomDateRange) {
-      if (lowestFailureInternalDate) {
-        // Critical safety invariant: Never advance checkpoint past unhandled or failed items!
-        const safeCheckpointMs = lowestFailureInternalDate - 1000;
-        newCheckpoint = new Date(Math.max(existingLastSynced, safeCheckpointMs));
-      } else if (highestSuccessInternalDate) {
-        newCheckpoint = new Date(Math.max(existingLastSynced, highestSuccessInternalDate));
-      } else if (!mailbox.lastSyncedAt) {
-        newCheckpoint = new Date();
+      const isBacklogDrained = !pageToken;
+
+      if (isBackfillMode) {
+        if (isBacklogDrained) {
+          newCheckpoint = highestSuccessInternalDate
+            ? new Date(Math.max(existingLastSynced, highestSuccessInternalDate))
+            : (mailbox.lastSyncedAt || new Date());
+
+          await repository.updateMailboxSyncStatus(userId, {
+            lastError: null,
+            lastSyncedAt: newCheckpoint,
+            backfillComplete: true,
+            backfillPageToken: null,
+          });
+        } else {
+          await repository.updateMailboxSyncStatus(userId, {
+            lastError: null,
+            backfillComplete: false,
+            backfillPageToken: pageToken,
+          });
+        }
       } else {
-        newCheckpoint = mailbox.lastSyncedAt;
+        if (lowestFailureInternalDate) {
+          const safeCheckpointMs = lowestFailureInternalDate - 1000;
+          newCheckpoint = new Date(Math.max(existingLastSynced, safeCheckpointMs));
+        } else if (highestSuccessInternalDate) {
+          newCheckpoint = new Date(Math.max(existingLastSynced, highestSuccessInternalDate));
+        } else if (!mailbox.lastSyncedAt) {
+          newCheckpoint = new Date();
+        } else {
+          newCheckpoint = mailbox.lastSyncedAt;
+        }
+
+        const syncStatusUpdate = {
+          lastError: null,
+          lastSyncedAt: newCheckpoint,
+          backfillComplete: isBacklogDrained,
+          backfillPageToken: pageToken || null,
+        };
+
+        await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
       }
-
-      const syncStatusUpdate = {
-        lastError: null,
-        lastSyncedAt: newCheckpoint,
-        backfillComplete: true,
-        backfillPageToken: null,
-      };
-
-      await repository.updateMailboxSyncStatus(userId, syncStatusUpdate);
     } else if (
       customDateRange?.isCronDateRangeSync ||
       customDateRange?.isFutureDateSync
@@ -677,19 +1075,22 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
 
     const durationMs = Date.now() - startTime;
     console.info(
-      `[MailboxSync] Completed for ${mailbox.email} in ${durationMs}ms: scanned=${totalScanned}, skipped=${totalSkipped}, newResumes=${totalProcessedResumes}, failed=${totalFailed}`
+      `[MailboxSync] Completed for ${mailbox.email} in ${durationMs}ms: scanned=${totalScanned}, skipped=${totalSkipped}, skippedUnrelated=${totalSkippedUnrelated}, newResumes=${totalProcessedResumes}, failed=${totalFailed}`
     );
 
     return {
       success: true,
       scanned: totalScanned,
       skipped: totalSkipped,
+      skippedOutOfRange: totalSkippedOutOfRange,
+      skippedUnrelated: totalSkippedUnrelated,
       processedResumes: totalProcessedResumes,
       failed: totalFailed,
       durationMs,
       lastSyncedAt: newCheckpoint || mailbox.lastSyncedAt,
       syncedAt: new Date(),
-      nextPageToken: isCustomDateRange ? pageToken : undefined,
+      nextPageToken: pageToken || undefined,
+      backlogRemaining: Boolean(pageToken),
     };
   } catch (error) {
     const errorMessage = error.message || "Failed to sync Gmail inbox";
@@ -787,4 +1188,5 @@ module.exports = {
   stopAutomaticSync,
   isSyncInProgress,
   startBackgroundSync,
+  resolveDateRangeBounds,
 };

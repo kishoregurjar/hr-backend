@@ -39,6 +39,8 @@ test("Mailbox Sync Performance & Incremental Fetching Suite", async (t) => {
   const origUpdateEvent = resumeRepository.updateInboundEmailEvent;
   const origMarkCompleted = resumeRepository.markInboundEmailEventCompleted;
   const origMarkFailed = resumeRepository.markInboundEmailEventFailed;
+  const origFindOldestFailed = resumeRepository.findOldestFailedInboundEvent;
+  const origCountUnrecovered = resumeRepository.countUnrecoveredFailedInboundEvents;
   const origProcessResume = resumeService.processResume;
   const origDownloadDrive = driveService.downloadDriveFile;
   const origGmail = google.gmail;
@@ -138,6 +140,28 @@ test("Mailbox Sync Performance & Incremental Fetching Suite", async (t) => {
       return null;
     };
 
+    resumeRepository.findOldestFailedInboundEvent = async (email) => {
+      let oldest = null;
+      for (const evt of inboundEventStore.values()) {
+        if (evt.status === "FAILED" && evt.errorCode !== "PERMANENT_FAILURE") {
+          if (!oldest || evt.createdAt < oldest.createdAt) {
+            oldest = evt;
+          }
+        }
+      }
+      return oldest;
+    };
+
+    resumeRepository.countUnrecoveredFailedInboundEvents = async (email) => {
+      let count = 0;
+      for (const evt of inboundEventStore.values()) {
+        if (evt.status === "FAILED" && evt.errorCode !== "PERMANENT_FAILURE") {
+          count++;
+        }
+      }
+      return count;
+    };
+
     resumeService.processResume = async (params) => {
       resumeProcessCallCount++;
       return {
@@ -217,6 +241,8 @@ test("Mailbox Sync Performance & Incremental Fetching Suite", async (t) => {
     resumeRepository.updateInboundEmailEvent = origUpdateEvent;
     resumeRepository.markInboundEmailEventCompleted = origMarkCompleted;
     resumeRepository.markInboundEmailEventFailed = origMarkFailed;
+    resumeRepository.findOldestFailedInboundEvent = origFindOldestFailed;
+    resumeRepository.countUnrecoveredFailedInboundEvents = origCountUnrecovered;
     resumeService.processResume = origProcessResume;
     driveService.downloadDriveFile = origDownloadDrive;
     google.gmail = origGmail;

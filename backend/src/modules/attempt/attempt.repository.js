@@ -2384,8 +2384,20 @@ class AttemptRepository {
   /**
    * List Candidates for HR Dashboard (Paginated Dedicated Endpoint with User Fallback)
    */
-  async listCandidatesForHR({ where, skip, take, orderBy }, tx) {
+  async listCandidatesForHR({ where, skip, take, orderBy, companyId }, tx) {
     const client = tx || prisma;
+    const companyScopeFilter = companyId
+      ? {
+          assessment: {
+            createdBy: {
+              companyMembers: {
+                some: { companyId },
+              },
+            },
+          },
+        }
+      : undefined;
+
     const profiles = await client.candidateProfile.findMany({
       where,
       skip,
@@ -2399,7 +2411,6 @@ class AttemptRepository {
         phoneNumber: true,
         metadata: true,
         companyId: true,
-        metadata: true,
         company: {
           select: {
             id: true,
@@ -2410,6 +2421,7 @@ class AttemptRepository {
         createdAt: true,
         updatedAt: true,
         invitations: {
+          where: companyScopeFilter,
           take: 1,
           orderBy: { sentAt: "desc" },
           select: {
@@ -2426,6 +2438,7 @@ class AttemptRepository {
           },
         },
         attempts: {
+          where: companyScopeFilter,
           take: 1,
           orderBy: { startedAt: "desc" },
           select: {

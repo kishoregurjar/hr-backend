@@ -17,17 +17,28 @@ async function processMailboxSync() {
         continue;
       }
 
-      const fromTime = mailbox.dateRangeLastSyncedAt ? mailbox.dateRangeLastSyncedAt.getTime() - (24 * 60 * 60 * 1000) : mailbox.dateRangeSyncFrom.getTime();
-      const fromDate = new Date(fromTime).toISOString().split("T")[0];
-      const toDate = mailbox.dateRangeSyncTo.toISOString().split("T")[0];
+      const minAllowedTime = mailbox.dateRangeSyncFrom ? mailbox.dateRangeSyncFrom.getTime() : 0;
+      let effectiveFromMs = minAllowedTime;
+      if (mailbox.dateRangeLastSyncedAt) {
+        // Safe 60-second overlap buffer for clock skew, but NEVER regress prior to dateRangeSyncFrom
+        effectiveFromMs = Math.max(minAllowedTime, mailbox.dateRangeLastSyncedAt.getTime() - 60000);
+      }
+
+      const toTimeMs = mailbox.dateRangeSyncTo ? mailbox.dateRangeSyncTo.getTime() : Date.now();
+      const fromDate = new Date(effectiveFromMs).toISOString().split("T")[0];
+      const toDate = new Date(toTimeMs).toISOString().split("T")[0];
 
       let dateRangePageToken = null;
       while (true) {
         const dateRangeOptions = {
           fromDate,
           toDate,
+          startTimestampMs: effectiveFromMs,
+          endTimestampMs: toTimeMs,
+          dateRangeSyncFrom: mailbox.dateRangeSyncFrom,
+          dateRangeSyncTo: mailbox.dateRangeSyncTo,
           pageToken: dateRangePageToken,
-          isCronDateRangeSync: true
+          isCronDateRangeSync: true,
         };
 
         const syncRes = await mailboxService.syncMailboxForUser(mailbox.userId, 180000, dateRangeOptions);
