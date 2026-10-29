@@ -301,7 +301,12 @@ async function createCandidateIfRequired({
   companyId = null,
   source = null,
   emailSubject = null,
-  emailBody = null
+  emailBody = null,
+  providerMessageId = null,
+  attachmentId = null,
+  driveFileId = null,
+  resumeFileName = null,
+  resumeMimeType = null,
 }) {
   const extractedEmailValid = normalizeEmail(extractedData?.email);
   const sourceEmailValid = normalizeEmail(sourceEmail);
@@ -366,6 +371,11 @@ async function createCandidateIfRequired({
     safeExtractedData.source = "EMAIL_EXTRACTION";
     if (emailSubject) safeExtractedData.emailSubject = emailSubject;
     if (emailBody) safeExtractedData.emailBody = emailBody;
+    if (providerMessageId) safeExtractedData.providerMessageId = providerMessageId;
+    if (attachmentId) safeExtractedData.attachmentId = attachmentId;
+    if (driveFileId) safeExtractedData.driveFileId = driveFileId;
+    if (resumeFileName) safeExtractedData.resumeFileName = resumeFileName;
+    if (resumeMimeType) safeExtractedData.resumeMimeType = resumeMimeType;
   }
 
   return await withCandidateLock(email, async () => {
@@ -732,6 +742,10 @@ async function processResume({
   emailSubject = null,
   emailBody = null,
   providerMessageId = null,
+  attachmentId = null,
+  driveFileId = null,
+  resumeFileName = null,
+  resumeMimeType = null,
 }) {
   validateUploadedFile(file);
 
@@ -1011,6 +1025,11 @@ async function processResume({
       source,
       emailSubject,
       emailBody,
+      providerMessageId,
+      attachmentId,
+      driveFileId,
+      resumeFileName: file?.originalname || resumeFileName,
+      resumeMimeType: file?.mimetype || resumeMimeType,
     });
 
     const result = await prisma.$transaction(async (tx) => {

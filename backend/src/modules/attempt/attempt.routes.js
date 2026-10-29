@@ -168,6 +168,17 @@ router.get(
 router.use(requireAuth);
 
 /**
+ * Stream Candidate Resume on-demand from Gmail / Drive (Zero Disk Storage)
+ * GET /api/v1/candidates/:candidateId/resume
+ */
+router.get(
+  ["/:candidateId/resume", "/candidates/:candidateId/resume"],
+  requireAuth,
+  attemptController.streamCandidateResume
+);
+
+
+/**
  * Get Candidates List OR HR Attempt Results (Central Root Dispatcher)
  * GET /api/v1/candidates -> getCandidates
  * GET /api/v1/attempts | /api/v1/invitations -> getHRAttemptResults

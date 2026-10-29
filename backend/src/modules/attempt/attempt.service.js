@@ -4500,6 +4500,10 @@ class AttemptService {
         status = latestInvitation.status || "INVITED";
       }
 
+      const isEmailExtraction = item.metadata?.source === "EMAIL_EXTRACTION" || item.metadata?.inbound || Boolean(item.metadata?.providerMessageId);
+      const resumeFileName = item.metadata?.resumeFileName || (isEmailExtraction ? `${String(item.firstName || "Candidate").replace(/\s+/g, "_")}_Resume.pdf` : null);
+      const resumeUrl = isEmailExtraction || item.metadata?.resumeFileName ? `/api/v1/candidates/${item.id}/resume` : null;
+
       return {
         id: item.id,
         name: `${item.firstName || ""} ${item.lastName || ""}`.trim() || item.email,
@@ -4517,6 +4521,8 @@ class AttemptService {
         emailBody: item.metadata?.emailBody || null,
         invitation: latestInvitation || null,
         attempt: latestAttempt || null,
+        resumeUrl,
+        resumeFileName,
         addedDate: item.createdAt,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,

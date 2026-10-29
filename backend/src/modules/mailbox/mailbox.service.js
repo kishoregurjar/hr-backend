@@ -555,6 +555,9 @@ async function processSingleGmailMessage({
           emailSubject: subject,
           emailBody: finalEmailBody,
           providerMessageId: msg.id,
+          attachmentId: att.attachmentId,
+          resumeFileName: att.filename,
+          resumeMimeType: att.mimeType || inferredMime,
         });
 
         const resId = resumeResult?.resumeProcessing?.id || resumeResult?.id;
@@ -614,6 +617,9 @@ async function processSingleGmailMessage({
           emailSubject: subject,
           emailBody: finalEmailBody,
           providerMessageId: msg.id,
+          driveFileId: fileId,
+          resumeFileName: driveFile.originalname,
+          resumeMimeType: driveFile.mimetype,
         });
 
         const resId = resumeResult?.resumeProcessing?.id || resumeResult?.id;
@@ -1179,6 +1185,245 @@ function startBackgroundSync(userId, dateRangeOptions = null) {
   })();
 }
 
+
+/**
+ * Stream Candidate Resume on-demand from Gmail / Drive (Zero Disk Storage)
+ * Downloads directly from Gmail/Google Drive into memory and streams to browser.
+ * Zero local disk usage. Zero Supabase bucket storage required.
+ */
+async function getCandidateResumeStream({ candidateId, user }) {
+  if (!candidateId) {
+    throw badRequest("Candidate ID is required", "CANDIDATE_ID_REQUIRED");
+  }
+
+  // 1. Resolve Candidate
+  const candidate = await prisma.candidateProfile.findFirst({
+    where: {
+      OR: [
+        { id: candidateId },
+        { userId: candidateId },
+      ],
+    },
+  });
+
+  if (!candidate) {
+    throw notFound("Candidate profile not found", "CANDIDATE_NOT_FOUND");
+  }
+
+  // 2. Resolve providerMessageId & attachment metadata
+  let providerMessageId = candidate.metadata?.providerMessageId || null;
+  let attachmentId = candidate.metadata?.attachmentId || null;
+  let driveFileId = candidate.metadata?.driveFileId || null;
+  let fileName = candidate.metadata?.resumeFileName || null;
+  let mimeType = candidate.metadata?.resumeMimeType || null;
+
+  if (!providerMessageId) {
+    // 1. Check via candidate.userId linked to ResumeProcessing
+    if (candidate.userId) {
+      const rp = await prisma.resumeProcessing.findFirst({
+        where: { candidateId: candidate.userId },
+        orderBy: { createdAt: "desc" },
+      });
+      if (rp) {
+        fileName = fileName || rp.fileName;
+        mimeType = mimeType || rp.mimeType;
+        const linkedEvent = await prisma.inboundEmailEvent.findFirst({
+          where: { resumeProcessingId: rp.id },
+        });
+        if (linkedEvent?.providerMessageId) {
+          providerMessageId = linkedEvent.providerMessageId;
+        }
+      }
+    }
+
+    // 2. Direct search by candidate email substring in senderEmail or recipientEmail
+    if (!providerMessageId && candidate.email) {
+      const inboundEvent = await prisma.inboundEmailEvent.findFirst({
+        where: {
+          OR: [
+            { senderEmail: { contains: candidate.email, mode: "insensitive" } },
+            { recipientEmail: { contains: candidate.email, mode: "insensitive" } },
+          ],
+        },
+        orderBy: { receivedAt: "desc" },
+      });
+
+      if (inboundEvent?.providerMessageId) {
+        providerMessageId = inboundEvent.providerMessageId;
+      }
+    }
+
+    // 3. Search via JobApplication if present
+    if (!providerMessageId && candidate.userId) {
+      const app = await prisma.jobApplication.findFirst({
+        where: { candidateId: candidate.userId },
+        include: { resumeProcessing: true },
+        orderBy: { appliedAt: "desc" },
+      });
+      if (app?.resumeProcessing) {
+        fileName = fileName || app.resumeProcessing.fileName;
+        mimeType = mimeType || app.resumeProcessing.mimeType;
+        const linkedEvent = await prisma.inboundEmailEvent.findFirst({
+          where: { resumeProcessingId: app.resumeProcessing.id },
+        });
+        if (linkedEvent?.providerMessageId) {
+          providerMessageId = linkedEvent.providerMessageId;
+        }
+      }
+    }
+  }
+
+  if (!providerMessageId) {
+    throw notFound(
+      "No email record or attachment identifier found for this candidate.",
+      "RESUME_NOT_FOUND"
+    );
+  }
+
+  // 3. Resolve active UserMailbox for Google OAuth tokens
+  let mailbox = null;
+  if (user?.id) {
+    mailbox = await repository.findMailboxByUserId(user.id);
+  }
+
+  if (!mailbox?.refreshToken && candidate.companyId) {
+    const member = await prisma.companyMember.findFirst({
+      where: { companyId: candidate.companyId, user: { mailbox: { isNot: null } } },
+      include: { user: { include: { mailbox: true } } },
+    });
+    mailbox = member?.user?.mailbox;
+  }
+
+  if (!mailbox?.refreshToken) {
+    mailbox = await prisma.userMailbox.findFirst({
+      where: { isSyncActive: true, refreshToken: { not: "" } },
+    });
+  }
+
+  if (!mailbox?.refreshToken) {
+    throw badRequest(
+      "No active Google Mailbox connected. Please connect your Gmail account to stream candidate resumes.",
+      "MAILBOX_NOT_CONNECTED"
+    );
+  }
+
+  // 4. Initialize Google OAuth Client & APIs
+  const oauth2Client = createOAuth2Client();
+  oauth2Client.setCredentials({ refresh_token: mailbox.refreshToken });
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  let buffer = null;
+
+  // Direct Attachment Fast-Path (cached attachmentId)
+  if (attachmentId) {
+    try {
+      const att = await gmail.users.messages.attachments.get({
+        userId: "me",
+        messageId: providerMessageId,
+        id: attachmentId,
+      });
+      const rawData = att.data?.data;
+      if (rawData) {
+        buffer = Buffer.from(rawData, "base64");
+      }
+    } catch (attErr) {
+      console.warn("[ResumeStream] Cached attachment fetch failed, falling back to message parsing:", attErr.message);
+    }
+  }
+
+  // Google Drive Fast-Path (cached driveFileId)
+  if (!buffer && driveFileId) {
+    try {
+      const drive = driveService.createDriveClient(oauth2Client);
+      const driveFile = await driveService.downloadDriveFile({ drive, fileId: driveFileId });
+      buffer = driveFile.buffer;
+      fileName = fileName || driveFile.originalname;
+      mimeType = mimeType || driveFile.mimetype;
+    } catch (driveErr) {
+      console.warn("[ResumeStream] Cached drive file fetch failed, falling back to message parsing:", driveErr.message);
+    }
+  }
+
+  // Fallback: Parse full Gmail message to discover attachments or drive links
+  if (!buffer) {
+    const fullMsg = await gmail.users.messages.get({
+      userId: "me",
+      id: providerMessageId,
+    });
+
+    const payload = fullMsg.data?.payload || {};
+    const { attachments, plainTextBody, htmlBody } = driveService.extractMimeElements(payload);
+    const driveFileIds = driveService.extractDriveFileIds(plainTextBody, htmlBody);
+
+    if (attachments.length > 0) {
+      const targetAtt = attachments.find((a) => /\.(pdf|docx|doc)$/i.test(a.filename)) || attachments[0];
+      const attRes = await gmail.users.messages.attachments.get({
+        userId: "me",
+        messageId: providerMessageId,
+        id: targetAtt.attachmentId,
+      });
+
+      const rawData = attRes.data?.data;
+      if (rawData) {
+        buffer = Buffer.from(rawData, "base64");
+        attachmentId = targetAtt.attachmentId;
+        fileName = targetAtt.filename;
+        const ext = ("." + (targetAtt.filename.split(".").pop() || "")).toLowerCase();
+        if (ext === ".pdf") mimeType = "application/pdf";
+        else if (ext === ".docx") mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        else if (ext === ".doc") mimeType = "application/msword";
+        else mimeType = targetAtt.mimeType || "application/octet-stream";
+      }
+    } else if (driveFileIds.length > 0) {
+      const drive = driveService.createDriveClient(oauth2Client);
+      const driveFile = await driveService.downloadDriveFile({ drive, fileId: driveFileIds[0] });
+      buffer = driveFile.buffer;
+      driveFileId = driveFileIds[0];
+      fileName = driveFile.originalname;
+      mimeType = driveFile.mimetype;
+    }
+
+    // Persist discovered references in candidate metadata for instant subsequent lookups
+    if (buffer && (attachmentId || driveFileId)) {
+      try {
+        const currentMeta = candidate.metadata && typeof candidate.metadata === "object" ? candidate.metadata : {};
+        await prisma.candidateProfile.update({
+          where: { id: candidate.id },
+          data: {
+            metadata: {
+              ...currentMeta,
+              providerMessageId,
+              ...(attachmentId && { attachmentId }),
+              ...(driveFileId && { driveFileId }),
+              ...(fileName && { resumeFileName: fileName }),
+              ...(mimeType && { resumeMimeType: mimeType }),
+            },
+          },
+        });
+      } catch (_saveErr) {}
+    }
+  }
+
+  if (!buffer || buffer.length === 0) {
+    throw notFound("Could not retrieve resume document from email", "RESUME_CONTENT_EMPTY");
+  }
+
+  const safeFileName = fileName || `${String(candidate.firstName || "Candidate").replace(/\s+/g, "_")}_Resume.pdf`;
+  let safeMimeType = mimeType;
+  if (!safeMimeType) {
+    if (safeFileName.endsWith(".pdf")) safeMimeType = "application/pdf";
+    else if (safeFileName.endsWith(".docx")) safeMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    else if (safeFileName.endsWith(".doc")) safeMimeType = "application/msword";
+    else safeMimeType = "application/pdf";
+  }
+
+  return {
+    buffer,
+    fileName: safeFileName,
+    mimeType: safeMimeType,
+  };
+}
+
 module.exports = {
   getAuthUrl,
   handleCallback,
@@ -1189,4 +1434,5 @@ module.exports = {
   isSyncInProgress,
   startBackgroundSync,
   resolveDateRangeBounds,
+  getCandidateResumeStream,
 };
