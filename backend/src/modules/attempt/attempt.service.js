@@ -746,6 +746,8 @@ class AttemptService {
       console.error("Failed to send invitation email (SMTP missing/failed):", _emailErr.message);
     }
 
+    this.clearCandidatesCache();
+
     return {
       invitation: result.invitation,
       rawToken: result.rawToken,
@@ -1264,6 +1266,8 @@ class AttemptService {
         }
       });
     }
+
+    this.clearCandidatesCache();
 
     return {
       summary,
@@ -1799,6 +1803,8 @@ class AttemptService {
     if (startedAttempt?.assessment) {
       await this.enrichAssessmentWithCompanyGameConfig(startedAttempt.assessment, explicitCompanyId);
     }
+
+    this.clearCandidatesCache();
 
     return startedAttempt;
   }
@@ -2469,7 +2475,7 @@ class AttemptService {
     const normalizedToken = token.trim();
     const tokenHash = attemptMapper.hashInvitationToken(normalizedToken);
 
-    return attemptRepository.transaction(async (tx) => {
+    const submissionResult = await attemptRepository.transaction(async (tx) => {
       /**
        * ------------------------------------------------------
        * 1. Resolve invitation
@@ -2727,6 +2733,10 @@ class AttemptService {
         unansweredCount: score.unansweredCount,
       };
     });
+
+    this.clearCandidatesCache();
+
+    return submissionResult;
   }
 
   async submitAttempt(payload) {
@@ -4381,7 +4391,12 @@ class AttemptService {
     }
 
     const [items, total] = await Promise.all([
-      attemptRepository.listCandidatesForHR({ where, skip, take: limit }),
+      attemptRepository.listCandidatesForHR({
+        where,
+        skip,
+        take: limit,
+        companyId: targetCompanyId,
+      }),
       attemptRepository.countCandidatesForHR({ where }),
     ]);
 

@@ -84,7 +84,7 @@ async function syncMailboxNow(req, res, next) {
     }
 
     let dateRangeOptions = null;
-    const { fromDate, toDate } = req.body || {};
+    const { fromDate, toDate, timezone } = req.body || {};
     
     if (fromDate || toDate) {
       if (!fromDate || !toDate) {
@@ -94,37 +94,39 @@ async function syncMailboxNow(req, res, next) {
         throw error;
       }
       
-      const from = new Date(fromDate);
-      const to = new Date(toDate);
-      
-      if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+      const clientTimezone = timezone || req.headers["x-timezone"] || "UTC";
+      const bounds = service.resolveDateRangeBounds(fromDate, toDate, clientTimezone);
+
+      if (!bounds) {
         const error = new Error("Invalid date format provided.");
         error.code = "INVALID_DATE_FORMAT";
         error.statusCode = 400;
         throw error;
       }
       
-      if (from > to) {
+      if (bounds.startTimestampMs > bounds.endTimestampMs) {
         const error = new Error("fromDate cannot be after toDate.");
         error.code = "INVALID_DATE_RANGE";
         error.statusCode = 400;
         throw error;
       }
       
-      // Ensure To Date is inclusive (end of the calendar day)
-      const toInclusive = new Date(to);
-      toInclusive.setUTCHours(23, 59, 59, 999);
+      const from = new Date(bounds.startTimestampMs);
+      const toInclusive = new Date(bounds.endTimestampMs);
 
       // Check if To Date is in the future relative to now
       const isFutureDateSync = toInclusive.getTime() > Date.now();
 
       // Ensure we use the string format YYYY-MM-DD for Gmail query logic
       dateRangeOptions = {
-        fromDate: from.toISOString().split("T")[0],
-        toDate: to.toISOString().split("T")[0],
+        fromDate: bounds.fromDateStr,
+        toDate: bounds.toDateStr,
         isFutureDateSync,
         dateRangeSyncFrom: from,
-        dateRangeSyncTo: toInclusive
+        dateRangeSyncTo: toInclusive,
+        startTimestampMs: bounds.startTimestampMs,
+        endTimestampMs: bounds.endTimestampMs,
+        timezone: clientTimezone,
       };
 
       if (isFutureDateSync) {

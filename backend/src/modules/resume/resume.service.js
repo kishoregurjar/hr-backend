@@ -20,6 +20,12 @@ const {
 const {
   RESUME_ERROR_CODES,
   RESUME_PROCESSING_SOURCES,
+  TECH_ROLES_REGEX,
+  TECH_EDUCATION_REGEX,
+  TECH_LINKS_REGEX,
+  NON_TECH_ROLES_REGEX,
+  JD_BROADCAST_REGEX,
+  CANDIDATE_STRUCTURE_REGEX,
 } = require("./resume.constants");
 
 const socketService = require("../../socket/socket.service");
@@ -242,6 +248,28 @@ function buildStorageKey({ fileHash, fileType }) {
 }
 
 const candidateLocks = new Map();
+const resumeHashLocks = new Map();
+
+async function withResumeHashLock(fileHash, fn) {
+  if (!fileHash) return fn();
+  const key = String(fileHash).trim().toLowerCase();
+  while (resumeHashLocks.has(key)) {
+    try {
+      await resumeHashLocks.get(key);
+    } catch (_) {}
+  }
+  let resolveLock;
+  const lockPromise = new Promise((resolve) => {
+    resolveLock = resolve;
+  });
+  resumeHashLocks.set(key, lockPromise);
+  try {
+    return await fn();
+  } finally {
+    resumeHashLocks.delete(key);
+    resolveLock();
+  }
+}
 
 async function withCandidateLock(email, fn) {
   if (!email) return fn();
@@ -594,12 +622,101 @@ async function createApplicationIfRequired({
     throw error;
   }
 }
-
 const defaultInMemoryStorageService = {
   async putObject({ key, body, contentType, contentLength }) {
     return { key, etag: calculateSha256(body) };
   },
 };
+
+/**
+ * Evaluates whether a parsed document is a genuine Tech/IT candidate resume.
+ *
+ * Rules:
+ * 1. Contextual Job Description check: Requires multiple employer broadcast markers
+ *    AND lack of personal contact or candidate structure. Candidate terms like "Job Title",
+ *    "CTC", "Expected CTC", "Stipend", "Internship Duration" never reject a resume.
+ * 2. Tech signals: Evaluates skills (from expanded dictionary), tech roles/titles,
+ *    tech degrees/education, and developer platform links (e.g. GitHub).
+ * 3. Non-Tech rejection: Rejects clear non-tech professions (e.g. nurse, sales, chef)
+ *    having zero tech evidence.
+ * 4. Safe Review Path: Ambiguous or borderline documents route to REVIEW_REQUIRED
+ *    rather than throwing hard fatal errors or creating false candidates.
+ */
+function evaluateTechResume({ text = "", extractedData = {} }) {
+  const normText = (text || "").toLowerCase();
+
+  // 1. Contextual Job Description Check
+  const jdBroadcastMatches = normText.match(JD_BROADCAST_REGEX) || [];
+  const uniqueJdMatches = new Set(jdBroadcastMatches.map((m) => m.toLowerCase()));
+  const hasCandidateStructure = CANDIDATE_STRUCTURE_REGEX.test(text);
+
+  if (uniqueJdMatches.size >= 2 && !hasCandidateStructure) {
+    return {
+      status: "REJECT",
+      code: "NOT_A_RESUME",
+      message: "job_description_detected",
+    };
+  }
+
+  // 2. Tech Profile Signals
+  const skills = extractedData.skills || [];
+  const techRoleMatch = TECH_ROLES_REGEX.test(text);
+  const techEduMatch = TECH_EDUCATION_REGEX.test(text);
+  const techLinkMatch = TECH_LINKS_REGEX.test(text);
+  const nonTechRoleMatch = NON_TECH_ROLES_REGEX.test(text);
+
+  const hasStrongTechSkills = skills.length >= 2;
+  const hasModerateTechSkills =
+    skills.length === 1 &&
+    (techRoleMatch || techEduMatch || techLinkMatch || hasCandidateStructure);
+  const hasTechRoleWithStructure =
+    skills.length === 0 && techRoleMatch && hasCandidateStructure;
+
+  // Clearly Non-Tech Profile
+  if (
+    nonTechRoleMatch &&
+    skills.length === 0 &&
+    !techRoleMatch &&
+    !techEduMatch &&
+    !techLinkMatch
+  ) {
+    return {
+      status: "REJECT",
+      code: "NOT_A_TECH_RESUME",
+      message: "Non-Tech candidate profile detected (HireQuest processes Tech/IT candidates only)",
+    };
+  }
+
+  // Genuine Tech Candidate
+  if (hasStrongTechSkills || hasModerateTechSkills || hasTechRoleWithStructure) {
+    return {
+      status: "ACCEPT",
+    };
+  }
+
+  // General Resume Structural Signals
+  const score = [
+    Boolean(extractedData.email),
+    Boolean(extractedData.phone),
+    Boolean(skills.length > 0),
+    Boolean(text && text.length >= 200),
+  ].filter(Boolean).length;
+
+  if (score < 2) {
+    return {
+      status: "REJECT",
+      code: "NOT_A_RESUME",
+      message: "missing_resume_signals",
+    };
+  }
+
+  // Ambiguous: Has candidate contact and length, but insufficient explicit tech keywords
+  return {
+    status: "REVIEW_REQUIRED",
+    code: "AMBIGUOUS_TECH_PROFILE",
+    message: "Ambiguous tech profile signals require manual review",
+  };
+}
 
 async function processResume({
   file,
@@ -656,9 +773,20 @@ async function processResume({
   }
   const fileHash = calculateSha256(hashInput);
 
+  return await withResumeHashLock(fileHash, async () => {
+    const STALE_PROCESSING_THRESHOLD_MS =
+      parseInt(process.env.RESUME_STALE_PROCESSING_MS, 10) || 5 * 60 * 1000;
+    const HEARTBEAT_INTERVAL_MS =
+      parseInt(process.env.RESUME_HEARTBEAT_INTERVAL_MS, 10) || 30 * 1000;
+
   const existingResume = await repository.findResumeByHash(fileHash);
 
-  if (existingResume && existingResume.status !== "FAILED") {
+  const isFinished =
+    existingResume &&
+    (existingResume.status === "COMPLETED" ||
+      existingResume.status === "REVIEW_REQUIRED");
+
+  if (isFinished) {
     const appDto = Array.isArray(existingResume.applications) && existingResume.applications.length > 0
       ? toJobApplicationDto(existingResume.applications[0])
       : toJobApplicationDto(existingResume.application);
@@ -671,25 +799,92 @@ async function processResume({
     };
   }
 
-  const storageKey = existingResume ? existingResume.storageKey : buildStorageKey({
-    fileHash,
-    fileType,
-  });
+  let resumeProcessing = null;
+  let storageKey = null;
 
-  const resumeProcessing = existingResume ? existingResume : await repository.createResumeProcessing(
-    buildResumeProcessingCreateData({
-      source,
-      fileType,
-      fileName: file.originalname || "resume.pdf",
-      mimeType: file.mimetype || "application/pdf",
-      fileSize: file.buffer.length,
+  if (existingResume) {
+    const staleBefore = new Date(Date.now() - STALE_PROCESSING_THRESHOLD_MS);
+    const isStale =
+      existingResume.status === "FAILED" ||
+      existingResume.status === "PENDING" ||
+      (existingResume.status === "PROCESSING" &&
+        new Date(existingResume.updatedAt).getTime() < staleBefore.getTime());
+
+    if (isStale) {
+      const claimed = await repository.claimStaleResumeProcessing(existingResume.id, staleBefore);
+      if (!claimed) {
+        return {
+          duplicate: true,
+          candidateId: existingResume.candidateId || null,
+          resumeProcessing: toResumeProcessingDto(existingResume),
+          application: null,
+        };
+      }
+      resumeProcessing = await repository.findResumeProcessingById(existingResume.id);
+      storageKey = existingResume.storageKey;
+    } else {
+      return {
+        duplicate: true,
+        candidateId: existingResume.candidateId || null,
+        resumeProcessing: toResumeProcessingDto(existingResume),
+        application: null,
+      };
+    }
+  } else {
+    storageKey = buildStorageKey({
       fileHash,
-      storageKey,
-      parserVersion: constants.PARSER_VERSION || "1.0.0",
-    })
-  );
+      fileType,
+    });
+
+    resumeProcessing = await repository.createResumeProcessingSafely(
+      buildResumeProcessingCreateData({
+        source,
+        fileType,
+        fileName: file.originalname || "resume.pdf",
+        mimeType: file.mimetype || "application/pdf",
+        fileSize: file.buffer.length,
+        fileHash,
+        storageKey,
+        parserVersion: constants.PARSER_VERSION || "1.0.0",
+      })
+    );
+
+    if (
+      resumeProcessing &&
+      (resumeProcessing.status === "COMPLETED" || resumeProcessing.status === "REVIEW_REQUIRED")
+    ) {
+      return {
+        duplicate: true,
+        candidateId: resumeProcessing.candidateId || null,
+        resumeProcessing: toResumeProcessingDto(resumeProcessing),
+        application: null,
+      };
+    }
+  }
+
+  let heartbeatTimer = null;
+  const startHeartbeat = () => {
+    if (heartbeatTimer || !resumeProcessing?.id) return;
+    heartbeatTimer = setInterval(async () => {
+      try {
+        await repository.touchResumeProcessing(resumeProcessing.id);
+      } catch (_) {}
+    }, HEARTBEAT_INTERVAL_MS);
+    if (typeof heartbeatTimer.unref === "function") {
+      heartbeatTimer.unref();
+    }
+  };
+
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
 
   try {
+    startHeartbeat();
+
     await effectiveStorage.putObject({
       key: storageKey,
       body: file.buffer,
@@ -744,57 +939,46 @@ async function processResume({
     }
 
     const extractedData = parsed.extractedData || parsed.candidate || {};
-
     const extractedText = parsed.text || "";
-    const jdRegex = /\b(job description|we are hiring|apply now|ctc|stipend|eligibility criteria|internship duration|job title)\b/gi;
 
-    const matches = extractedText.match(jdRegex) || [];
-    const uniqueMatches = new Set(matches.map(m => m.toLowerCase()));
+    const evaluation = evaluateTechResume({
+      text: extractedText,
+      extractedData,
+    });
 
-    if (uniqueMatches.size >= 2) {
+    if (evaluation.status === "REJECT") {
       await repository.updateResumeProcessing(
         resumeProcessing.id,
         buildResumeProcessingFailedData({
-          errorCode: "NOT_A_RESUME",
-          errorMessage: "jd_language_detected",
+          errorCode: evaluation.code,
+          errorMessage: evaluation.message,
         })
       );
-      const error = new Error("jd_language_detected");
-      error.code = "NOT_A_RESUME";
+      const error = new Error(evaluation.message);
+      error.code = evaluation.code;
+      error.isDeterministic = true;
       throw error;
     }
 
-    const score = [
-      Boolean(extractedData.email),
-      Boolean(extractedData.phone),
-      Boolean(extractedData.skills && extractedData.skills.length > 0),
-      Boolean(extractedText && extractedText.length >= 200)
-    ].filter(Boolean).length;
-
-    if (!extractedData.skills || extractedData.skills.length < 2) {
+    if (evaluation.status === "REVIEW_REQUIRED") {
       await repository.updateResumeProcessing(
         resumeProcessing.id,
-        buildResumeProcessingFailedData({
-          errorCode: "NOT_A_TECH_RESUME",
-          errorMessage: "Fewer than 2 valid technical skills found in resume",
+        buildResumeProcessingReviewRequiredData({
+          extractedData,
+          confidenceScore: parsed.confidenceScore || 0.5,
+          errorCode: evaluation.code,
+          errorMessage: evaluation.message,
         })
       );
-      const error = new Error("Fewer than 2 valid technical skills found in resume");
-      error.code = "NOT_A_TECH_RESUME";
-      throw error;
-    }
 
-    if (score < 2) {
-      await repository.updateResumeProcessing(
-        resumeProcessing.id,
-        buildResumeProcessingFailedData({
-          errorCode: "NOT_A_RESUME",
-          errorMessage: "missing_resume_signals",
-        })
-      );
-      const error = new Error("missing_resume_signals");
-      error.code = "NOT_A_RESUME";
-      throw error;
+      return {
+        duplicate: false,
+        candidateId: null,
+        resumeProcessing: toResumeProcessingDto(
+          await repository.findResumeProcessingById(resumeProcessing.id)
+        ),
+        application: null,
+      };
     }
 
     const job = isInbound
@@ -908,7 +1092,10 @@ async function processResume({
     }
 
     throw error;
+  } finally {
+    stopHeartbeat();
   }
+  });
 }
 
 async function getResumeProcessingById(

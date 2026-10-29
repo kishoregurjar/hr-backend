@@ -162,7 +162,7 @@ function extractSkills(text) {
   const normalizedText = text.toLowerCase();
   const found = new Map();
   
-  const commonWords = ["Go", "C", "R", "Rust", "Java", "Ruby", "Objective-C", "REST", "Git"];
+  const commonWords = ["Go", "C", "R", "Rust", "Java", "Ruby", "Objective-C", "REST", "Git", "TS", "JS", "K8s", "SQL"];
 
   for (const skill of SKILL_DICTIONARY) {
     const escapedSkill = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -189,6 +189,7 @@ function extractSkills(text) {
     "node": "Node.js", "node.js": "Node.js",
     "react": "React.js", "react.js": "React.js",
     "javascript": "JavaScript", "js": "JavaScript",
+    "typescript": "TypeScript", "ts": "TypeScript",
     "express": "Express.js", "express.js": "Express.js",
     "vue": "Vue.js", "vue.js": "Vue.js",
     "rest": "REST APIs", "rest api": "REST APIs", "rest apis": "REST APIs",
@@ -197,6 +198,11 @@ function extractSkills(text) {
     "tailwind": "Tailwind CSS", "tailwind css": "Tailwind CSS",
     "redux": "Redux Toolkit", "redux toolkit": "Redux Toolkit",
     "golang": "Go", "go": "Go",
+    "postgres": "PostgreSQL", "postgresql": "PostgreSQL",
+    "k8s": "Kubernetes", "kubernetes": "Kubernetes",
+    "spring": "Spring Boot", "spring boot": "Spring Boot",
+    "next": "Next.js", "next.js": "Next.js",
+    "nest": "NestJS", "nest.js": "NestJS", "nestjs": "NestJS",
   };
 
   const finalSkills = new Set();
@@ -236,24 +242,20 @@ async function extractPdfText(buffer) {
     const result = await pdfParse(buffer);
     let text = normalizeText(result.text);
 
-    // OCR Fallback: If text is missing or demonstrably insufficient (e.g. image-based PDF)
-    if (!text || text.length < 50) {
-      // In a real environment with Ghostscript installed, we would use pdf2pic and tesseract.js here.
-      // Example:
-      // const images = await convertPdfToImages(buffer);
-      // text = await performOcrOnImages(images);
-      
-      // For now, if we still have no text, we throw to let the caller handle it.
-      if (!text) {
-        throw new Error("PDF_TEXT_EMPTY");
-      }
+    // If PDF text is empty or unextractable (e.g. scanned image-only PDF)
+    // Note: OCR is not implemented in this environment; return empty text so caller handles it gracefully.
+    if (!text || text.length === 0) {
+      const err = new Error("PDF_TEXT_EMPTY");
+      err.code = "PDF_TEXT_EMPTY";
+      throw err;
     }
 
     return text;
   } catch (error) {
-    console.error("[DIAGNOSTIC] extractPdfText failed:", error);
+    console.error("[DIAGNOSTIC] extractPdfText failed:", error?.message || error);
     const wrapped = new Error("RESUME_TEXT_EXTRACTION_FAILED");
     wrapped.code = "RESUME_TEXT_EXTRACTION_FAILED";
+    wrapped.isDeterministic = true;
     wrapped.cause = error;
     throw wrapped;
   }
