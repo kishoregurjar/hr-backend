@@ -2732,6 +2732,26 @@ class AttemptRepository {
   /**
    * Run Database Transaction
    */
+  /**
+   * Record Proctoring Event
+   */
+  async createProctoringEvent({ attemptId, candidateId, assessmentId, companyId, type, metadata, clientAt }, tx) {
+    const db = getClient(tx);
+    if (!db.proctoringEvent) return null;
+    return db.proctoringEvent.create({
+      data: {
+        attemptId,
+        candidateId: candidateId || undefined,
+        assessmentId: assessmentId || undefined,
+        companyId: companyId || undefined,
+        type,
+        metadata: metadata || {},
+        clientAt: clientAt ? new Date(clientAt) : undefined,
+        serverAt: new Date(),
+      },
+    });
+  }
+
   async transaction(fn, options) {
     return runTransaction(fn, options);
   }
@@ -2803,3 +2823,4 @@ module.exports.lockAttemptForExpiry = attemptRepository.lockAttemptForExpiry.bin
 module.exports.markAttemptExpired = attemptRepository.markAttemptExpired.bind(attemptRepository);
 module.exports.findAttemptByTokenHash = attemptRepository.findAttemptByTokenHash.bind(attemptRepository);
 module.exports.findAttemptState = attemptRepository.findAttemptState.bind(attemptRepository);
+module.exports.createProctoringEvent = attemptRepository.createProctoringEvent.bind(attemptRepository);

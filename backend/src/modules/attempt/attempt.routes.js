@@ -32,6 +32,7 @@ const {
   evaluateAttemptAnswerSchema,
   attemptResultQuerySchema,
   assessmentAnalyticsQuerySchema,
+  proctoringEventSchema,
 } = require("./attempt.validator");
 
 /**
@@ -135,6 +136,21 @@ router.post(
     ttlSeconds: 24 * 60 * 60,
   }),
   attemptController.submitAttempt
+);
+
+/**
+ * Record Candidate Proctoring Event
+ * POST /api/v1/attempts/proctoring-events
+ * POST /api/v1/attempts/:attemptId/proctoring-events
+ * POST /api/v1/assessment-attempts/:attemptId/proctoring-events
+ * Secured by Candidate Verification Session Bearer token
+ */
+router.post(
+  ["/proctoring-events", "/:attemptId/proctoring-events", "/assessment-attempts/:attemptId/proctoring-events"],
+  requireCandidateVerification,
+  saveAnswerRateLimiter,
+  validateRequest({ body: proctoringEventSchema }),
+  attemptController.recordProctoringEvent
 );
 
 /**

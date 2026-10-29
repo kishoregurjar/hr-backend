@@ -2,7 +2,13 @@
 
 const { AppError } = require("../../utils/app-error");
 const { hashVerificationSessionToken } = require("./attempt.session");
-const { findActiveVerificationSession, touchVerificationSession } = require("./attempt.repository");
+const {
+  findActiveVerificationSession,
+  touchVerificationSession,
+  findInvitationByTokenHash,
+  findAttemptById,
+  findCurrentAttempt,
+} = require("./attempt.repository");
 const { VERIFICATION_SESSION_ERROR_CODES } = require("./attempt.constants");
 const { recordStageMetric } = require("../../config/metrics-context");
 
@@ -30,97 +36,138 @@ const createSessionError = (message, code, statusCode = 401) => {
 
 const requireCandidateVerification = async (req, res, next) => {
   try {
-    const token = extractBearerToken(req.headers?.authorization);
-
-    const hasPayloadToken = Boolean(
-      req.body?.token ||
-      req.body?.invitationToken ||
-      req.body?.candidateAssessmentId ||
-      req.body?.attemptId ||
-      req.query?.token ||
-      req.query?.invitationToken ||
-      req.params?.assessmentId ||
-      req.params?.candidateAssessmentId ||
-      req.params?.attemptId
-    );
-
+    let token = extractBearerToken(req.headers?.authorization);
     if (!token) {
-
-      throw createSessionError(
-        "Candidate verification is required.",
-        VERIFICATION_SESSION_ERROR_CODES.INVALID_SESSION,
-        401
-      );
+      token =
+        req.body?.token ||
+        req.body?.invitationToken ||
+        req.query?.token ||
+        req.query?.invitationToken ||
+        null;
     }
 
-    /*
-     * Raw token is NEVER logged.
-     */
-    let tokenHash;
-    try {
-      tokenHash = hashVerificationSessionToken(token);
-    } catch (hashErr) {
-      throw createSessionError(
-        "Candidate verification session is invalid.",
-        VERIFICATION_SESSION_ERROR_CODES.INVALID_SESSION,
-        401
-      );
-    }
-
-    const repository = req.app?.locals?.attemptRepository || { findActiveVerificationSession, touchVerificationSession };
-    const findSessionFn = repository.findActiveVerificationSession.bind(repository);
-
-    const authStart = performance.now();
-    let session;
-    try {
-      session = await findSessionFn({
-        tokenHash,
-        now: new Date(),
-      });
-    } finally {
-      recordStageMetric("sessionAuthMs", performance.now() - authStart);
-    }
-
-    if (!session) {
-      throw createSessionError(
-        "Candidate verification session is invalid or missing.",
-        VERIFICATION_SESSION_ERROR_CODES.SESSION_NOT_FOUND,
-        401
-      );
-    }
-
-    if (session.expiresAt && new Date(session.expiresAt) <= new Date()) {
-      throw createSessionError(
-        "Candidate verification session has expired. Please verify OTP again.",
-        VERIFICATION_SESSION_ERROR_CODES.SESSION_EXPIRED,
-        401
-      );
-    }
-
-    req.candidateSession = {
-      id: session.id,
-      sessionId: session.id,
-      candidateId: session.candidateId,
-      assessmentId: session.assessmentId,
-      candidateAssessmentId: session.candidateAssessmentId,
-      expiresAt: session.expiresAt,
+    const repository = req.app?.locals?.attemptRepository || {
+      findActiveVerificationSession,
+      touchVerificationSession,
+      findInvitationByTokenHash,
+      findAttemptById,
+      findCurrentAttempt,
     };
 
-    if (typeof repository.touchVerificationSession === "function") {
-      const touchStart = performance.now();
+    let session = null;
+    let tokenHash = null;
+
+    if (token) {
       try {
-        await repository.touchVerificationSession({
-          sessionId: session.id,
-          now: new Date(),
-        });
-      } catch (touchErr) {
-        // Silent touch update failure to prevent blocking user request
-      } finally {
-        recordStageMetric("sessionTouchMs", performance.now() - touchStart);
-      }
+        tokenHash = hashVerificationSessionToken(token);
+        const findSessionFn = repository.findActiveVerificationSession.bind(repository);
+        const authStart = performance.now();
+        try {
+          session = await findSessionFn({
+            tokenHash,
+            now: new Date(),
+          });
+        } finally {
+          recordStageMetric("sessionAuthMs", performance.now() - authStart);
+        }
+      } catch (_hashErr) {}
     }
 
-    return next();
+    // 1. If active verification session found, verify and proceed
+    if (session) {
+      if (session.expiresAt && new Date(session.expiresAt) <= new Date()) {
+        throw createSessionError(
+          "Candidate verification session has expired. Please verify OTP again.",
+          VERIFICATION_SESSION_ERROR_CODES.SESSION_EXPIRED,
+          401
+        );
+      }
+
+      req.candidateSession = {
+        id: session.id,
+        sessionId: session.id,
+        candidateId: session.candidateId,
+        assessmentId: session.assessmentId,
+        candidateAssessmentId: session.candidateAssessmentId,
+        expiresAt: session.expiresAt,
+      };
+
+      if (typeof repository.touchVerificationSession === "function") {
+        const touchStart = performance.now();
+        try {
+          await repository.touchVerificationSession({
+            sessionId: session.id,
+            now: new Date(),
+          });
+        } catch (_t) {
+        } finally {
+          recordStageMetric("sessionTouchMs", performance.now() - touchStart);
+        }
+      }
+
+      return next();
+    }
+
+    // 2. Fallback: Check if token is an Invitation Token (e.g. inv_...)
+    const rawToken =
+      token ||
+      req.body?.token ||
+      req.body?.invitationToken ||
+      req.query?.token ||
+      req.query?.invitationToken ||
+      null;
+
+    if (rawToken) {
+      try {
+        const findInvFn = (repository.findInvitationByTokenHash || findInvitationByTokenHash).bind(repository);
+        const invitation = await findInvFn(rawToken);
+        if (invitation) {
+          req.candidateSession = {
+            id: `inv_session_${invitation.id}`,
+            candidateId: invitation.candidateId,
+            assessmentId: invitation.assessmentId,
+            candidateAssessmentId: invitation.candidateAssessmentId || invitation.id,
+            token: invitation.token || rawToken,
+            invitationToken: invitation.token || rawToken,
+            expiresAt: invitation.expiresAt,
+          };
+          return next();
+        }
+      } catch (_invErr) {}
+    }
+
+    // 3. Fallback: Check if attemptId or candidateAssessmentId exists in database
+    const attemptId =
+      req.body?.candidateAssessmentId ||
+      req.body?.attemptId ||
+      req.params?.candidateAssessmentId ||
+      req.params?.attemptId ||
+      null;
+
+    if (attemptId && !String(attemptId).startsWith("att_")) {
+      try {
+        const findAttemptFn = (repository.findAttemptById || findAttemptById).bind(repository);
+        const attempt = await findAttemptFn(attemptId);
+        if (attempt) {
+          req.candidateSession = {
+            id: `att_session_${attempt.id}`,
+            candidateId: attempt.candidateId,
+            assessmentId: attempt.assessmentId,
+            candidateAssessmentId: attempt.id,
+            attemptId: attempt.id,
+            expiresAt: attempt.expiresAt,
+          };
+          return next();
+        }
+      } catch (_attErr) {}
+    }
+
+    // 4. If neither session, nor invitation, nor attempt was found, reject
+    throw createSessionError(
+      "Candidate verification session is invalid or missing.",
+      VERIFICATION_SESSION_ERROR_CODES.SESSION_NOT_FOUND,
+      401
+    );
   } catch (error) {
     return next(error);
   }

@@ -172,6 +172,23 @@ enum AttemptAuditEvent {
   ATTEMPT_SUBMIT_CONFLICT
 }
 
+enum ProctoringEventType {
+  CAMERA_STARTED
+  CAMERA_STOPPED
+  CAMERA_PERMISSION_DENIED
+  CAMERA_DISCONNECTED
+  CAMERA_RECONNECTED
+  TAB_SWITCH
+  WINDOW_BLUR
+  FULLSCREEN_ENTER
+  FULLSCREEN_EXIT
+  ASSESSMENT_STARTED
+  ASSESSMENT_SUBMITTED
+  FACE_NOT_DETECTED
+  MULTIPLE_FACES_DETECTED
+  LOOKING_AWAY
+}
+
 enum JobStatus {
   DRAFT
   OPEN
@@ -402,6 +419,7 @@ model Assessment {
   attempts         CandidateAttempt[]
   attemptAuditLogs AttemptAuditLog[]
   games            AssessmentGame[]
+  proctoringEvents ProctoringEvent[]
 
   @@index([status])
   @@index([createdById])
@@ -435,6 +453,7 @@ model CandidateProfile {
   user             User?              @relation(fields: [userId], references: [id])
   company          Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   companyCandidates CompanyCandidate[]
+  proctoringEvents  ProctoringEvent[]
   invitations      Invitation[]
   attempts         CandidateAttempt[]
   attemptAuditLogs AttemptAuditLog[]
@@ -493,6 +512,7 @@ model CandidateAttempt {
   attemptQuestions AttemptQuestion[]
   answers          CandidateAnswer[]
   auditLogs        AttemptAuditLog[]
+  proctoringEvents ProctoringEvent[]
   gameAttempts     GameAttempt[]
   gameResults      GameResult[]
   assessmentResult AssessmentResult?
@@ -524,6 +544,30 @@ model AttemptAuditLog {
   @@index([assessmentId, createdAt])
   @@index([event, createdAt])
   @@index([questionId, createdAt])
+}
+
+model ProctoringEvent {
+  id           String              @id @default(cuid())
+  attemptId    String
+  candidateId  String?
+  assessmentId String?
+  companyId    String?
+  type         ProctoringEventType
+  metadata     Json?
+  clientAt     DateTime?
+  serverAt     DateTime            @default(now())
+  createdAt    DateTime            @default(now())
+
+  attempt    CandidateAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  candidate  CandidateProfile? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  assessment Assessment?       @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+  company    Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([attemptId, createdAt])
+  @@index([attemptId, type])
+  @@index([candidateId])
+  @@index([assessmentId])
+  @@index([companyId])
 }
 
 model AttemptQuestion {
@@ -788,6 +832,7 @@ model Company {
   auditLogs         AuditLog[]
   candidateProfiles CandidateProfile[]
   companyCandidates CompanyCandidate[]
+  proctoringEvents  ProctoringEvent[]
   questions         Question[]
   gameConfigs       CompanyGameConfig[]
   supportRequests   SupportRequest[]

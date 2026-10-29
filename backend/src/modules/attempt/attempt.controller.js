@@ -455,6 +455,42 @@ class AttemptController {
    * Get Assessment Results List Handler (HR / Admin)
    * GET /api/v1/assessments/:assessmentId/results
    */
+  /**
+   * Record Candidate Proctoring Event Handler
+   * POST /api/v1/attempts/proctoring-events
+   * POST /api/v1/attempts/:attemptId/proctoring-events
+   */
+  recordProctoringEvent = asyncHandler(async (req, res) => {
+    const { attemptId: paramAttemptId } = req.params || {};
+    const {
+      attemptId: bodyAttemptId,
+      candidateAssessmentId,
+      token,
+      invitationToken,
+      type,
+      metadata,
+      clientAt,
+      timestamp,
+    } = req.body || {};
+    const candidateSession = req.candidateSession;
+
+    const result = await attemptService.recordCandidateProctoringEvent({
+      attemptId: paramAttemptId || bodyAttemptId || candidateAssessmentId,
+      candidateAssessmentId: candidateAssessmentId || paramAttemptId || bodyAttemptId,
+      candidateSession,
+      token: token || invitationToken,
+      type,
+      metadata,
+      clientAt: clientAt || timestamp,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Proctoring event recorded successfully.",
+      data: result,
+    });
+  });
+
   getAssessmentResults = asyncHandler(async (req, res) => {
     const { assessmentId } = req.params;
 

@@ -134,9 +134,38 @@ const getCanonicalGameCode = (input) => {
   return null;
 };
 
+const GAME_DIFFICULTY_DURATIONS = Object.freeze({
+  zip: Object.freeze({ EASY: 2, MEDIUM: 3.5, HARD: 5 }),
+  tango: Object.freeze({ EASY: 2.5, MEDIUM: 3.5, HARD: 5 }),
+  sudoku: Object.freeze({ EASY: 2.5, MEDIUM: 4, HARD: 6 }),
+  mahjong: Object.freeze({ EASY: 2, MEDIUM: 3, HARD: 4.5 }),
+  nqueens: Object.freeze({ EASY: 2.5, MEDIUM: 3.5, HARD: 5 }),
+  card_match: Object.freeze({ EASY: 1, MEDIUM: 1.5, HARD: 2.5 }),
+  maze_escape: Object.freeze({ EASY: 1, MEDIUM: 1.5, HARD: 2.5 }),
+  pattern_memory: Object.freeze({ EASY: 1.5, MEDIUM: 2.5, HARD: 4 }),
+});
+
+const getGameDurationForDifficulty = (gameSlugOrId, difficulty = "MEDIUM") => {
+  const code = getCanonicalGameCode(gameSlugOrId);
+  const diff = String(difficulty || "MEDIUM").toUpperCase();
+  let key = "zip";
+  if (code === GAME_CODES.TANGO) key = "tango";
+  else if (code === GAME_CODES.MINI_SUDOKU) key = "sudoku";
+  else if (code === GAME_CODES.MAHJONG_TILE_MATCH) key = "mahjong";
+  else if (code === GAME_CODES.N_QUEENS) key = "nqueens";
+
+  const table = GAME_DIFFICULTY_DURATIONS[key];
+  if (table && typeof table[diff] === "number") {
+    return table[diff];
+  }
+  return diff === "EASY" ? 2 : diff === "HARD" ? 5 : 3.5;
+};
+
 module.exports = {
   GAME_SLUGS,
   GAME_CODES,
   GAMES_METADATA,
+  GAME_DIFFICULTY_DURATIONS,
   getCanonicalGameCode,
+  getGameDurationForDifficulty,
 };

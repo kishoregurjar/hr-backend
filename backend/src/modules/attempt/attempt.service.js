@@ -2016,7 +2016,16 @@ class AttemptService {
   evaluateAttemptQuestion({ attemptQuestion }) {
     const answer = attemptQuestion?.answers?.[0];
     const question = attemptQuestion?.question || attemptQuestion?.questionSnapshot || {};
-    const qType = question?.type || attemptQuestion?.type || "SINGLE_CHOICE";
+    const effectiveQuestion = {
+      ...question,
+      options:
+        Array.isArray(question?.options) && question.options.length > 0
+          ? question.options
+          : Array.isArray(attemptQuestion?.questionSnapshot?.options)
+          ? attemptQuestion.questionSnapshot.options
+          : question?.options || [],
+    };
+    const qType = effectiveQuestion?.type || attemptQuestion?.type || "SINGLE_CHOICE";
 
     /**
      * Objective questions.
@@ -2027,7 +2036,7 @@ class AttemptService {
       qType === "TRUE_FALSE"
     ) {
       const result = this.evaluateObjectiveQuestion({
-        question,
+        question: effectiveQuestion,
         answer,
       });
 
@@ -3855,6 +3864,77 @@ class AttemptService {
         );
       }
 
+      // 0. Persist any answers provided in the submission payload before evaluation
+      if (responses && typeof responses === "object" && Object.keys(responses).length > 0) {
+        try {
+          const db = tx || prisma;
+          const attemptQuestionModel = db.attemptQuestion;
+          const validQuestions = await attemptQuestionModel.findMany({
+            where: { attemptId: lockedAttempt.id },
+            select: { questionId: true },
+          });
+          const validQuestionIds = new Set(validQuestions.map((q) => q.questionId));
+
+          // Flatten nested section responses if present: { [sectionId]: { [qId]: optionId } }
+          const flatAnswers = [];
+          for (const [key, val] of Object.entries(responses)) {
+            if (!val) continue;
+            if (
+              typeof val === "object" &&
+              !Array.isArray(val) &&
+              !val.selectedOptionIds &&
+              !val.optionId &&
+              !val.answerText
+            ) {
+              for (const [subKey, subVal] of Object.entries(val)) {
+                if (subVal !== undefined && subVal !== null) {
+                  flatAnswers.push({ qId: subKey, val: subVal });
+                }
+              }
+            } else {
+              flatAnswers.push({ qId: key, val });
+            }
+          }
+
+          for (const item of flatAnswers) {
+            const matchedQuestionId = validQuestionIds.has(item.qId) ? item.qId : null;
+            if (!matchedQuestionId) continue;
+
+            let selectedOptionIds = [];
+            let answerText = null;
+
+            if (Array.isArray(item.val)) {
+              selectedOptionIds = item.val.filter(Boolean).map((x) => String(x?.id || x));
+            } else if (typeof item.val === "string" || typeof item.val === "number") {
+              selectedOptionIds = [String(item.val)];
+            } else if (typeof item.val === "object" && item.val !== null) {
+              if (Array.isArray(item.val.selectedOptionIds)) {
+                selectedOptionIds = item.val.selectedOptionIds.filter(Boolean).map((x) => String(x?.id || x));
+              } else if (item.val.optionId) {
+                selectedOptionIds = [String(item.val.optionId)];
+              }
+              if (typeof item.val.answerText === "string") {
+                answerText = item.val.answerText;
+              }
+            }
+
+            if (selectedOptionIds.length > 0 || (typeof answerText === "string" && answerText.length > 0)) {
+              await attemptRepository.upsertAttemptAnswer(
+                {
+                  attemptId: lockedAttempt.id,
+                  questionId: matchedQuestionId,
+                  selectedOptionIds,
+                  answerText,
+                },
+                tx
+              );
+            }
+          }
+        } catch (_upsertErr) {
+          console.warn("[submitCandidateAttempt] Auto-upsert responses notice:", _upsertErr?.message);
+        }
+      }
+
       const attempt = await attemptRepository.findAttemptForEvaluation(lockedAttempt.id, tx);
       if (!attempt) {
         throw new NotFoundError(
@@ -4679,6 +4759,94 @@ class AttemptService {
    * Send Interview Invitation Emails to Qualified Candidates
    * ------------------------------------------------------------
    */
+  /**
+   * Record Candidate Proctoring Event
+   */
+  async recordCandidateProctoringEvent({
+    attemptId,
+    candidateAssessmentId,
+    candidateSession,
+    token,
+    type,
+    metadata,
+    clientAt,
+  }) {
+    const rawToken = token || candidateSession?.invitationToken || candidateSession?.token;
+    const targetAttemptId = attemptId || candidateAssessmentId || candidateSession?.candidateAssessmentId || candidateSession?.candidateAttemptId;
+
+    let attempt = null;
+    if (targetAttemptId && !String(targetAttemptId).startsWith("att_")) {
+      try {
+        attempt = await attemptRepository.findAttemptById(targetAttemptId);
+      } catch (_e) {}
+    }
+
+    if (!attempt && rawToken) {
+      try {
+        const inv = await this.findInvitationByRawToken(rawToken);
+        if (inv) {
+          attempt = await attemptRepository.findActiveAttemptByCandidateAndAssessment(
+            inv.candidateId,
+            inv.assessmentId
+          );
+        }
+      } catch (_e) {}
+    }
+
+    if (!attempt && candidateSession) {
+      const candidateId = candidateSession.candidateId || candidateSession.id;
+      const assessmentId = candidateSession.assessmentId;
+      if (candidateId && assessmentId) {
+        try {
+          attempt = await attemptRepository.findActiveAttemptByCandidateAndAssessment(
+            candidateId,
+            assessmentId
+          );
+        } catch (_e) {}
+      }
+    }
+
+    if (!attempt) {
+      if (targetAttemptId) {
+        try {
+          const db = prisma;
+          attempt = await db.candidateAttempt.findUnique({
+            where: { id: targetAttemptId },
+            include: { assessment: true },
+          });
+        } catch (_e) {}
+      }
+    }
+
+    if (!attempt) {
+      throw new NotFoundError("Assessment attempt not found.", "ATTEMPT_NOT_FOUND");
+    }
+
+    if (candidateSession?.candidateId && attempt.candidateId && String(attempt.candidateId) !== String(candidateSession.candidateId)) {
+      throw new ForbiddenError("Unauthorized to record proctoring events for this attempt.", "FORBIDDEN");
+    }
+
+    const companyId = attempt.assessment?.companyId || null;
+
+    const event = await attemptRepository.createProctoringEvent({
+      attemptId: attempt.id,
+      candidateId: attempt.candidateId,
+      assessmentId: attempt.assessmentId,
+      companyId,
+      type,
+      metadata: metadata || {},
+      clientAt: clientAt || new Date(),
+    });
+
+    return {
+      success: true,
+      eventId: event?.id,
+      attemptId: attempt.id,
+      type,
+      recordedAt: event?.createdAt || new Date(),
+    };
+  }
+
   async sendInterviewInvitation({
     candidates = [],
     roundName = "Technical Interview - Round 2",
