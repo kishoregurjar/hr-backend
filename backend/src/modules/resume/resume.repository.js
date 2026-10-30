@@ -61,6 +61,52 @@ async function updateResumeProcessing(id, data, db = prisma) {
   });
 }
 
+async function touchResumeProcessing(id, db = prisma) {
+  if (!id) return null;
+  return db.resumeProcessing.update({
+    where: { id },
+    data: { updatedAt: new Date() },
+  });
+}
+
+async function claimStaleResumeProcessing(id, staleBefore, db = prisma) {
+  if (!id) return false;
+  const result = await db.resumeProcessing.updateMany({
+    where: {
+      id,
+      OR: [
+        { status: "FAILED" },
+        { status: "PENDING" },
+        {
+          status: "PROCESSING",
+          updatedAt: { lt: staleBefore },
+        },
+      ],
+    },
+    data: {
+      status: "PROCESSING",
+      updatedAt: new Date(),
+      errorCode: null,
+      errorMessage: null,
+    },
+  });
+  return result.count > 0;
+}
+
+async function createResumeProcessingSafely(data, db = prisma) {
+  try {
+    return await db.resumeProcessing.create({ data });
+  } catch (error) {
+    if (error?.code === "P2002" || String(error?.message).includes("Unique constraint failed")) {
+      return await db.resumeProcessing.findUnique({
+        where: { fileHash: data.fileHash },
+        include: { applications: true },
+      });
+    }
+    throw error;
+  }
+}
+
 async function findCandidateByEmail(email, db = prisma) {
   if (!email) return null;
 
@@ -365,6 +411,44 @@ async function createInboundEmailEventSafely(
   }
 }
 
+async function findOldestFailedInboundEvent(recipientEmail, db = prisma) {
+  if (!recipientEmail) return null;
+  return db.inboundEmailEvent.findFirst({
+    where: {
+      recipientEmail,
+      OR: [
+        {
+          status: "FAILED",
+          NOT: { errorCode: "PERMANENT_FAILURE" },
+        },
+        {
+          status: "PROCESSING",
+        },
+      ],
+    },
+    orderBy: { receivedAt: "asc" },
+    select: { id: true, receivedAt: true, createdAt: true },
+  });
+}
+
+async function countUnrecoveredFailedInboundEvents(recipientEmail, db = prisma) {
+  if (!recipientEmail) return 0;
+  return db.inboundEmailEvent.count({
+    where: {
+      recipientEmail,
+      OR: [
+        {
+          status: "FAILED",
+          NOT: { errorCode: "PERMANENT_FAILURE" },
+        },
+        {
+          status: "PROCESSING",
+        },
+      ],
+    },
+  });
+}
+
 function createResumeRepository(options = {}) {
   const db = options.prisma || prisma;
 
@@ -375,6 +459,9 @@ function createResumeRepository(options = {}) {
     createResumeProcessing: (data, tx) => createResumeProcessing(data, tx || db),
     findResumeProcessingById: (id, tx) => findResumeProcessingById(id, tx || db),
     updateResumeProcessing: (id, data, tx) => updateResumeProcessing(id, data, tx || db),
+    touchResumeProcessing: (id, tx) => touchResumeProcessing(id, tx || db),
+    claimStaleResumeProcessing: (id, staleBefore, tx) => claimStaleResumeProcessing(id, staleBefore, tx || db),
+    createResumeProcessingSafely: (data, tx) => createResumeProcessingSafely(data, tx || db),
     findCandidateByEmail: (email, tx) => findCandidateByEmail(email, tx || db),
     createCandidate: (data, tx) => createCandidate(data, tx || db),
     updateCandidate: (id, data, tx) => updateCandidate(id, data, tx || db),
@@ -390,6 +477,8 @@ function createResumeRepository(options = {}) {
     findInboundEmailEventsByMessageIds: (provider, msgIds, tx) => findInboundEmailEventsByMessageIds(provider, msgIds, tx || db),
     markInboundEmailEventCompleted: (id, resId, tx) => markInboundEmailEventCompleted(id, resId, tx || db),
     markInboundEmailEventFailed: (id, code, msg, tx) => markInboundEmailEventFailed(id, code, msg, tx || db),
+    findOldestFailedInboundEvent: (recipientEmail, tx) => findOldestFailedInboundEvent(recipientEmail, tx || db),
+    countUnrecoveredFailedInboundEvents: (recipientEmail, tx) => countUnrecoveredFailedInboundEvents(recipientEmail, tx || db),
   };
 }
 
@@ -401,6 +490,9 @@ module.exports = {
   createResumeProcessing,
   findResumeProcessingById,
   updateResumeProcessing,
+  touchResumeProcessing,
+  claimStaleResumeProcessing,
+  createResumeProcessingSafely,
   findCandidateByEmail,
   createCandidate,
   updateCandidate,
@@ -416,5 +508,7 @@ module.exports = {
   findInboundEmailEventsByMessageIds,
   markInboundEmailEventCompleted,
   markInboundEmailEventFailed,
+  findOldestFailedInboundEvent,
+  countUnrecoveredFailedInboundEvents,
 };
 

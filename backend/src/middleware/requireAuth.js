@@ -34,16 +34,25 @@ const clearUserCache = (userId) => {
  * Checks User status as well as Company suspension status for non-Super Admins.
  * Placed directly at src/middleware/requireAuth.js matching Clean Middleware Standard.
  * Uses 60s in-memory cache to eliminate DB query latency on every request.
+ * Supports Bearer Authorization header, query parameter `token`, or cookie `accessToken`.
  * ==========================================================
  */
 const requireAuth = async (req, res, next) => {
   try {
+    let token = null;
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    } else if (req.query?.token) {
+      token = req.query.token;
+    } else if (req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
+    }
+
+    if (!token) {
       throw new UnauthorizedError("Authentication token is required.", "TOKEN_REQUIRED");
     }
 
-    const token = authHeader.split(" ")[1];
     const payload = verifyAccessToken(token);
 
     const user = await getCachedUser(payload.sub);

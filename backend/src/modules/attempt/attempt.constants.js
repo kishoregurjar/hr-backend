@@ -487,8 +487,8 @@ const isValidNumericOtp = (otp) => {
 
 const VERIFICATION_SESSION_CONFIG = Object.freeze({
   TOKEN_BYTES: 32,
-  DEFAULT_TTL_MINUTES: 15,
-  MAX_TTL_MINUTES: 30,
+  DEFAULT_TTL_MINUTES: 240, // 4 hours so assessment never expires mid-test
+  MAX_TTL_MINUTES: 480,     // 8 hours maximum
   TOKEN_PREFIX: "vs_",
 });
 

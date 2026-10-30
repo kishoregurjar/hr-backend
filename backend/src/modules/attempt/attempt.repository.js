@@ -2411,6 +2411,18 @@ class AttemptRepository {
    */
   async listCandidatesForHR({ where, skip, take, orderBy, companyId = null }, tx) {
     const client = tx || prisma;
+    const companyScopeFilter = companyId
+      ? {
+          assessment: {
+            createdBy: {
+              companyMembers: {
+                some: { companyId },
+              },
+            },
+          },
+        }
+      : undefined;
+
     const profiles = await client.candidateProfile.findMany({
       where,
       skip,
@@ -2434,17 +2446,7 @@ class AttemptRepository {
         createdAt: true,
         updatedAt: true,
         invitations: {
-          where: companyId
-            ? {
-                assessment: {
-                  createdBy: {
-                    companyMembers: {
-                      some: { companyId },
-                    },
-                  },
-                },
-              }
-            : undefined,
+          where: companyScopeFilter,
           take: 1,
           orderBy: { sentAt: "desc" },
           select: {
@@ -2461,17 +2463,7 @@ class AttemptRepository {
           },
         },
         attempts: {
-          where: companyId
-            ? {
-                assessment: {
-                  createdBy: {
-                    companyMembers: {
-                      some: { companyId },
-                    },
-                  },
-                },
-              }
-            : undefined,
+          where: companyScopeFilter,
           take: 1,
           orderBy: { startedAt: "desc" },
           select: {
@@ -2778,6 +2770,26 @@ class AttemptRepository {
   /**
    * Run Database Transaction
    */
+  /**
+   * Record Proctoring Event
+   */
+  async createProctoringEvent({ attemptId, candidateId, assessmentId, companyId, type, metadata, clientAt }, tx) {
+    const db = getClient(tx);
+    if (!db.proctoringEvent) return null;
+    return db.proctoringEvent.create({
+      data: {
+        attemptId,
+        candidateId: candidateId || undefined,
+        assessmentId: assessmentId || undefined,
+        companyId: companyId || undefined,
+        type,
+        metadata: metadata || {},
+        clientAt: clientAt ? new Date(clientAt) : undefined,
+        serverAt: new Date(),
+      },
+    });
+  }
+
   async transaction(fn, options) {
     return runTransaction(fn, options);
   }
@@ -2849,3 +2861,4 @@ module.exports.lockAttemptForExpiry = attemptRepository.lockAttemptForExpiry.bin
 module.exports.markAttemptExpired = attemptRepository.markAttemptExpired.bind(attemptRepository);
 module.exports.findAttemptByTokenHash = attemptRepository.findAttemptByTokenHash.bind(attemptRepository);
 module.exports.findAttemptState = attemptRepository.findAttemptState.bind(attemptRepository);
+module.exports.createProctoringEvent = attemptRepository.createProctoringEvent.bind(attemptRepository);

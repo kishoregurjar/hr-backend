@@ -210,6 +210,38 @@ const submitAttemptSchema = z
  * 5. Attempt Query Schema
  * ==========================================================
  */
+const PROCTORING_EVENT_TYPES = [
+  "CAMERA_STARTED",
+  "CAMERA_STOPPED",
+  "CAMERA_PERMISSION_DENIED",
+  "CAMERA_DISCONNECTED",
+  "CAMERA_RECONNECTED",
+  "TAB_SWITCH",
+  "WINDOW_BLUR",
+  "FULLSCREEN_ENTER",
+  "FULLSCREEN_EXIT",
+  "ASSESSMENT_STARTED",
+  "ASSESSMENT_SUBMITTED",
+  "FACE_NOT_DETECTED",
+  "MULTIPLE_FACES_DETECTED",
+  "LOOKING_AWAY",
+];
+
+const proctoringEventSchema = z
+  .object({
+    type: z.enum(PROCTORING_EVENT_TYPES, {
+      errorMap: () => ({ message: "Unsupported proctoring event type." }),
+    }),
+    attemptId: z.string().trim().optional(),
+    candidateAssessmentId: z.string().trim().optional(),
+    token: z.string().trim().optional(),
+    invitationToken: z.string().trim().optional(),
+    timestamp: z.string().or(z.date()).optional(),
+    clientAt: z.string().or(z.date()).optional(),
+    metadata: z.record(z.any()).optional().default({}),
+  })
+  .passthrough();
+
 const attemptQuerySchema = z.object({
   query: z.object({
     page: z.coerce.number().int().min(1).default(ATTEMPT_LIMITS.DEFAULT_PAGE),
@@ -520,4 +552,5 @@ module.exports = {
   evaluateAttemptAnswerSchema,
   attemptResultQuerySchema,
   assessmentAnalyticsQuerySchema,
+  proctoringEventSchema,
 };

@@ -32,6 +32,7 @@ const {
   evaluateAttemptAnswerSchema,
   attemptResultQuerySchema,
   assessmentAnalyticsQuerySchema,
+  proctoringEventSchema,
 } = require("./attempt.validator");
 
 /**
@@ -138,6 +139,21 @@ router.post(
 );
 
 /**
+ * Record Candidate Proctoring Event
+ * POST /api/v1/attempts/proctoring-events
+ * POST /api/v1/attempts/:attemptId/proctoring-events
+ * POST /api/v1/assessment-attempts/:attemptId/proctoring-events
+ * Secured by Candidate Verification Session Bearer token
+ */
+router.post(
+  ["/proctoring-events", "/:attemptId/proctoring-events", "/assessment-attempts/:attemptId/proctoring-events"],
+  requireCandidateVerification,
+  saveAnswerRateLimiter,
+  validateRequest({ body: proctoringEventSchema }),
+  attemptController.recordProctoringEvent
+);
+
+/**
  * Direct Candidate Attempt Detail Recovery (Candidate Safe)
  * GET /api/v1/attempts/candidate/:attemptId
  * GET /api/v1/attempts/candidate-session/:attemptId
@@ -150,6 +166,17 @@ router.get(
 
 // Protected routes below require JWT authentication
 router.use(requireAuth);
+
+/**
+ * Stream Candidate Resume on-demand from Gmail / Drive (Zero Disk Storage)
+ * GET /api/v1/candidates/:candidateId/resume
+ */
+router.get(
+  ["/:candidateId/resume", "/candidates/:candidateId/resume"],
+  requireAuth,
+  attemptController.streamCandidateResume
+);
+
 
 /**
  * Get Candidates List OR HR Attempt Results (Central Root Dispatcher)

@@ -25,6 +25,7 @@ const {
   ForbiddenError,
 } = require("../../common/errors");
 const socketService = require("../../socket/socket.service");
+const mailboxService = require("../mailbox/mailbox.service");
 const logger = require("../../config/logger");
 const { recordStageMetric } = require("../../config/metrics-context");
 const { toPublicBrandingDTO } = require("../company/company.branding.dto");
@@ -484,6 +485,42 @@ class AttemptController {
    * Get Assessment Results List Handler (HR / Admin)
    * GET /api/v1/assessments/:assessmentId/results
    */
+  /**
+   * Record Candidate Proctoring Event Handler
+   * POST /api/v1/attempts/proctoring-events
+   * POST /api/v1/attempts/:attemptId/proctoring-events
+   */
+  recordProctoringEvent = asyncHandler(async (req, res) => {
+    const { attemptId: paramAttemptId } = req.params || {};
+    const {
+      attemptId: bodyAttemptId,
+      candidateAssessmentId,
+      token,
+      invitationToken,
+      type,
+      metadata,
+      clientAt,
+      timestamp,
+    } = req.body || {};
+    const candidateSession = req.candidateSession;
+
+    const result = await attemptService.recordCandidateProctoringEvent({
+      attemptId: paramAttemptId || bodyAttemptId || candidateAssessmentId,
+      candidateAssessmentId: candidateAssessmentId || paramAttemptId || bodyAttemptId,
+      candidateSession,
+      token: token || invitationToken,
+      type,
+      metadata,
+      clientAt: clientAt || timestamp,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Proctoring event recorded successfully.",
+      data: result,
+    });
+  });
+
   getAssessmentResults = asyncHandler(async (req, res) => {
     const { assessmentId } = req.params;
     const companyId = req.companyId || req.company?.id || null;
@@ -896,6 +933,29 @@ class AttemptController {
    * Send Interview Invitations to Qualified Candidates
    * POST /api/v1/results/send-interview-invite
    */
+  /**
+   * Stream Candidate Resume On-Demand Handler (Zero Disk Storage)
+   * GET /api/v1/candidates/:candidateId/resume
+   */
+  streamCandidateResume = asyncHandler(async (req, res) => {
+    const { candidateId } = req.params;
+    const user = req.user;
+
+    const { buffer, fileName, mimeType } = await mailboxService.getCandidateResumeStream({
+      candidateId,
+      user,
+    });
+
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${encodeURIComponent(fileName)}"`
+    );
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    return res.end(buffer);
+  });
+
   sendInterviewInvite = asyncHandler(async (req, res) => {
     const hrUser = req.user;
     const { candidates, roundName, scheduledAt, meetingLink, customMessage, companyName } = req.body || {};

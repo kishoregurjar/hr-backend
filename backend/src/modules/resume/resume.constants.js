@@ -55,6 +55,9 @@ const RESUME_ERROR_CODES = Object.freeze({
   RESUME_STORAGE_UNAVAILABLE: "RESUME_STORAGE_UNAVAILABLE",
   RESUME_PROCESSING_FAILED: "RESUME_PROCESSING_FAILED",
   RESUME_REVIEW_REQUIRED: "RESUME_REVIEW_REQUIRED",
+  NOT_A_TECH_RESUME: "NOT_A_TECH_RESUME",
+  NOT_A_RESUME: "NOT_A_RESUME",
+  AMBIGUOUS_TECH_PROFILE: "AMBIGUOUS_TECH_PROFILE",
 
   INVALID_FILE: "RESUME_INVALID_FILE",
   INVALID_MAGIC_BYTES: "RESUME_INVALID_MAGIC_BYTES",
@@ -130,60 +133,146 @@ const REGEX = Object.freeze({
 });
 
 const SKILL_DICTIONARY = Object.freeze([
+  // Languages & Core
   "Node.js", "Node",
   "Express.js", "Express",
-  "TypeScript",
+  "TypeScript", "TS",
   "JavaScript", "JS",
   "React", "React.js",
   "Next.js",
   "Angular",
   "Vue.js", "Vue",
+  "Svelte",
   "Python",
   "Java",
   "C++",
   "C#",
+  "C",
   "Go", "Golang",
   "Rust",
   "PHP",
   "Laravel",
-  "PostgreSQL",
+  "Ruby", "Rails", "Ruby on Rails",
+  "Kotlin",
+  "Swift",
+  "Dart",
+  "Flutter",
+  "Scala",
+  "R",
+  "Solidity",
+  "Shell", "Bash",
+
+  // Databases, Caching & ORM
+  "PostgreSQL", "Postgres",
   "MySQL",
-  "MSSQL",
-  "MongoDB",
-  "Mongoose",
+  "MSSQL", "SQL Server",
+  "MongoDB", "Mongoose",
   "Redis",
   "SQL",
+  "SQLite",
+  "DynamoDB",
+  "Cassandra",
+  "Elasticsearch",
+  "Supabase",
   "Prisma",
   "Sequelize",
+  "TypeORM",
+
+  // Cloud, Infrastructure & DevOps
   "Docker",
-  "Kubernetes",
+  "Kubernetes", "K8s",
   "AWS",
   "Azure",
-  "GCP",
+  "GCP", "Google Cloud",
   "Git",
   "GitHub",
   "GitLab",
+  "Terraform",
+  "Ansible",
+  "CI/CD",
+  "Jenkins",
+  "GitHub Actions",
+  "GitLab CI",
+  "Linux", "Ubuntu",
+  "Nginx", "Apache",
+  "Helm",
+  "Prometheus", "Grafana",
+
+  // Architecture & APIs
   "REST", "REST APIs", "REST API",
   "GraphQL",
+  "gRPC",
   "Kafka",
   "RabbitMQ",
+  "Microservices",
+  "WebSockets",
+
+  // Frontend & UI
   "HTML", "HTML5",
   "CSS", "CSS3",
   "Tailwind CSS", "Tailwind",
-  "Dart",
-  "Flutter",
+  "Bootstrap",
+  "SASS", "SCSS",
   "Redux", "Redux Toolkit",
+  "Webpack", "Vite",
   "EJS",
+
+  // Mobile
+  "React Native",
+  "Android", "Android SDK", "Jetpack Compose",
+  "iOS", "SwiftUI",
+
+  // Testing & QA
   "Jest",
   "Mocha",
+  "Chai",
   "Playwright",
-  ".NET",
-  "React Native",
+  "Cypress",
+  "Selenium",
+  "JUnit",
+  "TestNG",
+  "PyTest",
+  "Postman",
+  "Cucumber",
+  "Appium",
+  "JMeter",
+
+  // Data, AI & ML
+  "Machine Learning", "Deep Learning",
+  "PyTorch", "TensorFlow", "Keras",
+  "Scikit-learn",
+  "Pandas", "NumPy",
+  "Spark", "Hadoop",
+  "Airflow",
+  "Snowflake", "Databricks", "BigQuery",
+  "Data Science", "Data Engineering",
+  "Computer Vision", "NLP",
+
+  // Backend Frameworks & Ecosystem
+  ".NET", "ASP.NET", ".NET Core",
+  "Spring", "Spring Boot",
+  "Django", "Flask", "FastAPI",
+  "Nest.js", "NestJS",
   "Firebase",
-  "Terraform",
-  "Ansible",
-  "GitHub Actions",
 ]);
+
+const TECH_ROLES_REGEX =
+  /\b(software\s+(?:engineer|developer|architect)|full\s*stack\s+(?:developer|engineer)|frontend\s+(?:developer|engineer)|backend\s+(?:developer|engineer)|web\s+developer|devops\s+engineer|cloud\s+(?:engineer|architect)|qa\s+(?:engineer|tester|analyst)|sdet|automation\s+engineer|test\s+engineer|data\s+(?:engineer|scientist|analyst)|ml\s+engineer|ai\s+engineer|machine\s+learning\s+engineer|mobile\s+developer|android\s+developer|ios\s+developer|system\s+administrator|sysadmin|solutions\s+architect|database\s+administrator|dba|technical\s+lead|tech\s+lead|engineering\s+manager|cto|site\s+reliability\s+engineer|sre|security\s+engineer|cybersecurity|network\s+engineer|embedded\s+engineer|firmware\s+engineer|computer\s+programmer|programmer)\b/i;
+
+const TECH_EDUCATION_REGEX =
+  /\b(computer\s+science|information\s+technology|software\s+engineering|computer\s+engineering|data\s+science|b\.?\s*tech|b\.?\s*e\.?|bca|mca|m\.?\s*tech|bs\s+cs|ms\s+cs|b\.?\s*sc\s+(?:cs|it|computer)|m\.?\s*sc\s+(?:cs|it|computer))\b/i;
+
+const TECH_LINKS_REGEX =
+  /(?:github\.com|gitlab\.com|bitbucket\.org|leetcode\.com|hackerrank\.com|codeforces\.com|kaggle\.com|stackoverflow\.com)\/[a-zA-Z0-9_.-]+/i;
+
+const NON_TECH_ROLES_REGEX =
+  /\b(sales\s+(?:executive|manager|associate|representative)|business\s+development\s+(?:executive|manager)|real\s+estate\s+agent|broker|registered\s+nurse|staff\s+nurse|physician|medical\s+doctor|dentist|pharmacist|physical\s+therapist|chef|head\s+cook|bartender|barista|waiter|waitress|restaurant\s+server|elementary\s+teacher|primary\s+teacher|kindergarten\s+teacher|school\s+teacher|human\s+resources\s+(?:executive|manager|generalist|recruiter)|hr\s+(?:recruiter|generalist|executive)|talent\s+acquisition|legal\s+counsel|attorney|lawyer|paralegal|chartered\s+accountant|bookkeeper|auditor|financial\s+analyst|investment\s+banker|insurance\s+agent|underwriter|customer\s+service\s+(?:representative|agent)|call\s+center\s+agent|store\s+(?:cashier|clerk|manager)|retail\s+sales\s+associate|warehouse\s+(?:worker|supervisor)|logistics\s+coordinator)\b/i;
+
+const JD_BROADCAST_REGEX =
+  /\b(we\s+are\s+hiring|job\s+description|about\s+the\s+role|role\s+overview|who\s+we\s+are\s+looking\s+for|what\s+you'll\s+do|key\s+responsibilities|responsibilities\s*&?\s*requirements|what\s+we\s+offer|benefits\s*&?\s*perks|how\s+to\s+apply|equal\s+opportunity\s+employer|about\s+our\s+company|about\s+the\s+company)\b/gi;
+
+const CANDIDATE_STRUCTURE_REGEX =
+  /\b(education|academic|work\s+experience|professional\s+experience|employment\s+history|personal\s+projects|academic\s+projects|certifications?|curriculum\s+vitae|resume)\b/i;
 
 module.exports = {
   MAX_RESUME_SIZE,
@@ -209,4 +298,10 @@ module.exports = {
   ERROR_CODES,
   REGEX,
   SKILL_DICTIONARY,
+  TECH_ROLES_REGEX,
+  TECH_EDUCATION_REGEX,
+  TECH_LINKS_REGEX,
+  NON_TECH_ROLES_REGEX,
+  JD_BROADCAST_REGEX,
+  CANDIDATE_STRUCTURE_REGEX,
 };
