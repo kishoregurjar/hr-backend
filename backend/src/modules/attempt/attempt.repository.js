@@ -9,6 +9,7 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
   id: true,
   assessmentId: true,
   candidateId: true,
+  companyId: true,
   status: true,
   startedAt: true,
   expiresAt: true,
@@ -23,6 +24,8 @@ const ATTEMPT_BASE_SELECT = Object.freeze({
       id: true,
       title: true,
       description: true,
+      companyId: true,
+      isQuarantined: true,
       durationMinutes: true,
       passingScore: true,
       maximumScore: true,
@@ -321,7 +324,7 @@ class AttemptRepository {
   async createAttempt(data, tx) {
     const db = getClient(tx);
     const attemptModel = db.candidateAttempt || db.assessmentAttempt;
-    const allowedKeys = ["assessmentId", "candidateId", "status", "startedAt", "expiresAt", "expiredAt", "submittedAt", "score", "maxScore", "percentage", "result"];
+    const allowedKeys = ["assessmentId", "candidateId", "companyId", "status", "startedAt", "expiresAt", "expiredAt", "submittedAt", "score", "maxScore", "percentage", "result"];
     const cleanData = {};
     if (data && typeof data === "object") {
       for (const key of allowedKeys) {
@@ -1082,6 +1085,11 @@ class AttemptRepository {
                         name: true,
                         logoUrl: true,
                         slug: true,
+                        brandColor: true,
+                        accentColor: true,
+                        faviconUrl: true,
+                        brandTagline: true,
+                        showPoweredByHireQuest: true,
                       },
                     },
                   },
@@ -1101,6 +1109,12 @@ class AttemptRepository {
                 id: true,
                 name: true,
                 logoUrl: true,
+                slug: true,
+                brandColor: true,
+                accentColor: true,
+                faviconUrl: true,
+                brandTagline: true,
+                showPoweredByHireQuest: true,
               },
             },
           },
@@ -1468,7 +1482,6 @@ class AttemptRepository {
     return client.assessment.findFirst({
       where: {
         id: assessmentId,
-        deletedAt: null,
       },
 
       select: {
@@ -1480,9 +1493,21 @@ class AttemptRepository {
         maximumScore: true,
         type: true,
         status: true,
+        companyId: true,
+        isQuarantined: true,
         startsAt: true,
         endsAt: true,
         createdById: true,
+        createdBy: {
+          select: {
+            id: true,
+            companyMembers: {
+              select: {
+                companyId: true,
+              },
+            },
+          },
+        },
         createdAt: true,
         updatedAt: true,
       },
@@ -2384,7 +2409,7 @@ class AttemptRepository {
   /**
    * List Candidates for HR Dashboard (Paginated Dedicated Endpoint with User Fallback)
    */
-  async listCandidatesForHR({ where, skip, take, orderBy }, tx) {
+  async listCandidatesForHR({ where, skip, take, orderBy, companyId = null }, tx) {
     const client = tx || prisma;
     const profiles = await client.candidateProfile.findMany({
       where,
@@ -2399,7 +2424,6 @@ class AttemptRepository {
         phoneNumber: true,
         metadata: true,
         companyId: true,
-        metadata: true,
         company: {
           select: {
             id: true,
@@ -2410,6 +2434,17 @@ class AttemptRepository {
         createdAt: true,
         updatedAt: true,
         invitations: {
+          where: companyId
+            ? {
+                assessment: {
+                  createdBy: {
+                    companyMembers: {
+                      some: { companyId },
+                    },
+                  },
+                },
+              }
+            : undefined,
           take: 1,
           orderBy: { sentAt: "desc" },
           select: {
@@ -2426,6 +2461,17 @@ class AttemptRepository {
           },
         },
         attempts: {
+          where: companyId
+            ? {
+                assessment: {
+                  createdBy: {
+                    companyMembers: {
+                      some: { companyId },
+                    },
+                  },
+                },
+              }
+            : undefined,
           take: 1,
           orderBy: { startedAt: "desc" },
           select: {

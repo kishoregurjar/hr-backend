@@ -88,6 +88,7 @@ const toCreateEntity = ({
   attemptNumber,
   startedAt,
   expiresAt,
+  companyId = null,
 }) => {
   if (!assessmentId) {
     throw new TypeError("assessmentId is required.");
@@ -114,6 +115,7 @@ const toCreateEntity = ({
     status: ATTEMPT_STATUS.IN_PROGRESS,
     startedAt,
     expiresAt,
+    companyId: companyId || null,
   };
 };
 
@@ -300,6 +302,7 @@ const toCreateInvitationEntity = ({
   tokenHash,
   status = "PENDING",
   expiresAt,
+  companyId = null,
 }) => {
   if (!assessmentId) {
     throw new TypeError("assessmentId is required.");
@@ -324,6 +327,7 @@ const toCreateInvitationEntity = ({
     candidateId,
     status,
     expiresAt,
+    companyId: companyId || null,
   };
 };
 

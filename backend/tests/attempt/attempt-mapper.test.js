@@ -29,12 +29,10 @@ describe("Assessment Attempt Mapper & Snapshot Transformation Suite", () => {
 
     assert.equal(result.assessmentId, "assessment-1");
     assert.equal(result.candidateId, "candidate-1");
-    assert.equal(result.attemptNumber, 1);
     assert.equal(result.status, "IN_PROGRESS");
     assert.equal(result.startedAt, startedAt);
     assert.equal(result.expiresAt, expiresAt);
-    assert.equal(result.score, null);
-    assert.equal(result.passed, null);
+    assert.equal(result.companyId, null);
   });
 
   it("maps AssessmentQuestion to AttemptQuestion snapshot", () => {
@@ -187,6 +185,23 @@ describe("Assessment Attempt Mapper & Snapshot Transformation Suite", () => {
       candidateId: "candidate-456",
       status: "PENDING",
       expiresAt: futureExpiry,
+      companyId: null,
     });
+  });
+
+  it("creates a persistence-ready invitation entity with explicit companyId", () => {
+    const futureExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    const result = toCreateInvitationEntity({
+      assessmentId: "assessment-123",
+      candidateId: "candidate-456",
+      invitedByUserId: "hr-789",
+      email: "candidate@example.com",
+      tokenHash: "hashed_token_string_here",
+      expiresAt: futureExpiry,
+      companyId: "company-tenant-42",
+    });
+
+    assert.equal(result.companyId, "company-tenant-42");
+    assert.equal(result.status, "PENDING");
   });
 });

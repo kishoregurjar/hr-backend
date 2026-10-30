@@ -252,11 +252,14 @@ async function downloadDriveFile({ drive, fileId, maxSizeBytes = MAX_RESUME_SIZE
         { responseType: "arraybuffer" }
       );
       buffer = Buffer.from(downloadRes.data);
-      if (isPdf) finalMimeType = "application/pdf";
-      else if (isDocx)
+      if (isPdf) {
+        finalMimeType = "application/pdf";
+      } else if (isDocx) {
         finalMimeType =
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-      else if (isDoc) finalMimeType = "application/msword";
+      } else if (isDoc) {
+        finalMimeType = "application/msword";
+      }
     }
   } catch (err) {
     const status = err.response?.status || err.code || err.status;

@@ -16,8 +16,17 @@ const createCompanyContextError = (message, code, statusCode) => {
   });
 };
 
-const resolveCompanyContext = async (userId, companyId) => {
-  const cacheKey = `${userId}:${companyId || "default"}`;
+const resolveCompanyContext = async (userId, companyId, isSuperAdmin = false) => {
+  if (!companyId || typeof companyId !== "string" || !companyId.trim()) {
+    throw createCompanyContextError(
+      "Active company context (X-Company-Id header or companyId parameter) is required",
+      "COMPANY_CONTEXT_REQUIRED",
+      400
+    );
+  }
+
+  const cleanCompanyId = companyId.trim();
+  const cacheKey = `${userId}:${cleanCompanyId}:${isSuperAdmin ? "superadmin" : "member"}`;
   const cached = contextCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
@@ -25,17 +34,20 @@ const resolveCompanyContext = async (userId, companyId) => {
 
   let company = null;
 
-  if (!companyId) {
-    company = await companyRepository.findDefaultCompanyContextForUser(userId);
+  if (isSuperAdmin) {
+    company = await companyRepository.findCompanyById(cleanCompanyId);
+    if (company && (!company.members || !company.members.length)) {
+      company.members = [{ role: "OWNER", userId }];
+    }
   } else {
-    company = await companyRepository.findCompanyContext(companyId, userId);
+    company = await companyRepository.findCompanyContext(cleanCompanyId, userId);
   }
 
   if (!company || !company.members || !company.members.length) {
     throw createCompanyContextError(
       "Company access denied",
       COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
-      companyId ? 403 : 400
+      403
     );
   }
 

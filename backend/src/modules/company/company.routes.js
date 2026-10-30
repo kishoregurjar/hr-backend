@@ -2,6 +2,10 @@
 
 const express = require("express");
 const companyController = require("./company.controller");
+const companyBrandingController = require("./company.branding.controller");
+const {
+  uploadCompanyFaviconMiddleware,
+} = require("./company.favicon.middleware");
 const requireAuth = require("../../middleware/requireAuth");
 const requireRole = require("../../middleware/requireRole");
 const { companyContext } = require("./company.context.middleware");
@@ -23,6 +27,14 @@ router.post("/", (req, res) => {
     },
   });
 });
+
+/**
+ * Public White-Label Candidate Branding Routes
+ */
+router.get(
+  "/public/:slug/branding",
+  companyBrandingController.getPublicBranding
+);
 
 // Get current user's company
 router.get(
@@ -49,6 +61,47 @@ router.delete(
   requireRole(["HR", "SUPER_ADMIN"]),
   companyContext,
   companyController.deleteCompany
+);
+
+/**
+ * Company White-Label Branding Routes (/api/v1/companies/me/branding)
+ */
+
+// Get current company branding configuration
+router.get(
+  ["/me/branding", "/branding"],
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
+  companyBrandingController.getMyBranding
+);
+
+// Update company branding (OWNER / ADMIN only)
+router.patch(
+  ["/me/branding", "/branding"],
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
+  companyBrandingController.updateMyBranding
+);
+
+// Upload company favicon (OWNER / ADMIN only)
+router.post(
+  ["/me/favicon", "/favicon"],
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
+  uploadCompanyFaviconMiddleware,
+  companyBrandingController.uploadFavicon
+);
+
+// Delete company favicon (OWNER / ADMIN only)
+router.delete(
+  ["/me/favicon", "/favicon"],
+  requireAuth,
+  requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
+  companyBrandingController.deleteFavicon
 );
 
 /**

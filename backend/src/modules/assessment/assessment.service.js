@@ -24,6 +24,23 @@ const { QUESTION_STATUS } = require("../question/question.constants");
 const { getCanonicalGameCode } = require("../game/game.constants");
 
 /**
+ * Helper to resolve company ID unambiguously for a user without arbitrary findFirst guessing
+ */
+async function resolveUnambiguousCompanyId(userId, explicitCompanyId = null) {
+  if (explicitCompanyId) return explicitCompanyId;
+  if (!userId) return null;
+  const memberships = await prisma.companyMember.findMany({
+    where: { userId },
+    select: { companyId: true },
+    take: 2,
+  });
+  if (memberships.length === 1) {
+    return memberships[0].companyId;
+  }
+  return null;
+}
+
+/**
  * ==========================================================
  * Enterprise Assessment Service
  * ==========================================================
@@ -49,11 +66,7 @@ class AssessmentService {
       }
 
       if (!companyId && assessment.createdById) {
-        const member = await prisma.companyMember.findFirst({
-          where: { userId: assessment.createdById },
-          select: { companyId: true },
-        });
-        companyId = member?.companyId || null;
+        companyId = await resolveUnambiguousCompanyId(assessment.createdById);
       }
 
       let configs = [];
@@ -251,12 +264,15 @@ class AssessmentService {
     };
 
     let companyId = explicitCompanyId;
-    if (!companyId) {
-      const userCompanyMember = await prisma.companyMember.findFirst({
-        where: { userId: createdById },
-        select: { companyId: true },
-      });
-      companyId = userCompanyMember?.companyId;
+    if (!companyId && createdById) {
+      const resolved = await resolveUnambiguousCompanyId(createdById);
+      if (!resolved) {
+        throw new BadRequestError(
+          "Active company context (X-Company-Id header) is required to create an assessment.",
+          "COMPANY_CONTEXT_REQUIRED"
+        );
+      }
+      companyId = resolved;
     }
 
     const existingAssessment = await assessmentRepository.findByTitle(
@@ -273,7 +289,8 @@ class AssessmentService {
 
     const assessmentData = AssessmentMapper.toCreateEntity(
       normalizedData,
-      createdById
+      createdById,
+      companyId
     );
 
     const rawGameIds = data.selectedGameIds || data.gameIds || data.games || [];
@@ -304,34 +321,53 @@ class AssessmentService {
     };
   }
 
-  async isUserInSameCompany(userId, targetUserId) {
-    if (!userId || !targetUserId) return false;
-    if (userId === targetUserId) return true;
+  async isAssessmentAuthorized(assessment, authorizedCompanyId, user) {
+    if (!assessment) return false;
+    if (user?.role === "SUPER_ADMIN") return true;
 
-    const members = await prisma.companyMember.findMany({
-      where: { userId: { in: [userId, targetUserId] } },
-      select: { userId: true, companyId: true },
-    });
+    // Direct tenant match: if assessment is tenant-owned, authorized company context must match exactly
+    if (assessment.companyId) {
+      if (!authorizedCompanyId) return false;
+      return assessment.companyId === authorizedCompanyId;
+    }
 
-    const userCompany = members.find((m) => m.userId === userId)?.companyId;
-    const targetCompany = members.find((m) => m.userId === targetUserId)?.companyId;
+    // Legacy unassigned assessment fallback (assessment.companyId is null):
+    // Requires verified authorized company context and validates that creator belongs to that company
+    if (!assessment.companyId && authorizedCompanyId && assessment.createdById) {
+      const creatorMember = await prisma.companyMember.findUnique({
+        where: {
+          companyId_userId: {
+            companyId: authorizedCompanyId,
+            userId: assessment.createdById,
+          },
+        },
+      });
+      return Boolean(creatorMember);
+    }
 
-    return Boolean(userCompany && targetCompany && userCompany === targetCompany);
+    return false;
   }
 
   /**
    * List Assessments (Paginated, Searchable, Sorted, Filtered & Company Scoped)
    */
-  async getAssessments(query = {}, user = {}) {
-    let companyId;
+  async getAssessments(query = {}, user = {}, explicitCompanyId = null) {
+    let companyId = explicitCompanyId;
     let createdById = query.createdById;
 
-    if (user?.id) {
-      const userMember = await prisma.companyMember.findFirst({
-        where: { userId: user.id },
-        select: { companyId: true },
-      });
-      companyId = userMember?.companyId;
+    if (!companyId && user?.id) {
+      if (user.role === "SUPER_ADMIN") {
+        // Super admin may optionally list without company context
+      } else {
+        const resolved = await resolveUnambiguousCompanyId(user.id);
+        if (!resolved) {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required to list assessments.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
+        }
+        companyId = resolved;
+      }
     }
 
     const result = await assessmentRepository.listPaginated({
@@ -378,13 +414,20 @@ class AssessmentService {
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, explicitCompanyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to this assessment.",
           ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
         );
       }
+    }
+
+    if (assessment.isQuarantined && user?.role !== "SUPER_ADMIN") {
+      throw new ForbiddenError(
+        "Assessment is temporarily unavailable under administrative quarantine.",
+        "ASSESSMENT_QUARANTINED"
+      );
     }
 
     const enrichedAssessment = await this._enrichWithCompanyGameConfig(assessment, explicitCompanyId);
@@ -415,13 +458,20 @@ class AssessmentService {
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, existingAssessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(existingAssessment, explicitCompanyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to update this assessment.",
           ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
         );
       }
+    }
+
+    if (existingAssessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be updated.",
+        "ASSESSMENT_QUARANTINED"
+      );
     }
 
     if (existingAssessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -440,11 +490,10 @@ class AssessmentService {
       normalizedData.title !== undefined &&
       normalizedData.title.toLowerCase() !== existingAssessment.title.toLowerCase()
     ) {
-      const userCompanyMember = await prisma.companyMember.findFirst({
-        where: { userId: existingAssessment.createdById },
-        select: { companyId: true },
-      });
-      const companyId = userCompanyMember?.companyId;
+      let companyId = explicitCompanyId || existingAssessment.companyId;
+      if (!companyId && existingAssessment.createdById) {
+        companyId = await resolveUnambiguousCompanyId(existingAssessment.createdById);
+      }
 
       const duplicate = await assessmentRepository.findByTitle(
         normalizedData.title,
@@ -503,12 +552,8 @@ class AssessmentService {
     const updateData = AssessmentMapper.toUpdateEntity(normalizedData);
     const rawGameIds = data.selectedGameIds ?? data.gameIds ?? data.games;
     let companyId = explicitCompanyId;
-    if (!companyId) {
-      const userCompanyMember = await prisma.companyMember.findFirst({
-        where: { userId: existingAssessment.createdById },
-        select: { companyId: true },
-      });
-      companyId = userCompanyMember?.companyId;
+    if (!companyId && existingAssessment.createdById) {
+      companyId = await resolveUnambiguousCompanyId(existingAssessment.createdById);
     }
     if (!companyId) {
       const savedCompanyId = existingAssessment.games?.find(g => g.config?.companyId)?.config?.companyId;
@@ -558,7 +603,7 @@ class AssessmentService {
   /**
    * Soft Delete Assessment
    */
-  async deleteAssessment(assessmentId, user) {
+  async deleteAssessment(assessmentId, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: false,
@@ -571,14 +616,28 @@ class AssessmentService {
       );
     }
 
-    if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+    if (user?.role !== "SUPER_ADMIN") {
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
       if (!isAuthorized) {
-        throw new ForbiddenError(
-          "You do not have access to delete this assessment.",
-          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        throw new NotFoundError(
+          "Assessment not found.",
+          ASSESSMENT_ERRORS.NOT_FOUND || "ASSESSMENT_NOT_FOUND"
         );
       }
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be archived.",
+        "ASSESSMENT_QUARANTINED"
+      );
+    }
+
+    if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
+      throw new BadRequestError(
+        "Assessment is already archived.",
+        "ASSESSMENT_ALREADY_ARCHIVED"
+      );
     }
 
     if (
@@ -586,28 +645,28 @@ class AssessmentService {
       assessment.status === ASSESSMENT_STATUS.ACTIVE
     ) {
       throw new BadRequestError(
-        "Published or active assessments cannot be deleted.",
+        "Published or active assessments cannot be deleted. Please archive the assessment first.",
         ASSESSMENT_ERRORS.CANNOT_DELETE || "ASSESSMENT_CANNOT_BE_DELETED"
       );
     }
 
-    const deletedAssessment = await runTransaction(async (tx) => {
-      return assessmentRepository.softDelete(tx, assessmentId);
+    const archivedAssessment = await runTransaction(async (tx) => {
+      return assessmentRepository.archive(tx, assessmentId);
     });
 
     return {
-      message: ASSESSMENT_MESSAGES.DELETED || "Assessment deleted successfully.",
+      message: ASSESSMENT_MESSAGES.DELETED || "Assessment archived successfully.",
       data: {
-        id: deletedAssessment.id,
-        deletedAt: deletedAssessment.deletedAt,
+        id: archivedAssessment.id,
+        status: archivedAssessment.status,
       },
     };
   }
 
   /**
-   * Restore Soft-Deleted Assessment
+   * Restore Archived Assessment
    */
-  async restoreAssessment(assessmentId, user) {
+  async restoreAssessment(assessmentId, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: true,
       detailed: false,
@@ -620,21 +679,28 @@ class AssessmentService {
       );
     }
 
-    if (!assessment.deletedAt) {
+    if (assessment.status !== ASSESSMENT_STATUS.ARCHIVED) {
       throw new ConflictError(
-        "Assessment is already active.",
+        "Assessment is not archived.",
         ASSESSMENT_ERRORS.ALREADY_ACTIVE || "ASSESSMENT_ALREADY_ACTIVE"
       );
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to restore this assessment.",
           ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
         );
       }
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be restored.",
+        "ASSESSMENT_QUARANTINED"
+      );
     }
 
     const restoredAssessment = await runTransaction(async (tx) => {
@@ -650,7 +716,7 @@ class AssessmentService {
   /**
    * Bulk Assign Questions to Assessment
    */
-  async assignQuestions(assessmentId, data, user) {
+  async assignQuestions(assessmentId, data, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: true,
@@ -664,13 +730,20 @@ class AssessmentService {
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to modify this assessment.",
           ASSESSMENT_QUESTION_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
         );
       }
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be modified.",
+        "ASSESSMENT_QUARANTINED"
+      );
     }
 
     if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -766,7 +839,7 @@ class AssessmentService {
   /**
    * Reorder Assessment Questions
    */
-  async reorderQuestions(assessmentId, data, user) {
+  async reorderQuestions(assessmentId, data, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: true,
@@ -780,13 +853,20 @@ class AssessmentService {
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to modify this assessment.",
           ASSESSMENT_QUESTION_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
         );
       }
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be modified.",
+        "ASSESSMENT_QUARANTINED"
+      );
     }
 
     if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -901,7 +981,7 @@ class AssessmentService {
   /**
    * Publish Assessment
    */
-  async publishAssessment(assessmentId, user) {
+  async publishAssessment(assessmentId, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: true,
@@ -914,10 +994,20 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
+    if (user.role === "HR") {
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
+      if (!isAuthorized || assessment.createdById !== user.id) {
+        throw new ForbiddenError(
+          "You do not have access to publish this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
+    }
+
+    if (assessment.isQuarantined) {
       throw new ForbiddenError(
-        "You do not have access to publish this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        "Quarantined assessments cannot be published.",
+        "ASSESSMENT_QUARANTINED"
       );
     }
 
@@ -1103,7 +1193,7 @@ class AssessmentService {
   /**
    * Unpublish Assessment (PUBLISHED -> DRAFT)
    */
-  async unpublishAssessment(assessmentId, user) {
+  async unpublishAssessment(assessmentId, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: false,
@@ -1117,13 +1207,20 @@ class AssessmentService {
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to unpublish this assessment.",
           ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
         );
       }
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be modified.",
+        "ASSESSMENT_QUARANTINED"
+      );
     }
 
     if (assessment.status !== ASSESSMENT_STATUS.PUBLISHED) {
@@ -1157,7 +1254,7 @@ class AssessmentService {
   /**
    * Activate Assessment (PUBLISHED -> ACTIVE)
    */
-  async activateAssessment(assessmentId, user) {
+  async activateAssessment(assessmentId, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: true,
@@ -1170,10 +1267,20 @@ class AssessmentService {
       );
     }
 
-    if (user.role === "HR" && assessment.createdById !== user.id) {
+    if (user.role === "HR") {
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
+      if (!isAuthorized || assessment.createdById !== user.id) {
+        throw new ForbiddenError(
+          "You do not have access to activate this assessment.",
+          ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        );
+      }
+    }
+
+    if (assessment.isQuarantined) {
       throw new ForbiddenError(
-        "You do not have access to activate this assessment.",
-        ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+        "Quarantined assessments cannot be activated.",
+        "ASSESSMENT_QUARANTINED"
       );
     }
 
@@ -1328,7 +1435,7 @@ class AssessmentService {
   /**
    * Archive Assessment (ACTIVE -> ARCHIVED)
    */
-  async archiveAssessment(assessmentId, user) {
+  async archiveAssessment(assessmentId, user, companyId = null) {
     const assessment = await assessmentRepository.findById(assessmentId, {
       includeDeleted: false,
       detailed: true,
@@ -1342,13 +1449,20 @@ class AssessmentService {
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, assessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to archive this assessment.",
           ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
         );
       }
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be modified.",
+        "ASSESSMENT_QUARANTINED"
+      );
     }
 
     if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
@@ -1389,7 +1503,7 @@ class AssessmentService {
   /**
    * Duplicate Assessment
    */
-  async duplicateAssessment(assessmentId, data, user) {
+  async duplicateAssessment(assessmentId, data, user, companyId = null) {
     const sourceAssessment = await assessmentRepository.findById(
       assessmentId,
       {
@@ -1406,7 +1520,7 @@ class AssessmentService {
     }
 
     if (user?.role === "HR") {
-      const isAuthorized = await this.isUserInSameCompany(user.id, sourceAssessment.createdById);
+      const isAuthorized = await this.isAssessmentAuthorized(sourceAssessment, companyId, user);
       if (!isAuthorized) {
         throw new ForbiddenError(
           "You do not have access to duplicate this assessment.",
@@ -1415,7 +1529,14 @@ class AssessmentService {
       }
     }
 
-    if (sourceAssessment.deletedAt) {
+    if (sourceAssessment.isQuarantined) {
+      throw new ForbiddenError(
+        "Quarantined assessments cannot be duplicated.",
+        "ASSESSMENT_QUARANTINED"
+      );
+    }
+
+    if (sourceAssessment.status === ASSESSMENT_STATUS.ARCHIVED) {
       throw new NotFoundError(
         "Assessment not found.",
         ASSESSMENT_ERRORS.NOT_FOUND || "ASSESSMENT_NOT_FOUND"
@@ -1440,9 +1561,14 @@ class AssessmentService {
       );
     }
 
+    let targetCompanyId = companyId || sourceAssessment.companyId || null;
+    if (!targetCompanyId && user?.id) {
+      targetCompanyId = await resolveUnambiguousCompanyId(user.id);
+    }
+
     const existingAssessment = await assessmentRepository.findByTitle(
       duplicateTitle,
-      { includeDeleted: false }
+      { includeDeleted: false, companyId: targetCompanyId }
     );
 
     if (existingAssessment) {
@@ -1455,7 +1581,7 @@ class AssessmentService {
     const duplicatedAssessment = await runTransaction(async (tx) => {
       const titleExists = await assessmentRepository.findByTitle(
         duplicateTitle,
-        { includeDeleted: false },
+        { includeDeleted: false, companyId: targetCompanyId },
         tx
       );
 
@@ -1469,6 +1595,7 @@ class AssessmentService {
       return assessmentRepository.duplicate(tx, sourceAssessment, {
         title: duplicateTitle,
         createdById: user.id,
+        companyId: targetCompanyId,
       });
     });
 
@@ -1479,31 +1606,9 @@ class AssessmentService {
   }
 
   /**
-   * Delete Single Assessment Permanently (Hard Delete)
+   * Bulk Archive Selected Draft Assessments (Company Scoped, Atomic All-or-Nothing)
    */
-  async deleteAssessment(assessmentId, userId, companyId = null) {
-    const assessment = await assessmentRepository.findById(assessmentId, { detailed: false });
-    if (!assessment) {
-      throw new NotFoundError(
-        "Assessment not found.",
-        ASSESSMENT_ERRORS.NOT_FOUND || "ASSESSMENT_NOT_FOUND"
-      );
-    }
-
-    await runTransaction(async (tx) => {
-      await assessmentRepository.hardDeleteManyCascade(tx, [assessmentId]);
-    });
-
-    return {
-      message: "Assessment permanently deleted successfully.",
-      data: { id: assessmentId },
-    };
-  }
-
-  /**
-   * Bulk Delete Selected Assessments Permanently (Hard Delete)
-   */
-  async bulkDeleteAssessments(ids = [], userId, companyId = null) {
+  async bulkDeleteAssessments(ids = [], user, companyId = null) {
     if (!Array.isArray(ids) || ids.length === 0) {
       throw new BadRequestError(
         "No assessment IDs provided for deletion.",
@@ -1511,52 +1616,114 @@ class AssessmentService {
       );
     }
 
-    const assessments = await prisma.assessment.findMany({
-      where: { id: { in: ids } },
-      select: { id: true },
-    });
-
-    if (assessments.length === 0) {
-      return {
-        message: "No matching assessments found to delete.",
-        count: 0,
-        deletedCount: 0,
-      };
+    if (!companyId && user?.role !== "SUPER_ADMIN") {
+      throw new BadRequestError(
+        "Active company context is required for bulk assessment deletion.",
+        "COMPANY_CONTEXT_REQUIRED"
+      );
     }
 
-    const assessmentIds = assessments.map((a) => a.id);
+    const requestedIds = [...new Set(ids.map((id) => (typeof id === "string" ? id.trim() : "")).filter(Boolean))];
+    if (requestedIds.length === 0) {
+      throw new BadRequestError("No valid assessment IDs provided.", "INVALID_BULK_DELETE");
+    }
 
-    const deletedCount = await runTransaction(async (tx) => {
-      return assessmentRepository.hardDeleteManyCascade(tx, assessmentIds);
-    });
-
-    return {
-      message: deletedCount === 1
-        ? "1 assessment deleted permanently."
-        : `${deletedCount} assessments deleted permanently.`,
-      count: deletedCount,
-      deletedCount,
-    };
-  }
-
-  /**
-   * Delete All Assessments Permanently (Hard Delete for Company / User Scope)
-   */
-  async deleteAllAssessments(userId, companyId = null) {
-    const where = {};
-    if (companyId) {
-      where.OR = [
-        {
+    return runTransaction(async (tx) => {
+      // 1. Fetch all requested assessments with creator company memberships
+      const foundAssessments = await tx.assessment.findMany({
+        where: { id: { in: requestedIds } },
+        select: {
+          id: true,
+          status: true,
+          createdById: true,
           createdBy: {
-            companyMembers: {
-              some: { companyId },
+            select: {
+              companyMembers: {
+                select: { companyId: true },
+              },
             },
           },
         },
-        { createdById: userId },
-      ];
-    } else if (userId) {
-      where.createdById = userId;
+      });
+
+      // 2. All-or-Nothing existence check
+      const foundMap = new Map(foundAssessments.map((a) => [a.id, a]));
+      const missingIds = requestedIds.filter((id) => !foundMap.has(id));
+      if (missingIds.length > 0) {
+        throw new NotFoundError(
+          `One or more requested assessments were not found: ${missingIds.join(", ")}`,
+          ASSESSMENT_ERRORS.NOT_FOUND || "ASSESSMENT_NOT_FOUND"
+        );
+      }
+
+      // 3. All-or-Nothing tenant authorization and status eligibility check
+      for (const assessment of foundAssessments) {
+        if (user?.role !== "SUPER_ADMIN" && companyId) {
+          const creatorCompanyIds = (assessment.createdBy?.companyMembers || []).map((cm) => cm.companyId);
+          if (!creatorCompanyIds.includes(companyId)) {
+            throw new ForbiddenError(
+              `You do not have access to assessment: ${assessment.id}`,
+              ASSESSMENT_ERRORS.ACCESS_DENIED || "ASSESSMENT_ACCESS_DENIED"
+            );
+          }
+        }
+
+        if (
+          assessment.status === ASSESSMENT_STATUS.PUBLISHED ||
+          assessment.status === ASSESSMENT_STATUS.ACTIVE
+        ) {
+          throw new BadRequestError(
+            `Published or active assessment cannot be deleted: ${assessment.id}. Please archive it individually.`,
+            ASSESSMENT_ERRORS.CANNOT_DELETE || "ASSESSMENT_CANNOT_BE_DELETED"
+          );
+        }
+
+        if (assessment.status === ASSESSMENT_STATUS.ARCHIVED) {
+          throw new ConflictError(
+            `Assessment is already archived: ${assessment.id}`,
+            "ASSESSMENT_ALREADY_ARCHIVED"
+          );
+        }
+      }
+
+      // 4. Atomic archive mutation
+      const result = await tx.assessment.updateMany({
+        where: { id: { in: requestedIds } },
+        data: { status: ASSESSMENT_STATUS.ARCHIVED },
+      });
+
+      const count = result.count;
+      return {
+        message: count === 1
+          ? "1 assessment archived successfully."
+          : `${count} assessments archived successfully.`,
+        count,
+        deletedCount: count,
+      };
+    });
+  }
+
+  /**
+   * Delete All Draft Assessments (Archive for Company Scope)
+   */
+  async deleteAllAssessments(user, companyId = null) {
+    if (!companyId && user?.role !== "SUPER_ADMIN") {
+      throw new BadRequestError(
+        "Active company context is required for bulk assessment deletion.",
+        "COMPANY_CONTEXT_REQUIRED"
+      );
+    }
+
+    const where = {
+      status: ASSESSMENT_STATUS.DRAFT,
+    };
+
+    if (companyId) {
+      where.createdBy = {
+        companyMembers: {
+          some: { companyId },
+        },
+      };
     }
 
     const all = await prisma.assessment.findMany({
@@ -1567,13 +1734,84 @@ class AssessmentService {
     const ids = all.map((a) => a.id);
     if (!ids.length) {
       return {
-        message: "No assessments found to delete.",
+        message: "No eligible draft assessments found to delete.",
         count: 0,
         deletedCount: 0,
       };
     }
 
-    return this.bulkDeleteAssessments(ids, userId, companyId);
+    return this.bulkDeleteAssessments(ids, user, companyId);
+  }
+
+  /**
+   * Administrative Quarantine for Assessment
+   */
+  async quarantineAssessment(assessmentId, { reason, evidence } = {}, user, companyId = null) {
+    const assessment = await assessmentRepository.findById(assessmentId, { detailed: false });
+    if (!assessment) {
+      throw new NotFoundError("Assessment not found.", ASSESSMENT_ERRORS.NOT_FOUND || "ASSESSMENT_NOT_FOUND");
+    }
+
+    if (user?.role !== "SUPER_ADMIN") {
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
+      if (!isAuthorized) {
+        throw new ForbiddenError("You do not have permission to quarantine this assessment.", "ACCESS_DENIED");
+      }
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ConflictError("Assessment is already quarantined.", "ALREADY_QUARANTINED");
+    }
+
+    const result = await runTransaction(async (tx) => {
+      return assessmentRepository.quarantineAssessment(tx, assessmentId, {
+        reason: reason || "ADMINISTRATIVE_QUARANTINE",
+        evidence: evidence || {},
+        quarantinedById: user?.id || null,
+      });
+    });
+
+    return {
+      message: "Assessment quarantined successfully.",
+      data: AssessmentDto.toResponse(result.assessment),
+      quarantineLogId: result.quarantineLog.id,
+    };
+  }
+
+  /**
+   * Administrative Quarantine Resolution for Assessment
+   */
+  async resolveQuarantine(assessmentId, { action, targetCompanyId, notes } = {}, user, companyId = null) {
+    const assessment = await assessmentRepository.findById(assessmentId, { detailed: false });
+    if (!assessment) {
+      throw new NotFoundError("Assessment not found.", ASSESSMENT_ERRORS.NOT_FOUND || "ASSESSMENT_NOT_FOUND");
+    }
+
+    if (user?.role !== "SUPER_ADMIN") {
+      const isAuthorized = await this.isAssessmentAuthorized(assessment, companyId, user);
+      if (!isAuthorized) {
+        throw new ForbiddenError("You do not have permission to resolve quarantine on this assessment.", "ACCESS_DENIED");
+      }
+    }
+
+    if (!assessment.isQuarantined) {
+      throw new ConflictError("Assessment is not currently quarantined.", "NOT_QUARANTINED");
+    }
+
+    const result = await runTransaction(async (tx) => {
+      return assessmentRepository.resolveAssessmentQuarantine(tx, assessmentId, {
+        action: action || "RELEASE",
+        targetCompanyId: targetCompanyId || companyId || null,
+        notes: notes || null,
+        resolvedById: user?.id || null,
+      });
+    });
+
+    return {
+      message: "Assessment quarantine resolved successfully.",
+      data: AssessmentDto.toResponse(result.assessment),
+      resolution: result.resolution,
+    };
   }
 }
 

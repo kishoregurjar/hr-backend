@@ -41,8 +41,9 @@ class AssessmentController {
   list = asyncHandler(async (req, res) => {
     const query = req.validatedData || req.validatedQuery || req.query;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.getAssessments(query, user);
+    const result = await assessmentService.getAssessments(query, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -105,8 +106,9 @@ class AssessmentController {
   delete = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
 
-    const result = await assessmentService.deleteAssessment(id, user);
+    const result = await assessmentService.deleteAssessment(id, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -125,8 +127,9 @@ class AssessmentController {
   restore = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.restoreAssessment(id, user);
+    const result = await assessmentService.restoreAssessment(id, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -146,8 +149,9 @@ class AssessmentController {
     const { id } = req.params;
     const data = req.validatedData || req.validatedBody || req.body;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.assignQuestions(id, data, user);
+    const result = await assessmentService.assignQuestions(id, data, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -167,8 +171,9 @@ class AssessmentController {
     const { id } = req.params;
     const data = req.validatedData || req.validatedBody || req.body;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.reorderQuestions(id, data, user);
+    const result = await assessmentService.reorderQuestions(id, data, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -187,8 +192,9 @@ class AssessmentController {
   publish = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.publishAssessment(id, user);
+    const result = await assessmentService.publishAssessment(id, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -207,8 +213,9 @@ class AssessmentController {
   unpublish = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.unpublishAssessment(id, user);
+    const result = await assessmentService.unpublishAssessment(id, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -227,8 +234,9 @@ class AssessmentController {
   activate = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.activateAssessment(id, user);
+    const result = await assessmentService.activateAssessment(id, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -247,8 +255,9 @@ class AssessmentController {
   archive = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.archiveAssessment(id, user);
+    const result = await assessmentService.archiveAssessment(id, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -268,8 +277,9 @@ class AssessmentController {
     const { id } = req.params;
     const data = req.validatedData || req.validatedBody || req.body || {};
     const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.duplicateAssessment(id, data, user);
+    const result = await assessmentService.duplicateAssessment(id, data, user, companyId);
 
     return SuccessResponse.send(
       res,
@@ -310,41 +320,20 @@ class AssessmentController {
   });
 
   /**
-   * Delete Single Assessment Handler (Permanent Hard Delete)
-   * DELETE /api/v1/assessments/:id
-   */
-  delete = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const userId = req.user?.id;
-    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
-
-    const result = await assessmentService.deleteAssessment(id, userId, companyId);
-
-    return SuccessResponse.send(
-      res,
-      {
-        message: result.message || "Assessment permanently deleted successfully.",
-        data: result.data,
-      },
-      StatusCodes.OK
-    );
-  });
-
-  /**
-   * Bulk Delete Selected Assessments Handler (Permanent Hard Delete)
+   * Bulk Delete Selected Assessments Handler (Soft Delete, Company Scoped)
    * DELETE /api/v1/assessments/bulk
    */
   bulkDelete = asyncHandler(async (req, res) => {
     const { ids } = req.body || {};
-    const userId = req.user?.id;
-    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+    const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.bulkDeleteAssessments(ids, userId, companyId);
+    const result = await assessmentService.bulkDeleteAssessments(ids, user, companyId);
 
     return SuccessResponse.send(
       res,
       {
-        message: result.message || "Assessments permanently deleted successfully.",
+        message: result.message || "Assessments deleted successfully.",
         data: result,
       },
       StatusCodes.OK
@@ -352,20 +341,66 @@ class AssessmentController {
   });
 
   /**
-   * Delete All Assessments Handler (Permanent Hard Delete)
+   * Delete All Draft Assessments Handler (Soft Delete, Company Scoped)
    * DELETE /api/v1/assessments/all
    */
   deleteAll = asyncHandler(async (req, res) => {
-    const userId = req.user?.id;
-    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+    const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await assessmentService.deleteAllAssessments(userId, companyId);
+    const result = await assessmentService.deleteAllAssessments(user, companyId);
 
     return SuccessResponse.send(
       res,
       {
-        message: result.message || "All assessments permanently deleted successfully.",
+        message: result.message || "All draft assessments deleted successfully.",
         data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Quarantine Assessment Handler
+   * POST /api/v1/assessments/:id/quarantine
+   */
+  quarantine = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { reason, evidence } = req.body || {};
+    const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
+
+    const result = await assessmentService.quarantineAssessment(id, { reason, evidence }, user, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message,
+        data: result.data,
+        quarantineLogId: result.quarantineLogId,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Resolve Quarantine Handler
+   * POST /api/v1/assessments/:id/quarantine/resolve
+   */
+  resolveQuarantine = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { action, targetCompanyId, notes } = req.body || {};
+    const user = req.user;
+    const companyId = req.companyId || req.company?.id || null;
+
+    const result = await assessmentService.resolveQuarantine(id, { action, targetCompanyId, notes }, user, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message,
+        data: result.data,
+        resolution: result.resolution,
       },
       StatusCodes.OK
     );

@@ -42,6 +42,8 @@ async function findCandidateResult({ candidateAssessmentId, candidateId }) {
             select: {
               id: true,
               title: true,
+              companyId: true,
+              isQuarantined: true,
               passingScore: true,
               maximumScore: true,
             },
@@ -249,8 +251,11 @@ async function findResultDetails(candidateAssessmentId) {
             select: {
               id: true,
               title: true,
+              companyId: true,
+              isQuarantined: true,
               passingScore: true,
               maximumScore: true,
+              createdById: true,
             },
           },
           assessmentResult: {
@@ -364,6 +369,24 @@ async function findCandidateAttempts({ candidateAssessmentId, candidateId }) {
   return [];
 }
 
+async function findAssessmentById(assessmentId) {
+  try {
+    if (prisma && prisma.assessment) {
+      return prisma.assessment.findUnique({
+        where: { id: assessmentId },
+        select: {
+          id: true,
+          title: true,
+          companyId: true,
+          isQuarantined: true,
+          createdById: true,
+        },
+      });
+    }
+  } catch (_err) {}
+  return null;
+}
+
 function seedInMemoryResult(candidateAssessmentId, data) {
   inMemoryResults.set(candidateAssessmentId, data);
 }
@@ -373,5 +396,6 @@ module.exports = {
   findAssessmentResults,
   findResultDetails,
   findCandidateAttempts,
+  findAssessmentById,
   seedInMemoryResult,
 };

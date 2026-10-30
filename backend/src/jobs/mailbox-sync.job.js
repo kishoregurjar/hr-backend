@@ -1,6 +1,7 @@
 "use strict";
 
 const { processMailboxSync } = require("../workers/mailbox-sync.worker");
+const env = require("../config/env");
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -8,6 +9,10 @@ let timer = null;
 let running = false;
 
 const runMailboxSyncJob = async () => {
+  if (!env.featureFlags?.mailboxSyncEnabled) {
+    return;
+  }
+
   if (running) {
     return;
   }
@@ -27,6 +32,11 @@ const runMailboxSyncJob = async () => {
 };
 
 const startMailboxSyncJob = () => {
+  if (!env.featureFlags?.mailboxSyncEnabled) {
+    console.info("[MailboxSyncJob] Mailbox sync scheduler not started: Kill switch engaged (FEATURE_MAILBOX_SYNC_ENABLED is false).");
+    return null;
+  }
+
   if (timer) {
     return;
   }

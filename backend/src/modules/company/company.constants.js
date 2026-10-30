@@ -56,6 +56,37 @@ const COMPANY_CONSTANTS = Object.freeze({
     MAX_LENGTH: 100,
   }),
 
+  BRANDING: Object.freeze({
+    HEX_COLOR_REGEX: /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/,
+    DEFAULT_BRAND_COLOR: "#2563EB",
+    DEFAULT_ACCENT_COLOR: "#1D4ED8",
+    TAGLINE: Object.freeze({
+      MAX_LENGTH: 120,
+    }),
+    FAVICON: Object.freeze({
+      MAX_SIZE_BYTES: 512 * 1024, // 512 KB
+      ALLOWED_MIME_TYPES: Object.freeze([
+        "image/x-icon",
+        "image/vnd.microsoft.icon",
+        "image/png",
+        "image/webp",
+        "image/jpeg",
+      ]),
+      ALLOWED_EXTENSIONS: Object.freeze([
+        ".ico",
+        ".png",
+        ".webp",
+        ".jpg",
+        ".jpeg",
+      ]),
+      STORAGE_FOLDER: "company-favicons",
+      MAX_WIDTH: 256,
+      MAX_HEIGHT: 256,
+      OUTPUT_FORMAT: "webp",
+      OUTPUT_MIME_TYPE: "image/webp",
+    }),
+  }),
+
   ERROR_CODES: Object.freeze({
     COMPANY_NOT_FOUND: "COMPANY_NOT_FOUND",
     COMPANY_ALREADY_EXISTS: "COMPANY_ALREADY_EXISTS",
@@ -79,6 +110,13 @@ const COMPANY_CONSTANTS = Object.freeze({
     INVALID_LOGO_TYPE: "INVALID_LOGO_TYPE",
     LOGO_TOO_LARGE: "LOGO_TOO_LARGE",
     LOGO_UPLOAD_FAILED: "LOGO_UPLOAD_FAILED",
+
+    INVALID_BRAND_COLOR: "INVALID_BRAND_COLOR",
+    INVALID_ACCENT_COLOR: "INVALID_ACCENT_COLOR",
+    INVALID_FAVICON_TYPE: "INVALID_FAVICON_TYPE",
+    FAVICON_TOO_LARGE: "FAVICON_TOO_LARGE",
+    FAVICON_UPLOAD_FAILED: "FAVICON_UPLOAD_FAILED",
+    FAVICON_DELETE_FAILED: "FAVICON_DELETE_FAILED",
 
     OWNERSHIP_TARGET_INVALID: "OWNERSHIP_TARGET_INVALID",
 
