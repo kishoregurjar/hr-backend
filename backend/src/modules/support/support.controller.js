@@ -20,18 +20,19 @@ class SupportController {
   submitRequest = asyncHandler(async (req, res) => {
     const validated = createSupportRequestSchema.parse(req.body);
 
-    // Obtain identity from authenticated backend context — never from client
+    // Obtain submitter identity from authenticated backend context
     const userId = req.user.id;
 
-    // Resolve companyId from the X-Company-Id header or first membership
-    let companyId = req.headers["x-company-id"] || null;
-    if (!companyId && req.user.companyMembers && req.user.companyMembers.length > 0) {
-      companyId = req.user.companyMembers[0].companyId;
-    }
+    // Requested company context from header, body, or active query
+    const requestedCompanyId =
+      req.headers["x-company-id"] ||
+      validated.companyId ||
+      req.query?.companyId ||
+      null;
 
     const result = await supportService.submitRequest({
       userId,
-      companyId,
+      requestedCompanyId,
       subject: validated.subject,
       message: validated.message,
     });
@@ -47,7 +48,7 @@ class SupportController {
   });
 
   /**
-   * HR: List my own support requests.
+   * HR: List own support requests (Submitter view).
    * GET /api/v1/support/my-requests
    */
   listMyRequests = asyncHandler(async (req, res) => {
@@ -69,14 +70,42 @@ class SupportController {
   });
 
   /**
-   * HR: Get a single support request (own only).
+   * Company Owner/Admin: List support requests for their company.
+   * GET /api/v1/support or GET /api/v1/support/company-requests
+   */
+  listCompanyRequests = asyncHandler(async (req, res) => {
+    const query = listSupportRequestsSchema.parse(req.query);
+
+    const requestedCompanyId =
+      req.headers["x-company-id"] ||
+      query.companyId ||
+      req.query?.companyId ||
+      null;
+
+    const result = await supportService.listCompanyRequests({
+      user: req.user,
+      requestedCompanyId,
+      ...query,
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Company support requests retrieved successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * HR / Company Admin / Super Admin: Get a single support request.
    * GET /api/v1/support/:requestId
    */
   getRequest = asyncHandler(async (req, res) => {
     const { requestId } = supportRequestIdParamSchema.parse(req.params);
-    const isSuperAdmin = req.user.role === "SUPER_ADMIN";
 
-    const request = await supportService.getRequest(requestId, req.user.id, isSuperAdmin);
+    const request = await supportService.getRequest(requestId, req.user);
 
     return SuccessResponse.send(
       res,
@@ -89,7 +118,55 @@ class SupportController {
   });
 
   /**
-   * Super Admin: List all support requests.
+   * Company Owner/Admin / Super Admin: Update a support request's status.
+   * PATCH /api/v1/support/:requestId/status
+   */
+  updateStatus = asyncHandler(async (req, res) => {
+    const { requestId } = supportRequestIdParamSchema.parse(req.params);
+    const { status } = updateSupportStatusSchema.parse(req.body);
+
+    const request = await supportService.updateRequestStatus(requestId, status, req.user);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: `Support request status updated to ${status}.`,
+        data: { request },
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Company Owner/Admin / Super Admin: Reply to a support request.
+   * POST /api/v1/support/:requestId/reply
+   */
+  replyToRequest = asyncHandler(async (req, res) => {
+    const { requestId } = supportRequestIdParamSchema.parse(req.params);
+    const { reply } = replySupportRequestSchema.parse(req.body);
+
+    const result = await supportService.replyToRequest(requestId, {
+      reply,
+      user: req.user,
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.emailSent
+          ? "Reply sent successfully and email delivered."
+          : "Reply saved successfully but email delivery failed.",
+        data: {
+          request: result,
+          emailSent: result.emailSent,
+        },
+      },
+      StatusCodes.OK
+    );
+  });
+
+  /**
+   * Super Admin: List all support requests across platform.
    * GET /api/v1/super-admin/support
    */
   listAllRequests = asyncHandler(async (req, res) => {
@@ -114,61 +191,13 @@ class SupportController {
   getRequestAdmin = asyncHandler(async (req, res) => {
     const { requestId } = supportRequestIdParamSchema.parse(req.params);
 
-    const request = await supportService.getRequest(requestId, req.user.id, true);
+    const request = await supportService.getRequest(requestId, req.user);
 
     return SuccessResponse.send(
       res,
       {
         message: "Support request retrieved successfully.",
         data: { request },
-      },
-      StatusCodes.OK
-    );
-  });
-
-  /**
-   * Super Admin: Update a support request's status.
-   * PATCH /api/v1/super-admin/support/:requestId/status
-   */
-  updateStatus = asyncHandler(async (req, res) => {
-    const { requestId } = supportRequestIdParamSchema.parse(req.params);
-    const { status } = updateSupportStatusSchema.parse(req.body);
-
-    const request = await supportService.updateRequestStatus(requestId, status);
-
-    return SuccessResponse.send(
-      res,
-      {
-        message: `Support request status updated to ${status}.`,
-        data: { request },
-      },
-      StatusCodes.OK
-    );
-  });
-
-  /**
-   * Super Admin: Reply to a support request.
-   * POST /api/v1/super-admin/support/:requestId/reply
-   */
-  replyToRequest = asyncHandler(async (req, res) => {
-    const { requestId } = supportRequestIdParamSchema.parse(req.params);
-    const { reply } = replySupportRequestSchema.parse(req.body);
-
-    const result = await supportService.replyToRequest(requestId, {
-      reply,
-      repliedById: req.user.id,
-    });
-
-    return SuccessResponse.send(
-      res,
-      {
-        message: result.emailSent
-          ? "Reply sent successfully and email delivered."
-          : "Reply saved successfully but email delivery failed.",
-        data: {
-          request: result,
-          emailSent: result.emailSent,
-        },
       },
       StatusCodes.OK
     );
