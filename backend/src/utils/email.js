@@ -7,12 +7,17 @@ const getEmailConfig = () => {
   const port = Number(process.env.BREVO_SMTP_PORT || process.env.SMTP_PORT) || 587;
   const secure = process.env.SMTP_SECURE === "true";
   const user = process.env.BREVO_SMTP_USER || process.env.SMTP_USER;
-  const pass = process.env.BREVO_SMTP_PASSWORD || process.env.SMTP_PASS;
+  const rawPass = process.env.BREVO_SMTP_PASSWORD || process.env.SMTP_PASS;
+  const pass = rawPass ? rawPass.trim().replace(/\s+/g, "") : undefined;
 
   return {
     host,
     port,
     secure,
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+    rateLimit: 10,
     auth: user && pass ? { user, pass } : undefined,
   };
 };
