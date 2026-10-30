@@ -61,6 +61,7 @@ const {
 } = require("../../utils/app-error");
 const { sendEmail } = require("../../utils/email");
 const { buildCandidateOtpEmail, buildInvitationEmail } = require("./attempt.email");
+const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
 const { getCanonicalGameCode } = require("../game/game.constants");
 const {
   hashAttemptToken,
@@ -808,8 +809,31 @@ class AttemptService {
     });
 
     // 8. Automated Email Dispatch & sentAt Timestamp Update
-    const clientUrl = env.frontend.url;
-    const testLink = `${clientUrl}/take-test?token=${result.rawToken}`;
+    let hiringCompany = null;
+    const directCompanyId = result.assessment?.companyId;
+    if (directCompanyId) {
+      try {
+        hiringCompany = await prisma.company.findUnique({
+          where: { id: directCompanyId },
+          select: { id: true, name: true, slug: true, logoUrl: true, brandColor: true, brandTagline: true, showPoweredByHireQuest: true, customDomain: true, customDomainVerified: true },
+        });
+      } catch (_) {}
+    }
+
+    if (!hiringCompany && invitedByUserId) {
+      try {
+        const memberships = await prisma.companyMember.findMany({
+          where: { userId: invitedByUserId },
+          select: { company: { select: { id: true, name: true, slug: true, logoUrl: true, brandColor: true, brandTagline: true, showPoweredByHireQuest: true, customDomain: true, customDomainVerified: true } } },
+          take: 1,
+        });
+        if (memberships[0]?.company) {
+          hiringCompany = memberships[0].company;
+        }
+      } catch (_) {}
+    }
+
+    const testLink = buildCompanyTenantUrl(hiringCompany, "/take-test", { token: result.rawToken });
     let emailSent = false;
 
     // Resolve hiring company name dynamically for invitation email (Source of Truth: Assessment & Recruiter)
@@ -868,7 +892,7 @@ class AttemptService {
       } catch (_) {}
     }
 
-    const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
+    const effectiveInvitationCompanyName = hiringCompany?.name || invitationCompanyName || "HireQuest";
     try {
       const emailContent = buildInvitationEmail({
         candidateName: `${result.candidateProfile.firstName} ${result.candidateProfile.lastName}`.trim(),
@@ -876,6 +900,7 @@ class AttemptService {
         testLink,
         expiresAt: result.effectiveExpiresAt,
         companyName: effectiveInvitationCompanyName,
+        company: hiringCompany,
       });
 
       await sendEmail({
@@ -1431,10 +1456,29 @@ class AttemptService {
     if (emailJobs.length > 0) {
       global.setImmediate(async () => {
         try {
-          const clientUrl = env.frontend.url;
+          let bulkCompany = null;
+          if (assessment?.companyId) {
+            try {
+              bulkCompany = await prisma.company.findUnique({
+                where: { id: assessment.companyId },
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                  logoUrl: true,
+                  brandColor: true,
+                  brandTagline: true,
+                  showPoweredByHireQuest: true,
+                  customDomain: true,
+                  customDomainVerified: true,
+                },
+              });
+            } catch (_) {}
+          }
+
           const sendSingleEmail = async (job) => {
             try {
-              const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
+              const testLink = buildCompanyTenantUrl(bulkCompany, "/take-test", { token: job.rawToken });
               const candidateObj = candidateMap.get(job.candidateId) || {};
               const candidateName = (candidateObj.name || "Candidate").trim();
 
@@ -1443,7 +1487,8 @@ class AttemptService {
                 assessmentTitle: assessment.title,
                 testLink,
                 expiresAt: job.expiresAt,
-                companyName: effectiveBulkCompanyName,
+                companyName: bulkCompany?.name || effectiveBulkCompanyName,
+                company: bulkCompany,
               });
 
               await sendEmail({
@@ -3392,15 +3437,36 @@ class AttemptService {
 
     const effectiveCandidateName = candidateName && candidateName.trim() ? candidateName.trim() : "Candidate";
 
-    // 7. Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
+    // 7. Resolve Company Branding for OTP Email
+    let otpCompany = null;
+    const resolvedCompanyId = invitation.companyId || invitation.assessment?.companyId;
+    if (resolvedCompanyId) {
+      try {
+        otpCompany = await dbClient.company.findUnique({
+          where: { id: resolvedCompanyId },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            logoUrl: true,
+            brandColor: true,
+            brandTagline: true,
+            showPoweredByHireQuest: true,
+          },
+        });
+      } catch (_) {}
+    }
+
+    // Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
     try {
       if (emailService && typeof emailService.sendCandidateOtp === "function") {
         await emailService.sendCandidateOtp({
           email: normalizedEmail,
           otp,
           expiresAt,
-          companyName: effectiveOtpCompanyName,
+          companyName: otpCompany?.name || effectiveOtpCompanyName,
           candidateName: effectiveCandidateName,
+          company: otpCompany,
         });
       } else {
         await createOutboxEvent(
@@ -3411,8 +3477,9 @@ class AttemptService {
               email: normalizedEmail,
               otp,
               expiresAt: expiresAt.toISOString(),
-              companyName: effectiveOtpCompanyName,
+              companyName: otpCompany?.name || effectiveOtpCompanyName,
               candidateName: effectiveCandidateName,
+              company: otpCompany,
             },
           },
           tx

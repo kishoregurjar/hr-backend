@@ -311,14 +311,6 @@ model Category {
   id          String   @id @default(cuid())
   name        String   @unique
   description String?
-
-  // White-Label Branding Extensions
-  brandColor             String?
-  accentColor            String?
-  faviconUrl             String?
-  faviconPath            String?
-  brandTagline           String?
-  showPoweredByHireQuest Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -698,14 +690,6 @@ model Job {
   id          String    @id @default(cuid())
   title       String
   description String?
-
-  // White-Label Branding Extensions
-  brandColor             String?
-  accentColor            String?
-  faviconUrl             String?
-  faviconPath            String?
-  brandTagline           String?
-  showPoweredByHireQuest Boolean @default(true)
   code        String    @unique
   status      JobStatus @default(DRAFT)
 
@@ -859,6 +843,10 @@ model Company {
   faviconPath            String?
   brandTagline           String?
   showPoweredByHireQuest Boolean @default(true)
+
+  // Phase 3C Custom Domain Extensions
+  customDomain           String?  @unique
+  customDomainVerified   Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1049,14 +1037,6 @@ model Game {
   name        String
   code        String    @unique
   description String?
-
-  // White-Label Branding Extensions
-  brandColor             String?
-  accentColor            String?
-  faviconUrl             String?
-  faviconPath            String?
-  brandTagline           String?
-  showPoweredByHireQuest Boolean @default(true)
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

@@ -32,6 +32,7 @@ const {
 const CLAIM_IDLE_TIME_MS = 10 * 60 * 1000;
 
 const { prisma } = require("../../config/prisma");
+const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
 
 const processInvitationEmail = async (message) => {
   const {
@@ -85,6 +86,19 @@ const processInvitationEmail = async (message) => {
       status: true,
       expiresAt: true,
       encryptedToken: true,
+      company: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          logoUrl: true,
+          brandColor: true,
+          brandTagline: true,
+          showPoweredByHireQuest: true,
+          customDomain: true,
+          customDomainVerified: true,
+        },
+      },
     },
   });
 
@@ -107,10 +121,10 @@ const processInvitationEmail = async (message) => {
   if (invitation.encryptedToken) {
     try {
       const rawToken = decryptToken(invitation.encryptedToken);
-      const frontendUrl = env.frontend.url;
-      finalInvitationUrl = `${frontendUrl}/accept-invitation?invitation=${invitation.id}&token=${encodeURIComponent(
-        rawToken
-      )}`;
+      finalInvitationUrl = buildCompanyTenantUrl(invitation.company, "/accept-invitation", {
+        invitation: invitation.id,
+        token: rawToken,
+      });
     } catch (e) {
       console.warn("Failed to decrypt token for invitation email, using fallback URL", e);
     }
@@ -126,6 +140,7 @@ const processInvitationEmail = async (message) => {
       role,
       invitationUrl: finalInvitationUrl,
       expiresAt,
+      company: invitation.company,
     });
 
     await sendEmail({
@@ -165,11 +180,11 @@ const processInvitationEmail = async (message) => {
 const ownerActivationRepository = require("../super-admin/super-admin.owner-activation.repository");
 const { decryptToken } = require("../super-admin/super-admin.owner-activation.crypto");
 
-const buildOwnerActivationUrl = (rawToken) => {
-  const frontendUrl = env.frontend.url;
-  const url = new URL("/activate-owner", frontendUrl);
-  url.searchParams.set("token", rawToken);
-  return url.toString();
+const buildOwnerActivationUrl = (rawToken, company = null) => {
+  return buildCompanyTenantUrl(company, "/activate-owner", { token: rawToken });
+
+
+
 };
 
 const processOwnerActivationEmail = async (message) => {
@@ -220,8 +235,9 @@ const processOwnerActivationEmail = async (message) => {
   await markEmailProcessing(delivery.id, attempts);
 
   try {
+    const company = activation.user.companyMembers?.[0]?.company;
     const rawToken = decryptToken(activation.encryptedToken);
-    const activationUrl = buildOwnerActivationUrl(rawToken);
+    const activationUrl = buildOwnerActivationUrl(rawToken, company);
 
     const userRole = String(activation.user?.role || "").toUpperCase();
     const isPlatformAdmin =
@@ -249,6 +265,7 @@ const processOwnerActivationEmail = async (message) => {
         ownerName,
         companyName,
         activationUrl,
+        company,
         expiresAt: activation.expiresAt,
       }));
     }
@@ -316,14 +333,20 @@ const acknowledgeMessage = async (messageId) => {
 };
 
 const processCandidateOtpEmail = async (data) => {
-  const { email, otp, expiresAt, companyName, candidateName } = data;
+  const { email, otp, expiresAt, companyName, candidateName, company } = data;
 
   if (!email || !otp) {
     console.error("Candidate OTP email payload missing parameters", { email: Boolean(email) });
     return { success: false, permanentFailure: true };
   }
 
-  const emailContent = buildCandidateOtpEmail({ otp, expiresAt, companyName, candidateName });
+  const emailContent = buildCandidateOtpEmail({
+    otp,
+    expiresAt,
+    companyName,
+    candidateName,
+    company: company || data.companyBranding,
+  });
   await sendEmail({
     to: email,
     subject: emailContent.subject,

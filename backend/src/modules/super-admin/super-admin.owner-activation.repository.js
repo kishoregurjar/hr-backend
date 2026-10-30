@@ -92,6 +92,9 @@ const findByActivationId = async (activationId, tx = prisma) => {
                 select: {
                   id: true,
                   name: true,
+                  slug: true,
+                  customDomain: true,
+                  customDomainVerified: true,
                 },
               },
             },
