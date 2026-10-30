@@ -958,7 +958,16 @@ class AttemptController {
 
   sendInterviewInvite = asyncHandler(async (req, res) => {
     const hrUser = req.user;
-    const { candidates, roundName, scheduledAt, meetingLink, customMessage, companyName } = req.body || {};
+    const {
+      candidates,
+      roundName,
+      scheduledAt,
+      meetingLink,
+      customMessage,
+      companyName,
+      interviewMode,
+      officeAddress,
+    } = req.body || {};
 
     const result = await attemptService.sendInterviewInvitation({
       candidates,
@@ -967,6 +976,8 @@ class AttemptController {
       meetingLink,
       customMessage,
       companyName,
+      interviewMode,
+      officeAddress,
       hrUser,
     });
 

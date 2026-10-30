@@ -4,6 +4,7 @@ const { z } = require("zod");
 const { SUPPORT_CONSTANTS } = require("./support.constants");
 
 const createSupportRequestSchema = z.object({
+  companyId: z.string().trim().optional(),
   subject: z
     .string()
     .trim()
@@ -18,6 +19,7 @@ const createSupportRequestSchema = z.object({
 });
 
 const listSupportRequestsSchema = z.object({
+  companyId: z.string().trim().optional(),
   page: z.coerce
     .number()
     .int()
