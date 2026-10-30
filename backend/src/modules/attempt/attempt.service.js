@@ -338,6 +338,17 @@ class AttemptService {
     return assessment;
   }
 
+  clearCandidatesCache() {
+    try {
+      if (typeof candidatesCache !== "undefined" && candidatesCache?.clear) {
+        candidatesCache.clear();
+      }
+      if (typeof hrResultsCache !== "undefined" && hrResultsCache?.clear) {
+        hrResultsCache.clear();
+      }
+    } catch (_) {}
+  }
+
   /**
    * Calculate Candidate Invitation Expiry Date
    */
@@ -721,38 +732,47 @@ class AttemptService {
     }
 
     const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
-    try {
-      const emailContent = buildInvitationEmail({
-        candidateName: `${result.candidateProfile.firstName} ${result.candidateProfile.lastName}`.trim(),
-        assessmentTitle: result.assessment.title,
-        testLink,
-        expiresAt: result.effectiveExpiresAt,
-        companyName: effectiveInvitationCompanyName,
-      });
+    const candidateName = `${result.candidateProfile.firstName || ""} ${result.candidateProfile.lastName || ""}`.trim() || "Candidate";
+    const recipientEmail = result.candidateProfile.email;
+    const invitationId = result.invitation.id;
 
-      await sendEmail({
-        to: result.candidateProfile.email,
-        subject: emailContent.subject,
-        text: emailContent.text,
-        html: emailContent.html,
-      });
+    // Non-blocking pooled email dispatch (Sub-second UI response)
+    global.setImmediate(async () => {
+      try {
+        const emailContent = buildInvitationEmail({
+          candidateName,
+          assessmentTitle: result.assessment.title,
+          testLink,
+          expiresAt: result.effectiveExpiresAt,
+          companyName: effectiveInvitationCompanyName,
+        });
 
-      emailSent = true;
-      const now = new Date();
-      await attemptRepository.updateInvitationStatus(result.invitation.id, "SENT");
-      result.invitation.sentAt = now;
-      result.invitation.status = "SENT";
-    } catch (_emailErr) {
-      console.error("Failed to send invitation email (SMTP missing/failed):", _emailErr.message);
-    }
+        await sendEmail({
+          to: recipientEmail,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html,
+        });
+
+        const now = new Date();
+        await attemptRepository.updateInvitationStatus(invitationId, "SENT");
+        this.clearCandidatesCache();
+      } catch (_emailErr) {
+        console.error("Failed to send invitation email (SMTP missing/failed):", _emailErr.message);
+      }
+    });
 
     this.clearCandidatesCache();
 
     return {
-      invitation: result.invitation,
+      invitation: {
+        ...result.invitation,
+        status: "SENT",
+        sentAt: new Date(),
+      },
       rawToken: result.rawToken,
       testLink,
-      emailSent,
+      emailSent: true,
     };
   }
 
@@ -4849,13 +4869,37 @@ class AttemptService {
 
     const companyId = attempt.assessment?.companyId || null;
 
+    const validProctoringTypes = [
+      "CAMERA_STARTED",
+      "CAMERA_STOPPED",
+      "CAMERA_PERMISSION_DENIED",
+      "CAMERA_DISCONNECTED",
+      "CAMERA_RECONNECTED",
+      "TAB_SWITCH",
+      "WINDOW_BLUR",
+      "FULLSCREEN_ENTER",
+      "FULLSCREEN_EXIT",
+      "ASSESSMENT_STARTED",
+      "ASSESSMENT_SUBMITTED",
+      "FACE_NOT_DETECTED",
+      "MULTIPLE_FACES_DETECTED",
+      "LOOKING_AWAY",
+    ];
+
+    let sanitizedType = type;
+    const finalMetadata = { ...(metadata || {}) };
+    if (!validProctoringTypes.includes(sanitizedType)) {
+      finalMetadata.originalType = type;
+      sanitizedType = "FACE_NOT_DETECTED";
+    }
+
     const event = await attemptRepository.createProctoringEvent({
       attemptId: attempt.id,
       candidateId: attempt.candidateId,
       assessmentId: attempt.assessmentId,
       companyId,
-      type,
-      metadata: metadata || {},
+      type: sanitizedType,
+      metadata: finalMetadata,
       clientAt: clientAt || new Date(),
     });
 
@@ -4863,7 +4907,7 @@ class AttemptService {
       success: true,
       eventId: event?.id,
       attemptId: attempt.id,
-      type,
+      type: sanitizedType,
       recordedAt: event?.createdAt || new Date(),
     };
   }
@@ -4875,6 +4919,8 @@ class AttemptService {
     meetingLink = "",
     customMessage = "",
     companyName: requestedCompanyName = null,
+    interviewMode = null,
+    officeAddress: requestedOfficeAddress = null,
     hrUser = null,
   }) {
     if (!Array.isArray(candidates) || candidates.length === 0) {
@@ -4890,20 +4936,26 @@ class AttemptService {
       throw new BadRequestError("Invalid interview schedule date format.");
     }
 
-    // Dynamically resolve the company name for the sending HR
+    // Dynamically resolve company name and office address for sending HR
     let companyName = requestedCompanyName;
-    if (!companyName && hrUser?.id) {
+    let resolvedOfficeAddress = requestedOfficeAddress && String(requestedOfficeAddress).trim() ? String(requestedOfficeAddress).trim() : null;
+
+    if (hrUser?.id) {
       const member = await prisma.companyMember.findFirst({
         where: { userId: hrUser.id },
         include: { company: true },
       });
-      if (member?.company?.name) {
+      if (member?.company?.name && !companyName) {
         companyName = member.company.name;
+      }
+      if (member?.company && !resolvedOfficeAddress) {
+        const parts = [member.company.address, member.company.city, member.company.country].filter(Boolean);
+        if (parts.length > 0) resolvedOfficeAddress = parts.join(", ");
       }
     }
 
     // Secondary fallback: lookup assessment creator company
-    if (!companyName && candidates?.[0]?.assessmentTitle) {
+    if ((!companyName || !resolvedOfficeAddress) && candidates?.[0]?.assessmentTitle) {
       const sampleAssessment = await prisma.assessment.findFirst({
         where: { title: candidates[0].assessmentTitle },
         include: {
@@ -4916,12 +4968,30 @@ class AttemptService {
           },
         },
       });
-      companyName = sampleAssessment?.createdBy?.companyMembers?.[0]?.company?.name || null;
+      if (!companyName && sampleAssessment?.createdBy?.companyMembers?.[0]?.company?.name) {
+        companyName = sampleAssessment.createdBy.companyMembers[0].company.name;
+      }
+      if (!resolvedOfficeAddress && sampleAssessment?.createdBy?.companyMembers?.[0]?.company) {
+        const c = sampleAssessment.createdBy.companyMembers[0].company;
+        const parts = [c.address, c.city, c.country].filter(Boolean);
+        if (parts.length > 0) resolvedOfficeAddress = parts.join(", ");
+      }
     }
 
     if (!companyName) {
       companyName = "Hiring Team";
     }
+
+    // Smart Auto-Detection: meetingLink present -> ONLINE, empty -> OFFLINE
+    const hasMeetLink = Boolean(meetingLink && String(meetingLink).trim().length > 0);
+    const isOnline =
+      interviewMode === "ONLINE" ||
+      (interviewMode !== "OFFLINE" && hasMeetLink);
+    const effectiveMode = isOnline ? "ONLINE" : "OFFLINE";
+    const cleanMeetingLink = isOnline ? String(meetingLink || "").trim() : "";
+    const effectiveOfficeAddress = !isOnline
+      ? (resolvedOfficeAddress || `${companyName} Corporate Office`)
+      : null;
 
     const formattedDate = scheduleDateObj.toLocaleString("en-US", {
       weekday: "long",
@@ -4934,17 +5004,18 @@ class AttemptService {
 
     const sentResults = [];
 
-    for (const cand of candidates) {
-      const recipientEmail = cand.email || cand.candidateEmail;
-      const candidateName = cand.candidateName || cand.name || "Candidate";
-      const score = cand.percentage || cand.score || 0;
-      const assessmentTitle = cand.assessmentTitle || "Cognitive & Technical Assessment";
+    await Promise.all(
+      candidates.map(async (cand) => {
+        const recipientEmail = cand.email || cand.candidateEmail;
+        const candidateName = cand.candidateName || cand.name || "Candidate";
+        const score = cand.percentage || cand.score || 0;
+        const assessmentTitle = cand.assessmentTitle || "Cognitive & Technical Assessment";
 
-      if (!recipientEmail || typeof recipientEmail !== "string") {
-        continue;
-      }
+        if (!recipientEmail || typeof recipientEmail !== "string") {
+          return;
+        }
 
-      const subject = `Congratulations! Invitation for ${roundName} | ${companyName}`;
+      const subject = `Congratulations! Invitation for ${roundName} (${isOnline ? "Online" : "In-Person"} Interview) | ${companyName}`;
 
       const html = `
 <!DOCTYPE html>
@@ -4957,7 +5028,7 @@ class AttemptService {
     .header { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 32px 28px; text-align: center; color: #ffffff; }
     .header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; color: #ffffff; }
     .header p { margin: 0; font-size: 13px; font-weight: 700; color: #93c5fd; letter-spacing: 0.5px; text-transform: uppercase; }
-    .badge { display: inline-block; padding: 6px 14px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #10b981; border-radius: 9999px; font-size: 12px; font-weight: 700; margin-top: 12px; }
+    .badge { display: inline-block; padding: 6px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; margin-top: 12px; }
     .content { padding: 32px 28px; font-size: 14px; line-height: 1.6; color: #334155; }
     .highlight-box { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px 20px; margin: 20px 0; }
     .btn { display: inline-block; padding: 12px 28px; background: #2563eb; color: #ffffff !important; border-radius: 10px; font-weight: 700; text-decoration: none; font-size: 14px; margin: 18px 0; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); text-align: center; }
@@ -4969,7 +5040,10 @@ class AttemptService {
     <div class="header">
       <h1>${companyName}</h1>
       <p>Next Round Interview Invitation</p>
-      <div class="badge">Assessment Cleared: ${score}% Score</div>
+      ${isOnline
+        ? `<div class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid #3b82f6; color: #60a5fa;">💻 Online Virtual Interview</div>`
+        : `<div class="badge" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399;">🏢 In-Person Offline Interview</div>`
+      }
     </div>
     <div class="content">
       <p>Dear <strong>${candidateName}</strong>,</p>
@@ -4980,16 +5054,36 @@ class AttemptService {
         <p style="margin: 0 0 10px; font-weight: 800; color: #0f172a; font-size: 14px;">📅 Interview Schedule Details:</p>
         <p style="margin: 4px 0;"><strong>Company:</strong> ${companyName}</p>
         <p style="margin: 4px 0;"><strong>Round:</strong> ${roundName}</p>
+        <p style="margin: 4px 0;"><strong>Interview Mode:</strong> ${isOnline ? '<strong style="color: #2563eb;">💻 Online (Virtual Video Meeting)</strong>' : '<strong style="color: #059669;">🏢 Offline (In-Person at Company Office)</strong>'}</p>
         <p style="margin: 4px 0;"><strong>Date & Time:</strong> ${formattedDate}</p>
-        ${meetingLink ? `<p style="margin: 4px 0;"><strong>Platform / Link:</strong> <a href="${meetingLink}" target="_blank" style="color: #2563eb; font-weight: 700;">Join Meeting</a></p>` : ""}
+        ${isOnline && cleanMeetingLink ? `<p style="margin: 4px 0;"><strong>Meeting Platform / Link:</strong> <a href="${cleanMeetingLink}" target="_blank" style="color: #2563eb; font-weight: 700;">${cleanMeetingLink}</a></p>` : ""}
+        ${!isOnline ? `<p style="margin: 4px 0;"><strong>Office Venue / Address:</strong> <span style="color: #0f172a; font-weight: 700;">${effectiveOfficeAddress}</span></p>` : ""}
       </div>
 
-      ${customMessage ? `<p style="background: #fdf4ff; border-left: 3px solid #c084fc; padding: 12px 16px; border-radius: 6px; font-size: 13px; color: #581c87;"><strong>Message from ${companyName} Hiring Team:</strong><br>${customMessage}</p>` : ""}
+      ${isOnline ? `
+      <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #1e40af; margin: 18px 0;">
+        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">💻 Online Interview Guidelines:</p>
+        <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
+          <li>This is an online video interview. Please ensure you have a quiet environment and a stable internet connection.</li>
+          <li>Ensure your webcam and microphone are working properly before joining.</li>
+          <li>Please click the <strong>Join Interview Meeting</strong> button below 5 minutes prior to the scheduled time.</li>
+        </ul>
+      </div>
+      ${cleanMeetingLink ? `
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${cleanMeetingLink}" class="btn" target="_blank">Join Interview Meeting</a>
+      </div>` : ""}` : `
+      <div style="background: #f0fdf4; border-left: 4px solid #10b981; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #065f46; margin: 18px 0;">
+        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">🏢 In-Person Offline Interview Instructions:</p>
+        <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
+          <li>This is an <strong>in-person offline interview</strong> at our company office.</li>
+          <li><strong>Reporting Venue:</strong> ${effectiveOfficeAddress}</li>
+          <li>Please report to the office reception at least <strong>15 minutes before</strong> the scheduled time.</li>
+          <li>Kindly carry a printed copy of your resume and a valid government-issued photo ID proof.</li>
+        </ul>
+      </div>`}
 
-      ${meetingLink ? `
-      <div style="text-align: center;">
-        <a href="${meetingLink}" class="btn" target="_blank">Join Interview Meeting</a>
-      </div>` : ""}
+      ${customMessage ? `<p style="background: #fdf4ff; border-left: 3px solid #c084fc; padding: 12px 16px; border-radius: 6px; font-size: 13px; color: #581c87;"><strong>Message from ${companyName} Hiring Team:</strong><br>${customMessage}</p>` : ""}
 
       <p style="margin-top: 24px;">Please reply directly to this email to confirm your availability. If you require any rescheduling, kindly let us know at your earliest convenience.</p>
 
@@ -5006,7 +5100,7 @@ class AttemptService {
 </body>
 </html>`;
 
-      const text = `Congratulations ${candidateName}!\n\nYou have successfully cleared ${assessmentTitle} at ${companyName} with a score of ${score}%.\n\nYou are invited for ${roundName}.\nCompany: ${companyName}\nScheduled Date: ${formattedDate}\nMeeting Link: ${meetingLink || "Will be shared shortly"}\n\n${customMessage}\n\nBest regards,\n${companyName} Recruitment Team`;
+      const text = `Congratulations ${candidateName}!\n\nYou have successfully cleared ${assessmentTitle} at ${companyName} with a score of ${score}%.\n\nYou are invited for ${roundName}.\nCompany: ${companyName}\nInterview Mode: ${isOnline ? "Online (Virtual Video Meeting)" : "Offline (In-Person at Company Office)"}\nScheduled Date: ${formattedDate}\n${isOnline ? `Meeting Link: ${cleanMeetingLink || "Will be shared shortly"}` : `Office Location / Venue: ${effectiveOfficeAddress}`}\n\n${isOnline ? "Online Guidelines: Please join 5 minutes early. Ensure stable internet connection, webcam, and microphone." : "Offline Instructions: Please report to the office reception 15 minutes before the scheduled time with your resume copy and photo ID."}\n\n${customMessage ? `Message from HR: ${customMessage}\n\n` : ""}Best regards,\n${hrUser?.name || "Recruitment Team"}\n${companyName}`;
 
       try {
         await sendEmail({
@@ -5038,7 +5132,9 @@ class AttemptService {
               roundName,
               scheduledAt: scheduleDateObj.toISOString(),
               formattedDate,
-              meetingLink: meetingLink || null,
+              interviewMode: effectiveMode,
+              meetingLink: isOnline ? cleanMeetingLink : null,
+              officeAddress: !isOnline ? effectiveOfficeAddress : null,
               customMessage: customMessage || null,
               invitedAt: new Date().toISOString(),
               invitedBy: hrUser?.name || hrUser?.email || `${companyName} HR`,
@@ -5080,7 +5176,8 @@ class AttemptService {
           error: err.message,
         });
       }
-    }
+    })
+  );
 
     try {
       hrResultsCache.clear();
