@@ -26,11 +26,16 @@ class NotificationRepository {
    * Find notifications for a specific user and/or company with pagination
    */
   async findByUser({ userId, companyId, isRead, limit = 20, offset = 0 }) {
+    const conditions = [];
+    if (userId) conditions.push({ userId });
+    if (companyId) conditions.push({ companyId });
+
+    if (conditions.length === 0) {
+      return { items: [], total: 0 };
+    }
+
     const whereClause = {
-      OR: [
-        ...(userId ? [{ userId }] : []),
-        ...(companyId ? [{ companyId, userId: null }] : []),
-      ],
+      OR: conditions,
     };
 
     if (typeof isRead === "boolean") {
@@ -56,12 +61,17 @@ class NotificationRepository {
    * Count unread notifications
    */
   async countUnread({ userId, companyId }) {
+    const conditions = [];
+    if (userId) conditions.push({ userId });
+    if (companyId) conditions.push({ companyId });
+
+    if (conditions.length === 0) {
+      return 0;
+    }
+
     const whereClause = {
       isRead: false,
-      OR: [
-        ...(userId ? [{ userId }] : []),
-        ...(companyId ? [{ companyId, userId: null }] : []),
-      ],
+      OR: conditions,
     };
 
     return prisma.notification.count({ where: whereClause });
@@ -71,13 +81,14 @@ class NotificationRepository {
    * Mark a single notification as read
    */
   async markAsRead(id, { userId, companyId }) {
+    const conditions = [];
+    if (userId) conditions.push({ userId });
+    if (companyId) conditions.push({ companyId });
+
     return prisma.notification.updateMany({
       where: {
         id,
-        OR: [
-          ...(userId ? [{ userId }] : []),
-          ...(companyId ? [{ companyId }] : []),
-        ],
+        ...(conditions.length > 0 ? { OR: conditions } : {}),
       },
       data: {
         isRead: true,
@@ -87,19 +98,20 @@ class NotificationRepository {
   }
 
   /**
-   * Mark all notifications as read for a user
+   * Mark all notifications as read for a user / company
    */
   async markAllAsRead({ userId, companyId }) {
-    const whereClause = {
-      isRead: false,
-      OR: [
-        ...(userId ? [{ userId }] : []),
-        ...(companyId ? [{ companyId, userId: null }] : []),
-      ],
-    };
+    const conditions = [];
+    if (userId) conditions.push({ userId });
+    if (companyId) conditions.push({ companyId });
+
+    if (conditions.length === 0) return { count: 0 };
 
     return prisma.notification.updateMany({
-      where: whereClause,
+      where: {
+        isRead: false,
+        OR: conditions,
+      },
       data: {
         isRead: true,
         readAt: new Date(),
@@ -111,13 +123,14 @@ class NotificationRepository {
    * Delete a notification
    */
   async delete(id, { userId, companyId }) {
+    const conditions = [];
+    if (userId) conditions.push({ userId });
+    if (companyId) conditions.push({ companyId });
+
     return prisma.notification.deleteMany({
       where: {
         id,
-        OR: [
-          ...(userId ? [{ userId }] : []),
-          ...(companyId ? [{ companyId }] : []),
-        ],
+        ...(conditions.length > 0 ? { OR: conditions } : {}),
       },
     });
   }

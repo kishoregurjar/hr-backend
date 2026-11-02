@@ -5,10 +5,25 @@ const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const notificationService = require("./notification.service");
 
+/**
+ * Extract authenticated user context and company membership without extra DB calls
+ */
+const getAuthContext = (req) => {
+  const userId = req.user?.id || null;
+  const companyId =
+    req.user?.companyId ||
+    req.headers["x-company-id"] ||
+    req.headers["X-Company-Id"] ||
+    req.user?.companyMembers?.[0]?.companyId ||
+    req.companyId ||
+    null;
+
+  return { userId, companyId };
+};
+
 class NotificationController {
   getNotifications = asyncHandler(async (req, res) => {
-    const userId = req.user?.id;
-    const companyId = req.user?.companyId || req.companyId;
+    const { userId, companyId } = getAuthContext(req);
 
     const result = await notificationService.getNotifications(
       userId,
@@ -27,8 +42,7 @@ class NotificationController {
   });
 
   getUnreadCount = asyncHandler(async (req, res) => {
-    const userId = req.user?.id;
-    const companyId = req.user?.companyId || req.companyId;
+    const { userId, companyId } = getAuthContext(req);
 
     const result = await notificationService.getUnreadCount(userId, companyId);
 
@@ -44,8 +58,7 @@ class NotificationController {
 
   markAsRead = asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const userId = req.user?.id;
-    const companyId = req.user?.companyId || req.companyId;
+    const { userId, companyId } = getAuthContext(req);
 
     const result = await notificationService.markAsRead(id, userId, companyId);
 
@@ -60,8 +73,7 @@ class NotificationController {
   });
 
   markAllAsRead = asyncHandler(async (req, res) => {
-    const userId = req.user?.id;
-    const companyId = req.user?.companyId || req.companyId;
+    const { userId, companyId } = getAuthContext(req);
 
     const result = await notificationService.markAllAsRead(userId, companyId);
 
@@ -77,8 +89,7 @@ class NotificationController {
 
   deleteNotification = asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const userId = req.user?.id;
-    const companyId = req.user?.companyId || req.companyId;
+    const { userId, companyId } = getAuthContext(req);
 
     const result = await notificationService.deleteNotification(id, userId, companyId);
 

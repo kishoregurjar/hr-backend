@@ -4237,28 +4237,56 @@ class AttemptService {
       });
     }
 
-        // Real-time notification dispatch
-    if (submissionResult?.attemptId && submissionResult?.companyId) {
+        // Real-time notification dispatch (Asynchronous background task - zero candidate latency)
+    if (submissionResult?.attemptId) {
       global.setImmediate(async () => {
         try {
           const { notificationService } = require("../notification");
-          const candidateName = attempt.candidate?.name || attempt.candidate?.fullName || "Candidate";
-          const assessmentTitle = attempt.assessment?.title || "Assessment";
-          await notificationService.createAndSendNotification({
-            companyId: submissionResult.companyId,
-            title: "Assessment Completed",
-            message: `${candidateName} has completed "${assessmentTitle}" (${submissionResult.percentage}% score).`,
-            type: "ASSESSMENT",
-            priority: "MEDIUM",
-            link: `/results/${submissionResult.attemptId}`,
-            metadata: {
-              attemptId: submissionResult.attemptId,
-              score: submissionResult.percentage,
-              candidateName,
-              assessmentTitle,
+          const { prisma } = require("../../config/prisma");
+          const assessmentInfo = await prisma.assessment.findUnique({
+            where: { id: attempt.assessmentId },
+            select: {
+              title: true,
+              createdById: true,
+              createdBy: {
+                select: {
+                  companyMembers: { select: { companyId: true }, take: 1 },
+                },
+              },
             },
           });
-        } catch (_notifyErr) {}
+          const resolvedCompanyId =
+            submissionResult.companyId ||
+            assessmentInfo?.createdBy?.companyMembers?.[0]?.companyId ||
+            null;
+          let candidateName = "Candidate";
+          if (attempt.candidateId) {
+            const candidateInfo = await prisma.candidateProfile.findUnique({
+              where: { id: attempt.candidateId },
+              select: { fullName: true, name: true },
+            });
+            candidateName = candidateInfo?.fullName || candidateInfo?.name || "Candidate";
+          }
+          const assessmentTitle = assessmentInfo?.title || "Assessment";
+          if (resolvedCompanyId) {
+            await notificationService.createAndSendNotification({
+              companyId: resolvedCompanyId,
+              title: "Assessment Completed",
+              message: `${candidateName} has completed "${assessmentTitle}" (${submissionResult.percentage}% score).`,
+              type: "ASSESSMENT",
+              priority: "MEDIUM",
+              link: `/results/${submissionResult.attemptId}`,
+              metadata: {
+                attemptId: submissionResult.attemptId,
+                score: submissionResult.percentage,
+                candidateName,
+                assessmentTitle,
+              },
+            });
+          }
+        } catch (_notifyErr) {
+          console.warn("[submitCandidateAttempt] Notification dispatch notice:", _notifyErr?.message);
+        }
       });
     }
 

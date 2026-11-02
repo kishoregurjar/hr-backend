@@ -15,3 +15,4 @@ module.exports = {
   NOTIFICATION_TYPES,
   NOTIFICATION_PRIORITIES,
 };
+
