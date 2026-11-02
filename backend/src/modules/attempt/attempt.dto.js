@@ -876,6 +876,8 @@ const toHRAttemptListResponse = (attempt) => {
     percentage: attempt.percentage !== null && attempt.percentage !== undefined ? Number(attempt.percentage) : null,
     result: attempt.result ?? null,
     passed: attempt.result === "PASS" ? true : (attempt.result === "FAIL" ? false : (attempt.passed ?? null)),
+    verificationPhoto: candidate?.metadata?.verificationPhoto || attempt.metadata?.verificationPhoto || null,
+    photoCapturedAt: candidate?.metadata?.photoCapturedAt || attempt.metadata?.photoCapturedAt || null,
     candidate: candidate
       ? {
           id: candidate.id,
@@ -884,6 +886,8 @@ const toHRAttemptListResponse = (attempt) => {
           lastName: candidate.lastName ?? null,
           email: candidate.email ?? null,
           metadata: candidate.metadata ?? null,
+          verificationPhoto: candidate.metadata?.verificationPhoto ?? null,
+          photoCapturedAt: candidate.metadata?.photoCapturedAt ?? null,
         }
       : null,
     interview: specificInterview,
@@ -975,6 +979,8 @@ const toHRAttemptDetailResponse = (attempt) => {
     percentage: attempt.percentage !== null && attempt.percentage !== undefined ? Number(attempt.percentage) : null,
     result: attempt.result ?? null,
     passed: attempt.result === "PASS" ? true : (attempt.result === "FAIL" ? false : (attempt.passed ?? null)),
+    verificationPhoto: candidate?.metadata?.verificationPhoto || attempt.metadata?.verificationPhoto || null,
+    photoCapturedAt: candidate?.metadata?.photoCapturedAt || attempt.metadata?.photoCapturedAt || null,
     candidate: candidate
       ? {
           id: candidate.id,
@@ -982,6 +988,9 @@ const toHRAttemptDetailResponse = (attempt) => {
           firstName: candidate.firstName ?? null,
           lastName: candidate.lastName ?? null,
           email: candidate.email ?? null,
+          metadata: candidate.metadata ?? null,
+          verificationPhoto: candidate.metadata?.verificationPhoto ?? null,
+          photoCapturedAt: candidate.metadata?.photoCapturedAt ?? null,
         }
       : null,
     questions: Array.isArray(attempt.questions)

@@ -136,6 +136,25 @@ class NotificationRepository {
   }
 
   /**
+   * Delete all notifications for user or company
+   */
+  async deleteAll({ userId, companyId }) {
+    const conditions = [];
+    if (userId) conditions.push({ userId });
+    if (companyId) conditions.push({ companyId });
+
+    if (conditions.length === 0) {
+      return { count: 0 };
+    }
+
+    return prisma.notification.deleteMany({
+      where: {
+        OR: conditions,
+      },
+    });
+  }
+
+  /**
    * Prune read notifications older than X days to prevent DB bloat
    */
   async pruneOld(days = 30) {

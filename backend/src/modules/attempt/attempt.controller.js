@@ -204,10 +204,14 @@ class AttemptController {
   startAttemptByToken = asyncHandler(async (req, res) => {
     const rawToken = req.body?.token || req.body?.invitationToken;
     const candidateSession = req.candidateSession;
+    const verificationPhoto = req.body?.verificationPhoto || null;
+    const photoCapturedAt = req.body?.photoCapturedAt || new Date().toISOString();
 
     const attempt = await attemptService.startAttemptByToken({
       token: rawToken,
       candidateSession,
+      verificationPhoto,
+      photoCapturedAt,
     });
 
     const companyId =

@@ -122,6 +122,16 @@ class NotificationService {
   }
 
   /**
+   * Clear all notifications for user/company
+   */
+  async clearAllNotifications(userId, companyId) {
+    const result = await notificationRepository.deleteAll({ userId, companyId });
+    await this.invalidateUnreadCache(userId);
+
+    return { cleared: true, count: result.count, unreadCount: 0 };
+  }
+
+  /**
    * Production Core Method: Create notification record and broadcast via Socket.IO
    */
   async createAndSendNotification({

@@ -102,6 +102,21 @@ class NotificationController {
       StatusCodes.OK
     );
   });
+
+  clearAllNotifications = asyncHandler(async (req, res) => {
+    const { userId, companyId } = getAuthContext(req);
+
+    const result = await notificationService.clearAllNotifications(userId, companyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "All notifications cleared successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
 }
 
 module.exports = new NotificationController();

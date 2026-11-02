@@ -1589,7 +1589,7 @@ class AttemptService {
    * 6. Otherwise start new attempt & snapshot questions
    * ============================================================
    */
-  async startAttemptByToken({ token, candidateSession }) {
+  async startAttemptByToken({ token, candidateSession, verificationPhoto = null, photoCapturedAt = null }) {
     if (!candidateSession && (typeof token !== "string" || !token.trim())) {
       throw new BadRequestError(
         "Candidate verification session or invitation token is required.",
@@ -1704,6 +1704,23 @@ class AttemptService {
       );
 
       if (existingActiveAttempt) {
+        if (verificationPhoto && candidate?.id) {
+          try {
+            const existingMeta = typeof candidate.metadata === "object" && candidate.metadata ? candidate.metadata : {};
+            const updatedMeta = {
+              ...existingMeta,
+              verificationPhoto,
+              photoCapturedAt: photoCapturedAt || now.toISOString(),
+            };
+            await tx.candidateProfile.update({
+              where: { id: candidate.id },
+              data: { metadata: updatedMeta },
+            });
+            candidate.metadata = updatedMeta;
+          } catch (e) {
+            logger.warn("Notice updating candidate metadata photo on resume:", e?.message);
+          }
+        }
         const fullAttempt = await attemptRepository.findById(
           existingActiveAttempt.id,
           { includeQuestions: true },
@@ -1750,6 +1767,25 @@ class AttemptService {
         startedAt,
         expiresAt,
       });
+
+      // 11b. Persist candidate verification photo if provided
+      if (verificationPhoto && candidate?.id) {
+        try {
+          const existingMeta = typeof candidate.metadata === "object" && candidate.metadata ? candidate.metadata : {};
+          const updatedMeta = {
+            ...existingMeta,
+            verificationPhoto,
+            photoCapturedAt: photoCapturedAt || now.toISOString(),
+          };
+          await tx.candidateProfile.update({
+            where: { id: candidate.id },
+            data: { metadata: updatedMeta },
+          });
+          candidate.metadata = updatedMeta;
+        } catch (photoErr) {
+          logger.warn("Notice persisting verification photo on candidate profile:", photoErr?.message);
+        }
+      }
 
       // 12. Create AssessmentAttempt
       const attempt = await attemptRepository.createAttempt(attemptData, tx);
@@ -4605,6 +4641,9 @@ class AttemptService {
         attempt: latestAttempt || null,
         resumeUrl,
         resumeFileName,
+        metadata: item.metadata || null,
+        verificationPhoto: item.metadata?.verificationPhoto || null,
+        photoCapturedAt: item.metadata?.photoCapturedAt || null,
         addedDate: item.createdAt,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
