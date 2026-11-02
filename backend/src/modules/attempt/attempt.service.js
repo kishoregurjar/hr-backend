@@ -4284,7 +4284,7 @@ class AttemptService {
               message: `${candidateName} has completed "${assessmentTitle}" (${percentageForNotify}% score).`,
               type: "ASSESSMENT",
               priority: "MEDIUM",
-              link: `/results/${attemptIdForNotify}`,
+              link: null,
               metadata: {
                 attemptId: attemptIdForNotify,
                 score: percentageForNotify,
