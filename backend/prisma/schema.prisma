@@ -262,6 +262,8 @@ model User {
   name      String?
   role      Role       @default(HR)
   status    UserStatus @default(ACTIVE)
+  avatarUrl String?
+  avatarPath String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 

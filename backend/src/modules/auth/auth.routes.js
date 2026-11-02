@@ -5,6 +5,7 @@ const validateRequest = require("../../middleware/validate.middleware");
 const requireAuth = require("../../middleware/requireAuth");
 const requireRole = require("../../middleware/requireRole");
 const { AUTH_ROLES } = require("./auth.constants");
+const { uploadAvatarMiddleware } = require("./auth.avatar.middleware");
 
 const controller = require("./auth.controller");
 const {
@@ -50,6 +51,10 @@ router.use(requireAuth);
 router.get("/me", controller.getCurrentUser);
 router.patch("/me", validateRequest(updateProfileSchema), controller.updateProfile);
 router.patch("/profile", validateRequest(updateProfileSchema), controller.updateProfile);
+router.post("/me/avatar", uploadAvatarMiddleware, controller.uploadAvatar);
+router.delete("/me/avatar", controller.removeAvatar);
+router.post("/avatar", uploadAvatarMiddleware, controller.uploadAvatar);
+router.delete("/avatar", controller.removeAvatar);
 router.get("/me/companies", controller.getUserCompanies);
 router.post("/logout-all", controller.logoutAllDevices);
 router.post("/change-password", validateRequest(changePasswordSchema), controller.changePassword);

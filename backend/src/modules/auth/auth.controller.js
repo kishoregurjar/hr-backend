@@ -3,6 +3,7 @@ const { asyncHandler } = require("../../utils/async-handler");
 const { SuccessResponse } = require("../../common/response");
 const { COOKIE_NAMES, AUTH_MESSAGES } = require("./auth.constants");
 const authService = require("./auth.service");
+const authAvatarService = require("./auth.avatar.service");
 const { setRefreshTokenCookie, clearRefreshTokenCookie, generateAccessToken, generateRefreshToken } = require("./auth.utils");
 const { AuthDto } = require("./auth.dto");
 
@@ -244,6 +245,35 @@ class AuthController {
       StatusCodes.OK
     );
   });
+  uploadAvatar = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const file = req.file;
+    const result = await authAvatarService.uploadAvatar(userId, file);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Profile photo uploaded successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
+  removeAvatar = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const result = await authAvatarService.removeAvatar(userId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Profile photo removed successfully.",
+        data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
   verifyOwnerActivation = asyncHandler(async (req, res) => {
     const ownerActivationService = require("../super-admin/super-admin.owner-activation.service");
     

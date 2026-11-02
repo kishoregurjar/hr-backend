@@ -132,6 +132,7 @@ const findCompanyMembers = async (
           email: true,
           name: true,
           status: true,
+          avatarUrl: true,
         },
       },
     },
@@ -281,6 +282,7 @@ const findMemberForUpdate = async (companyId, memberId, tx = prisma) => {
           email: true,
           name: true,
           status: true,
+          avatarUrl: true,
         },
       },
     },
@@ -359,12 +361,13 @@ const transferOwnership = async ({
         userId: true,
         role: true,
         user: {
-          select: {
+        select: {
             id: true,
             name: true,
             email: true,
             status: true,
-          },
+          avatarUrl: true,
+        },
         },
       },
     });
