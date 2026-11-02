@@ -4237,6 +4237,31 @@ class AttemptService {
       });
     }
 
+        // Real-time notification dispatch
+    if (submissionResult?.attemptId && submissionResult?.companyId) {
+      global.setImmediate(async () => {
+        try {
+          const { notificationService } = require("../notification");
+          const candidateName = attempt.candidate?.name || attempt.candidate?.fullName || "Candidate";
+          const assessmentTitle = attempt.assessment?.title || "Assessment";
+          await notificationService.createAndSendNotification({
+            companyId: submissionResult.companyId,
+            title: "Assessment Completed",
+            message: `${candidateName} has completed "${assessmentTitle}" (${submissionResult.percentage}% score).`,
+            type: "ASSESSMENT",
+            priority: "MEDIUM",
+            link: `/results/${submissionResult.attemptId}`,
+            metadata: {
+              attemptId: submissionResult.attemptId,
+              score: submissionResult.percentage,
+              candidateName,
+              assessmentTitle,
+            },
+          });
+        } catch (_notifyErr) {}
+      });
+    }
+
     return submissionResult;
   }
 
@@ -4902,6 +4927,28 @@ class AttemptService {
       metadata: finalMetadata,
       clientAt: clientAt || new Date(),
     });
+
+        if (companyId && (sanitizedType === "MULTIPLE_FACES_DETECTED" || finalMetadata?.subType === "DIFFERENT_PERSON_DETECTED")) {
+      global.setImmediate(async () => {
+        try {
+          const { notificationService } = require("../notification");
+          const candidateName = attempt.candidate?.name || attempt.candidate?.fullName || "Candidate";
+          await notificationService.createAndSendNotification({
+            companyId,
+            title: "Proctoring Security Alert",
+            message: `${candidateName} triggered a security violation: ${sanitizedType.replace(/_/g, " ")}.`,
+            type: "PROCTORING",
+            priority: "HIGH",
+            link: `/results/${attempt.id}`,
+            metadata: {
+              attemptId: attempt.id,
+              candidateName,
+              type: sanitizedType,
+            },
+          });
+        } catch (_notifyErr) {}
+      });
+    }
 
     return {
       success: true,
