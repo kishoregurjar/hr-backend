@@ -4239,46 +4239,55 @@ class AttemptService {
 
         // Real-time notification dispatch (Asynchronous background task - zero candidate latency)
     if (submissionResult?.attemptId) {
+      const attemptIdForNotify = submissionResult.attemptId;
+      const percentageForNotify = submissionResult.percentage;
       global.setImmediate(async () => {
         try {
           const { notificationService } = require("../notification");
           const { prisma } = require("../../config/prisma");
-          const assessmentInfo = await prisma.assessment.findUnique({
-            where: { id: attempt.assessmentId },
+          const attemptRecord = await prisma.candidateAttempt.findUnique({
+            where: { id: attemptIdForNotify },
             select: {
-              title: true,
-              createdById: true,
-              createdBy: {
+              candidateId: true,
+              assessmentId: true,
+              candidate: {
+                select: { firstName: true, lastName: true, email: true, companyId: true },
+              },
+              assessment: {
                 select: {
-                  companyMembers: { select: { companyId: true }, take: 1 },
+                  title: true,
+                  createdById: true,
+                  createdBy: {
+                    select: {
+                      companyMembers: { select: { companyId: true }, take: 1 },
+                    },
+                  },
                 },
               },
             },
           });
           const resolvedCompanyId =
-            submissionResult.companyId ||
-            assessmentInfo?.createdBy?.companyMembers?.[0]?.companyId ||
+            attemptRecord?.assessment?.createdBy?.companyMembers?.[0]?.companyId ||
+            attemptRecord?.candidate?.companyId ||
             null;
-          let candidateName = "Candidate";
-          if (attempt.candidateId) {
-            const candidateInfo = await prisma.candidateProfile.findUnique({
-              where: { id: attempt.candidateId },
-              select: { fullName: true, name: true },
-            });
-            candidateName = candidateInfo?.fullName || candidateInfo?.name || "Candidate";
-          }
-          const assessmentTitle = assessmentInfo?.title || "Assessment";
+          const candidateName =
+            [attemptRecord?.candidate?.firstName, attemptRecord?.candidate?.lastName]
+              .filter(Boolean)
+              .join(" ")
+              .trim() || "Candidate";
+          const assessmentTitle =
+            attemptRecord?.assessment?.title || "Assessment";
           if (resolvedCompanyId) {
             await notificationService.createAndSendNotification({
               companyId: resolvedCompanyId,
               title: "Assessment Completed",
-              message: `${candidateName} has completed "${assessmentTitle}" (${submissionResult.percentage}% score).`,
+              message: `${candidateName} has completed "${assessmentTitle}" (${percentageForNotify}% score).`,
               type: "ASSESSMENT",
               priority: "MEDIUM",
-              link: `/results/${submissionResult.attemptId}`,
+              link: `/results/${attemptIdForNotify}`,
               metadata: {
-                attemptId: submissionResult.attemptId,
-                score: submissionResult.percentage,
+                attemptId: attemptIdForNotify,
+                score: percentageForNotify,
                 candidateName,
                 assessmentTitle,
               },

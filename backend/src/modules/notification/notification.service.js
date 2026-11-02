@@ -168,6 +168,7 @@ class NotificationService {
       if (companyId) {
         socketService.emitToCompany(companyId, "NEW_NOTIFICATION", payload);
       }
+      socketService.emitGlobalHR("NEW_NOTIFICATION", payload);
 
       logger.info(`Notification sent: "${title}" [${type}] to ${userId ? `User:${userId}` : `Company:${companyId}`}`);
       return notification;
