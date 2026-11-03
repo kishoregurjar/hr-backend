@@ -193,6 +193,9 @@ router.get(
     if (urlPath.includes("/candidates")) {
       return attemptController.getCandidates(req, res, next);
     }
+    if (urlPath.includes("/invitations")) {
+      return attemptController.getHRInvitations(req, res, next);
+    }
     return attemptController.getHRAttemptResults(req, res, next);
   }
 );

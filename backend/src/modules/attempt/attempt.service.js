@@ -4717,6 +4717,101 @@ class AttemptService {
   /**
    * HR Attempt Results List Workflow (Paginated + Scoped)
    */
+  /**
+   * Dedicated HR Invitations List (from Invitation table)
+   */
+  async getHRInvitations({ query = {}, user }) {
+    if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
+      throw new ForbiddenError(
+        "You do not have permission to access invitations list.",
+        "ACCESS_DENIED"
+      );
+    }
+
+    const page = parseInt(query.page, 10) || 1;
+    const limit = parseInt(query.limit, 10) || 50;
+    const { status, assessmentId, search } = query;
+    const skip = (page - 1) * limit;
+
+    const where = {};
+    if (user.role === "HR") {
+      const userMember = await prisma.companyMember.findFirst({
+        where: { userId: user.id },
+        select: { companyId: true },
+      });
+      if (userMember?.companyId) {
+        where.assessment = {
+          createdBy: {
+            companyMembers: {
+              some: { companyId: userMember.companyId },
+            },
+          },
+        };
+      }
+    }
+
+    if (status && status !== "ALL") {
+      where.status = status;
+    }
+
+    if (assessmentId && assessmentId !== "ALL") {
+      where.assessmentId = assessmentId;
+    }
+
+    if (search) {
+      where.candidate = {
+        OR: [
+          { firstName: { contains: search, mode: "insensitive" } },
+          { lastName: { contains: search, mode: "insensitive" } },
+          { email: { contains: search, mode: "insensitive" } },
+        ],
+      };
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.invitation.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { sentAt: "desc" },
+        include: {
+          candidate: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phoneNumber: true,
+              metadata: true,
+            },
+          },
+          assessment: {
+            select: {
+              id: true,
+              title: true,
+              durationMinutes: true,
+              passingScore: true,
+            },
+          },
+        },
+      }),
+      prisma.invitation.count({ where }),
+    ]);
+
+    return {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * HR Attempt Results List Workflow (Paginated + Scoped)
+   */
   async getHRAttemptResults({ query = {}, user, companyId = null }) {
     if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
       throw new ForbiddenError(
@@ -5587,8 +5682,8 @@ class AttemptService {
       <h1>${companyName}</h1>
       <p>Next Round Interview Invitation</p>
       ${isOnline
-        ? `<div class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid #3b82f6; color: #60a5fa;">💻 Online Virtual Interview</div>`
-        : `<div class="badge" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399;">🏢 In-Person Offline Interview</div>`
+        ? `<div class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid #3b82f6; color: #60a5fa;">ðŸ’» Online Virtual Interview</div>`
+        : `<div class="badge" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399;">ðŸ¢ In-Person Offline Interview</div>`
       }
     </div>
     <div class="content">
@@ -5597,10 +5692,10 @@ class AttemptService {
       <p>Based on your excellent performance, you have been shortlisted for the next stage at <strong>${companyName}</strong>: <strong>${roundName}</strong>.</p>
       
       <div class="highlight-box">
-        <p style="margin: 0 0 10px; font-weight: 800; color: #0f172a; font-size: 14px;">📅 Interview Schedule Details:</p>
+        <p style="margin: 0 0 10px; font-weight: 800; color: #0f172a; font-size: 14px;">ðŸ“… Interview Schedule Details:</p>
         <p style="margin: 4px 0;"><strong>Company:</strong> ${companyName}</p>
         <p style="margin: 4px 0;"><strong>Round:</strong> ${roundName}</p>
-        <p style="margin: 4px 0;"><strong>Interview Mode:</strong> ${isOnline ? '<strong style="color: #2563eb;">💻 Online (Virtual Video Meeting)</strong>' : '<strong style="color: #059669;">🏢 Offline (In-Person at Company Office)</strong>'}</p>
+        <p style="margin: 4px 0;"><strong>Interview Mode:</strong> ${isOnline ? '<strong style="color: #2563eb;">ðŸ’» Online (Virtual Video Meeting)</strong>' : '<strong style="color: #059669;">ðŸ¢ Offline (In-Person at Company Office)</strong>'}</p>
         <p style="margin: 4px 0;"><strong>Date & Time:</strong> ${formattedDate}</p>
         ${isOnline && cleanMeetingLink ? `<p style="margin: 4px 0;"><strong>Meeting Platform / Link:</strong> <a href="${cleanMeetingLink}" target="_blank" style="color: #2563eb; font-weight: 700;">${cleanMeetingLink}</a></p>` : ""}
         ${!isOnline ? `<p style="margin: 4px 0;"><strong>Office Venue / Address:</strong> <span style="color: #0f172a; font-weight: 700;">${effectiveOfficeAddress}</span></p>` : ""}
@@ -5608,7 +5703,7 @@ class AttemptService {
 
       ${isOnline ? `
       <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #1e40af; margin: 18px 0;">
-        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">💻 Online Interview Guidelines:</p>
+        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">ðŸ’» Online Interview Guidelines:</p>
         <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
           <li>This is an online video interview. Please ensure you have a quiet environment and a stable internet connection.</li>
           <li>Ensure your webcam and microphone are working properly before joining.</li>
@@ -5620,7 +5715,7 @@ class AttemptService {
         <a href="${cleanMeetingLink}" class="btn" target="_blank">Join Interview Meeting</a>
       </div>` : ""}` : `
       <div style="background: #f0fdf4; border-left: 4px solid #10b981; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #065f46; margin: 18px 0;">
-        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">🏢 In-Person Offline Interview Instructions:</p>
+        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">ðŸ¢ In-Person Offline Interview Instructions:</p>
         <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
           <li>This is an <strong>in-person offline interview</strong> at our company office.</li>
           <li><strong>Reporting Venue:</strong> ${effectiveOfficeAddress}</li>
