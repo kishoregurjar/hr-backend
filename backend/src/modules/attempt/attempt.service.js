@@ -4433,6 +4433,99 @@ class AttemptService {
   /**
    * HR Attempt Results List Workflow (Paginated + Scoped)
    */
+
+  /**
+   * Dedicated HR Invitations List (from Invitation table)
+   */
+  async getHRInvitations({ query = {}, user }) {
+    if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
+      throw new ForbiddenError(
+        "You do not have permission to access invitations list.",
+        "ACCESS_DENIED"
+      );
+    }
+
+    const page = parseInt(query.page, 10) || 1;
+    const limit = parseInt(query.limit, 10) || 50;
+    const { status, assessmentId, search } = query;
+    const skip = (page - 1) * limit;
+
+    const where = {};
+    if (user.role === "HR") {
+      const userMember = await prisma.companyMember.findFirst({
+        where: { userId: user.id },
+        select: { companyId: true },
+      });
+      if (userMember?.companyId) {
+        where.assessment = {
+          createdBy: {
+            companyMembers: {
+              some: { companyId: userMember.companyId },
+            },
+          },
+        };
+      }
+    }
+
+    if (status && status !== "ALL") {
+      where.status = status;
+    }
+
+    if (assessmentId && assessmentId !== "ALL") {
+      where.assessmentId = assessmentId;
+    }
+
+    if (search) {
+      where.candidate = {
+        OR: [
+          { firstName: { contains: search, mode: "insensitive" } },
+          { lastName: { contains: search, mode: "insensitive" } },
+          { email: { contains: search, mode: "insensitive" } },
+        ],
+      };
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.invitation.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { sentAt: "desc" },
+        include: {
+          candidate: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phoneNumber: true,
+              metadata: true,
+            },
+          },
+          assessment: {
+            select: {
+              id: true,
+              title: true,
+              durationMinutes: true,
+              passingScore: true,
+            },
+          },
+        },
+      }),
+      prisma.invitation.count({ where }),
+    ]);
+
+    return {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
   async getHRAttemptResults({ query = {}, user }) {
     if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
       throw new ForbiddenError(

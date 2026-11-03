@@ -15,6 +15,7 @@ const {
   toCandidateAnswerResponse,
   toCandidateSubmissionResponse,
   toHRAttemptListResponse,
+  toHRInvitationListResponse,
   toAssessmentAnalyticsResponse,
   toHRAttemptDetailResponse,
 } = require("./attempt.dto");
@@ -945,6 +946,7 @@ module.exports = attemptController;
 module.exports.sendCandidateOtpController = attemptController.sendCandidateOtp.bind(attemptController);
 module.exports.verifyCandidateOtpController = attemptController.verifyCandidateOtp.bind(attemptController);
 module.exports.evaluateAnswerController = attemptController.evaluateAnswer.bind(attemptController);
+module.exports.getHRInvitationsController = attemptController.getHRInvitations.bind(attemptController);
 module.exports.getHRAttemptResultsController = attemptController.getHRAttemptResults.bind(attemptController);
 module.exports.getAssessmentAnalyticsController = attemptController.getAssessmentAnalytics.bind(attemptController);
 module.exports.getHRAttemptDetailController = attemptController.getHRAttemptDetail.bind(attemptController);

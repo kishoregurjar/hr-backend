@@ -1015,7 +1015,51 @@ const toHRAttemptDetailResponse = (attempt) => {
   };
 };
 
+
+const toHRInvitationListResponse = (invitation) => {
+  if (!invitation) return null;
+  const cand = invitation.candidate || {};
+  const assm = invitation.assessment || {};
+  const candidateName =
+    cand.firstName || cand.lastName
+      ? `${cand.firstName || ""} ${cand.lastName || ""}`.trim()
+      : cand.email || "Candidate";
+
+  return {
+    id: invitation.id,
+    invitationId: invitation.id,
+    token: invitation.token || "",
+    invitationToken: invitation.token || "",
+    candidateId: invitation.candidateId,
+    candidateName,
+    email: cand.email || "",
+    candidateEmail: cand.email || "",
+    phoneNumber: cand.phoneNumber || null,
+    assessmentId: invitation.assessmentId,
+    assessmentTitle: assm.title || "Assessment Test",
+    status: invitation.status || "SENT",
+    sentAt: invitation.sentAt || invitation.createdAt,
+    invitedAt: invitation.sentAt || invitation.createdAt,
+    openedAt: invitation.openedAt || null,
+    expiresAt: invitation.expiresAt,
+    candidate: {
+      id: cand.id,
+      firstName: cand.firstName,
+      lastName: cand.lastName,
+      email: cand.email,
+      phoneNumber: cand.phoneNumber,
+    },
+    assessment: {
+      id: assm.id,
+      title: assm.title,
+      durationMinutes: assm.durationMinutes,
+      passingScore: assm.passingScore,
+    },
+  };
+};
+
 module.exports = {
+  toHRInvitationListResponse,
   serializeNumber,
   toUserResponse,
   toAssessmentSummary,
