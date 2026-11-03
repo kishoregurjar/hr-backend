@@ -19,11 +19,17 @@ const {
   toAssessmentAnalyticsResponse,
   toHRAttemptDetailResponse,
 } = require("./attempt.dto");
-const { UnauthorizedError, BadRequestError, NotFoundError } = require("../../common/errors");
+const {
+  UnauthorizedError,
+  BadRequestError,
+  NotFoundError,
+  ForbiddenError,
+} = require("../../common/errors");
 const socketService = require("../../socket/socket.service");
 const mailboxService = require("../mailbox/mailbox.service");
 const logger = require("../../config/logger");
 const { recordStageMetric } = require("../../config/metrics-context");
+const { toPublicBrandingDTO } = require("../company/company.branding.dto");
 
 /**
  * ==========================================================
@@ -99,13 +105,21 @@ class AttemptController {
    */
   createCandidate = asyncHandler(async (req, res) => {
     const { email, firstName, lastName, phoneNumber, source } = req.body || {};
-    let companyId = req.company?.id || req.user?.companyId || null;
+    let companyId = req.companyId || req.company?.id || req.user?.companyId || null;
     if (!companyId && req.user?.id) {
-      const member = await prisma.companyMember.findFirst({
+      const memberships = await prisma.companyMember.findMany({
         where: { userId: req.user.id },
         select: { companyId: true },
+        take: 2,
       });
-      if (member?.companyId) companyId = member.companyId;
+      if (memberships.length === 1) {
+        companyId = memberships[0].companyId;
+      } else if (memberships.length > 1) {
+        throw new BadRequestError(
+          "Active company context (X-Company-Id header) is required when user belongs to multiple companies.",
+          "COMPANY_CONTEXT_REQUIRED"
+        );
+      }
     }
 
     const candidate = await attemptService.createCandidate({
@@ -133,20 +147,26 @@ class AttemptController {
    */
   createInvitation = asyncHandler(async (req, res) => {
     const invitedByUserId = req.user?.id;
-    let assessmentId = req.params.assessmentId || req.body.assessmentId;
-    if (!assessmentId) {
-      const latestResult = await assessmentRepository.listPaginated({ limit: 1 });
-      assessmentId = latestResult?.items?.[0]?.id;
+    const assessmentId = req.params?.assessmentId || req.body?.assessmentId;
+
+    if (!assessmentId || typeof assessmentId !== "string" || !assessmentId.trim()) {
+      throw new BadRequestError(
+        "Assessment ID is required to create an invitation.",
+        "ASSESSMENT_ID_REQUIRED"
+      );
     }
-    const { candidateId, email, firstName, lastName, expiresAt } = req.body;
+
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+    const { candidateId, email, firstName, lastName, expiresAt } = req.body || {};
 
     const result = await attemptService.createInvitation({
-      assessmentId,
+      assessmentId: assessmentId.trim(),
       candidateId,
       email,
       firstName,
       lastName,
       invitedByUserId,
+      companyId,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
     });
 
@@ -177,13 +197,22 @@ class AttemptController {
     }
 
     const assessmentId = req.params?.assessmentId || req.body?.assessmentId;
-    const { candidateIds, candidates, expiresAt } = req.body;
+    if (!assessmentId || typeof assessmentId !== "string" || !assessmentId.trim()) {
+      throw new BadRequestError(
+        "Assessment ID is required to create bulk invitations.",
+        "ASSESSMENT_ID_REQUIRED"
+      );
+    }
+
+    const companyId = req.companyId || req.company?.id || req.headers["x-company-id"] || null;
+    const { candidateIds, candidates, expiresAt } = req.body || {};
 
     const result = await attemptService.createBulkInvitations({
-      assessmentId,
+      assessmentId: assessmentId.trim(),
       candidateIds,
       candidates,
       invitedByUserId,
+      companyId,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
     });
 
@@ -499,11 +528,13 @@ class AttemptController {
 
   getAssessmentResults = asyncHandler(async (req, res) => {
     const { assessmentId } = req.params;
+    const companyId = req.companyId || req.company?.id || null;
 
     const result = await attemptService.getAssessmentResults({
       assessmentId,
       query: req.query,
       user: req.user,
+      companyId,
     });
 
     return res.status(200).json({
@@ -520,10 +551,12 @@ class AttemptController {
    */
   getAssessmentAnalytics = asyncHandler(async (req, res) => {
     const { assessmentId } = req.params;
+    const companyId = req.companyId || req.company?.id || null;
 
     const result = await attemptService.getAssessmentAnalytics({
       assessmentId,
       user: req.user,
+      companyId,
     });
 
     return res.status(200).json({
@@ -540,11 +573,13 @@ class AttemptController {
    */
   getAttemptResultDetail = asyncHandler(async (req, res) => {
     const { assessmentId, attemptId } = req.params;
+    const companyId = req.companyId || req.company?.id || null;
 
     const result = await attemptService.getAttemptResultDetail({
       assessmentId,
       attemptId,
       user: req.user,
+      companyId,
     });
 
     return res.status(200).json({
@@ -628,19 +663,20 @@ class AttemptController {
         try {
           company = await prisma.company.findUnique({
             where: { id: savedCompanyId },
-            select: { id: true, name: true, logoUrl: true, slug: true },
+            select: { id: true, name: true, logoUrl: true, slug: true, brandColor: true, accentColor: true, faviconUrl: true, brandTagline: true, showPoweredByHireQuest: true },
           });
         } catch (_) {}
       }
     }
 
     if (!company && invitation.assessment?.createdById) {
-      const creatorMember = await prisma.companyMember.findFirst({
+      const creatorMembers = await prisma.companyMember.findMany({
         where: { userId: invitation.assessment.createdById },
-        select: { company: { select: { id: true, name: true, logoUrl: true, slug: true } } },
+        select: { company: { select: { id: true, name: true, logoUrl: true, slug: true, brandColor: true, accentColor: true, faviconUrl: true, brandTagline: true, showPoweredByHireQuest: true } } },
+        take: 2,
       });
-      if (creatorMember?.company) {
-        company = creatorMember.company;
+      if (creatorMembers.length === 1 && creatorMembers[0]?.company) {
+        company = creatorMembers[0].company;
       }
     }
 
@@ -653,7 +689,7 @@ class AttemptController {
             select: {
               companyMembers: {
                 select: {
-                  company: { select: { id: true, name: true, logoUrl: true, slug: true } },
+                  company: { select: { id: true, name: true, logoUrl: true, slug: true, brandColor: true, accentColor: true, faviconUrl: true, brandTagline: true, showPoweredByHireQuest: true } },
                 },
               },
             },
@@ -662,12 +698,13 @@ class AttemptController {
       });
       company = assmt?.createdBy?.companyMembers?.[0]?.company || null;
       if (!company && assmt?.createdById) {
-        const creatorMember = await prisma.companyMember.findFirst({
+        const creatorMembers = await prisma.companyMember.findMany({
           where: { userId: assmt.createdById },
-          select: { company: { select: { id: true, name: true, logoUrl: true, slug: true } } },
+          select: { company: { select: { id: true, name: true, logoUrl: true, slug: true, brandColor: true, accentColor: true, faviconUrl: true, brandTagline: true, showPoweredByHireQuest: true } } },
+          take: 2,
         });
-        if (creatorMember?.company) {
-          company = creatorMember.company;
+        if (creatorMembers.length === 1 && creatorMembers[0]?.company) {
+          company = creatorMembers[0].company;
         }
       }
     }
@@ -682,6 +719,7 @@ class AttemptController {
 
     const companyName = company?.name || null;
     const companyLogo = company?.logoUrl || null;
+    const branding = toPublicBrandingDTO(company);
 
     let candidateAttempt = null;
     if (invitation.assessmentId && invitation.candidateId) {
@@ -732,6 +770,7 @@ class AttemptController {
         candidateId: invitation.candidateId,
         companyName,
         companyLogo,
+        branding,
         company,
         assessment: {
           ...invitation.assessment,
@@ -803,9 +842,11 @@ class AttemptController {
   });
 
   getHRAttemptResults = asyncHandler(async (req, res) => {
+    const companyId = req.companyId || req.company?.id || null;
     const result = await attemptService.getHRAttemptResults({
       query: req.query,
       user: req.user,
+      companyId,
     });
 
     return SuccessResponse.send(
@@ -825,18 +866,29 @@ class AttemptController {
    */
   getCandidates = asyncHandler(async (req, res) => {
     let companyId =
-      req.headers["x-company-id"] ||
-      req.query?.companyId ||
+      req.companyId ||
       req.company?.id ||
       req.user?.companyId ||
       null;
 
     if (!companyId && req.user?.id) {
-      const member = await prisma.companyMember.findFirst({
-        where: { userId: req.user.id },
-        select: { companyId: true },
-      });
-      if (member?.companyId) companyId = member.companyId;
+      if (req.user.role === "SUPER_ADMIN") {
+        // Super admin may view candidates without mandatory company context
+      } else {
+        const memberships = await prisma.companyMember.findMany({
+          where: { userId: req.user.id },
+          select: { companyId: true },
+          take: 2,
+        });
+        if (memberships.length === 1) {
+          companyId = memberships[0].companyId;
+        } else {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required to view candidates.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
+        }
+      }
     }
 
     const result = await attemptService.getCandidates({
@@ -862,10 +914,12 @@ class AttemptController {
    */
   getAssessmentAnalytics = asyncHandler(async (req, res) => {
     const { assessmentId } = req.params;
+    const companyId = req.companyId || req.company?.id || null;
     const result = await attemptService.getAssessmentDashboard({
       assessmentId,
       query: req.query,
       user: req.user,
+      companyId,
     });
 
     return SuccessResponse.send(
@@ -884,9 +938,11 @@ class AttemptController {
    */
   getHRAttemptDetail = asyncHandler(async (req, res) => {
     const { attemptId } = req.params;
+    const companyId = req.companyId || req.company?.id || null;
     const attempt = await attemptService.getHRAttemptDetail({
       attemptId,
       user: req.user,
+      companyId,
     });
 
     return SuccessResponse.send(

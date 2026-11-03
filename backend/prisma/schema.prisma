@@ -425,7 +425,11 @@ model Assessment {
   maximumScore    Int              @default(100)
 
   createdById String
-  createdBy   User   @relation("CreatedAssessments", fields: [createdById], references: [id])
+  createdBy   User     @relation("CreatedAssessments", fields: [createdById], references: [id])
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  companyId       String?
+  isQuarantined   Boolean          @default(false)
 
   startsAt DateTime?
   endsAt   DateTime?
@@ -440,8 +444,11 @@ model Assessment {
   games            AssessmentGame[]
   proctoringEvents ProctoringEvent[]
 
+  @@unique([id, companyId], map: "idx_assessment_id_company")
   @@index([status])
   @@index([createdById])
+  @@index([companyId, status], map: "idx_assessment_company_status")
+  @@index([isQuarantined], map: "idx_assessment_is_quarantined")
 }
 
 model AssessmentQuestion {
@@ -499,6 +506,7 @@ model Invitation {
   token        String           @unique
   assessmentId String
   candidateId  String
+  companyId    String?
   status       InvitationStatus @default(PENDING)
   expiresAt    DateTime
   sentAt       DateTime?
@@ -506,15 +514,18 @@ model Invitation {
 
   assessment Assessment       @relation(fields: [assessmentId], references: [id])
   candidate  CandidateProfile @relation(fields: [candidateId], references: [id])
+  company    Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   @@index([token])
   @@index([assessmentId, candidateId])
+  @@index([companyId], map: "idx_invitation_company")
 }
 
 model CandidateAttempt {
   id           String                    @id @default(cuid())
   assessmentId String
   candidateId  String
+  companyId    String?
   status       CandidateAssessmentStatus @default(NOT_STARTED)
   score        Float?
   maxScore     Float?
@@ -527,6 +538,7 @@ model CandidateAttempt {
 
   assessment Assessment       @relation(fields: [assessmentId], references: [id])
   candidate  CandidateProfile @relation(fields: [candidateId], references: [id])
+  company    Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   attemptQuestions AttemptQuestion[]
   answers          CandidateAnswer[]
@@ -539,6 +551,7 @@ model CandidateAttempt {
   @@index([assessmentId, candidateId])
   @@index([status])
   @@index([status, expiresAt])
+  @@index([companyId], map: "idx_candidate_attempt_company")
 }
 
 model AttemptAuditLog {
@@ -842,6 +855,18 @@ model Company {
   country     String?
   description String?
 
+  // Phase 3B White-Label Branding Extensions
+  brandColor             String?
+  accentColor            String?
+  faviconUrl             String?
+  faviconPath            String?
+  brandTagline           String?
+  showPoweredByHireQuest Boolean @default(true)
+
+  // Phase 3C Custom Domain Extensions
+  customDomain           String?  @unique
+  customDomainVerified   Boolean  @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -854,8 +879,12 @@ model Company {
   proctoringEvents  ProctoringEvent[]
   questions         Question[]
   gameConfigs       CompanyGameConfig[]
-  supportRequests   SupportRequest[]
-  notifications     Notification[]
+  supportRequests      SupportRequest[]
+  assessments          Assessment[]
+  candidateInvitations Invitation[]
+  candidateAttempts    CandidateAttempt[]
+  mailboxes            UserMailbox[]
+  notifications        Notification[]
 
   @@index([createdAt])
 }
@@ -880,6 +909,7 @@ model CompanyMember {
 model UserMailbox {
   id                String    @id @default(cuid())
   userId            String    @unique
+  companyId         String?
   provider          String    @default("GOOGLE")
   email             String
   refreshToken      String
@@ -899,9 +929,11 @@ model UserMailbox {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([companyId], map: "idx_user_mailbox_company")
   @@index([provider, isSyncActive])
   @@index([lastSyncedAt])
 }
@@ -1242,6 +1274,39 @@ model PublicContactInquiry {
   @@index([email, createdAt])
   @@index([status, createdAt])
   @@index([createdAt])
+}
+
+//
+// MULTI-TENANT QUARANTINE AUDIT MODELS (PHASE 2A)
+//
+model AssessmentQuarantineLog {
+  id                   String    @id @default(cuid())
+  assessmentId         String
+  originalAssessmentId String?
+  reason               String
+  evidence             Json
+  quarantinedById      String?
+  quarantinedAt        DateTime  @default(now())
+
+  resolutions QuarantineResolutionEvent[]
+
+  @@index([assessmentId])
+  @@index([quarantinedAt])
+}
+
+model QuarantineResolutionEvent {
+  id              String   @id @default(cuid())
+  quarantineLogId String
+  action          String
+  targetCompanyId String?
+  notes           String?
+  resolvedById    String?
+  resolvedAt      DateTime @default(now())
+
+  quarantineLog AssessmentQuarantineLog @relation(fields: [quarantineLogId], references: [id], onDelete: Restrict)
+
+  @@index([quarantineLogId])
+  @@index([resolvedAt])
 }
 
 model Notification {

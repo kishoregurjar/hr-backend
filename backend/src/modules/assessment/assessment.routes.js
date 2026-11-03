@@ -20,115 +20,124 @@ const {
 const { companyContext } = require("../company/company.context.middleware");
 
 router.use(requireAuth);
-router.use(companyContext);
+
+const hrRoute = (...middlewares) => [
+  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  companyContext,
+  ...middlewares,
+];
+
+const adminRoute = (...middlewares) => [
+  requireRole(AUTH_ROLES.SUPER_ADMIN),
+  companyContext,
+  ...middlewares,
+];
 
 router.get(
   "/",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentQuerySchema),
+  hrRoute(validateRequest(assessmentQuerySchema)),
   controller.list
 );
 
 router.post(
   "/",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(createAssessmentSchema),
+  hrRoute(validateRequest(createAssessmentSchema)),
   controller.create
 );
 
 router.post(
   "/:id/questions",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assignAssessmentQuestionsSchema),
+  hrRoute(validateRequest(assignAssessmentQuestionsSchema)),
   controller.assignQuestions
 );
 
 router.patch(
   "/:id/questions/reorder",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(reorderAssessmentQuestionsSchema),
+  hrRoute(validateRequest(reorderAssessmentQuestionsSchema)),
   controller.reorderQuestions
 );
 
 router.post(
   "/:id/publish",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
+  hrRoute(validateRequest(assessmentIdParamSchema)),
   controller.publish
 );
 
 router.post(
   "/:id/unpublish",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
+  hrRoute(validateRequest(assessmentIdParamSchema)),
   controller.unpublish
 );
 
 router.post(
   "/:id/activate",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
+  hrRoute(validateRequest(assessmentIdParamSchema)),
   controller.activate
 );
 
 router.post(
   "/:id/archive",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
+  hrRoute(validateRequest(assessmentIdParamSchema)),
   controller.archive
 );
 
 router.post(
   "/:id/duplicate",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(duplicateAssessmentSchema),
+  hrRoute(validateRequest(duplicateAssessmentSchema)),
   controller.duplicate
 );
 
 router.patch(
   "/:id/restore",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
+  hrRoute(validateRequest(assessmentIdParamSchema)),
   controller.restore
+);
+
+router.post(
+  "/:id/quarantine",
+  adminRoute(validateRequest(assessmentIdParamSchema)),
+  controller.quarantine
+);
+
+router.post(
+  "/:id/resolve-quarantine",
+  adminRoute(validateRequest(assessmentIdParamSchema)),
+  controller.resolveQuarantine
 );
 
 router.get(
   "/:id",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
+  hrRoute(validateRequest(assessmentIdParamSchema)),
   controller.getById
 );
 
 router.patch(
   "/:id",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(updateAssessmentSchema),
+  hrRoute(validateRequest(updateAssessmentSchema)),
   controller.update
 );
 
 router.put(
   "/:id",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(updateAssessmentSchema),
+  hrRoute(validateRequest(updateAssessmentSchema)),
   controller.update
 );
 
 router.delete(
   "/bulk",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  hrRoute(),
   controller.bulkDelete
 );
 
 router.delete(
   "/all",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
+  hrRoute(),
   controller.deleteAll
 );
 
 router.delete(
   "/:id",
-  requireRole(AUTH_ROLES.SUPER_ADMIN, AUTH_ROLES.HR),
-  validateRequest(assessmentIdParamSchema),
+  hrRoute(validateRequest(assessmentIdParamSchema)),
   controller.delete
 );
 

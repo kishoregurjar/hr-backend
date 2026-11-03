@@ -7,6 +7,7 @@ const env = require("../../config/env");
 const activationRepository = require("./super-admin.owner-activation.repository");
 const { SUPER_ADMIN_OWNER_ACTIVATION_CONSTANTS } = require("./super-admin.owner-activation.constants");
 const { encryptToken, decryptToken } = require("./super-admin.owner-activation.crypto");
+const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
 
 const generateActivationToken = () => {
   const rawToken = crypto
@@ -28,14 +29,11 @@ const hashToken = (token) => {
   return crypto.createHash("sha256").update(token).digest("hex");
 };
 
-const buildOwnerActivationUrl = (rawToken) => {
-  const frontendUrl = env.frontend.url;
-  const url = new URL("/activate-owner", frontendUrl);
-  url.searchParams.set("token", rawToken);
-  return url.toString();
+const buildOwnerActivationUrl = (rawToken, company = null) => {
+  return buildCompanyTenantUrl(company, "/activate-owner", { token: rawToken });
 };
 
-const createOwnerActivation = async (userId, tx = prisma) => {
+const createOwnerActivation = async (userId, tx = prisma, company = null) => {
   const { rawToken, tokenHash } = generateActivationToken();
   const encryptedToken = encryptToken(rawToken);
 
@@ -59,7 +57,7 @@ const createOwnerActivation = async (userId, tx = prisma) => {
   return {
     activation,
     rawToken,
-    activationUrl: buildOwnerActivationUrl(rawToken),
+    activationUrl: buildOwnerActivationUrl(rawToken, company),
   };
 };
 
@@ -355,8 +353,28 @@ const verifyActivation = async (token) => {
         throw error;
       }
 
+      const membership = await tx.companyMember.findFirst({
+        where: { userId: activation.userId, role: "OWNER" },
+        select: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              logoUrl: true,
+              brandColor: true,
+              brandTagline: true,
+              customDomain: true,
+            },
+          },
+        },
+      });
+
       return {
         valid: true,
+        company: membership?.company || null,
+        ownerEmail: activation.user?.email || null,
+        ownerName: activation.user?.name || null,
       };
     },
     {

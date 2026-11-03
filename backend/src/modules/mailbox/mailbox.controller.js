@@ -16,7 +16,8 @@ function getAuthenticatedUser(req) {
 async function connectGoogleMailbox(req, res, next) {
   try {
     const user = getAuthenticatedUser(req);
-    const authUrl = service.getAuthUrl(user.id);
+    const companyId = req.companyId || req.company?.id || null;
+    const authUrl = await service.getAuthUrl(user.id, companyId);
 
     return res.status(200).json({
       success: true,
@@ -32,18 +33,28 @@ async function connectGoogleMailbox(req, res, next) {
 async function handleGoogleCallback(req, res, next) {
   try {
     const code = req.query.code;
-    const stateUserId = req.query.state;
+    const stateToken = req.query.state;
 
-    const userId = req.user?.id || stateUserId;
-
-    if (!userId) {
-      const error = new Error("User context required for callback");
-      error.code = "USER_ID_REQUIRED";
+    if (!code) {
+      const error = new Error("Authorization code is required");
+      error.code = "AUTH_CODE_REQUIRED";
       error.statusCode = 400;
       throw error;
     }
 
-    const result = await service.handleCallback(code, userId);
+    if (!stateToken) {
+      const error = new Error("OAuth state parameter is required");
+      error.code = "OAUTH_STATE_REQUIRED";
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Cryptographically verify and single-use consume state token (rejects raw userId, expired, or replayed states)
+    const stateContext = await service.verifyAndConsumeOAuthState(stateToken);
+    const userId = stateContext.userId;
+    const companyId = stateContext.companyId || null;
+
+    const result = await service.handleCallback(code, userId, companyId);
 
     const clientUrl = env.frontend.url;
     return res.redirect(
@@ -75,6 +86,14 @@ async function getMailboxStatus(req, res, next) {
 async function syncMailboxNow(req, res, next) {
   try {
     const user = getAuthenticatedUser(req);
+    const companyId = req.companyId || req.company?.id || null;
+
+    if (!companyId) {
+      const error = new Error("Active company context is required for mailbox resume sync.");
+      error.code = "COMPANY_CONTEXT_REQUIRED";
+      error.statusCode = 400;
+      throw error;
+    }
     
     if (service.isSyncInProgress(user.id)) {
       const error = new Error("Mailbox sync is already in progress for your account. Please wait a moment.");
@@ -140,7 +159,7 @@ async function syncMailboxNow(req, res, next) {
       }
     }
 
-    const result = await service.syncMailboxForUser(user.id, 25000, dateRangeOptions);
+    const result = await service.syncMailboxForUser(user.id, 25000, dateRangeOptions, companyId);
 
     let message = "Mailbox up to date. No new resume emails found.";
     if (result.processedResumes > 0) {

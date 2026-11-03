@@ -24,6 +24,9 @@ describe("Assessment Attempt DTO Data Sanitization Suite", () => {
     assert.deepEqual(result, {
       id: "option-1",
       text: "Node.js Event Loop",
+      optionText: "Node.js Event Loop",
+      content: "Node.js Event Loop",
+      label: "Node.js Event Loop",
       sequence: 1,
     });
     assert.equal(result.isCorrect, undefined);

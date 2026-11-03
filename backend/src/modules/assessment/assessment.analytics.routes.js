@@ -6,8 +6,13 @@ const controller = require("./assessment.analytics.controller");
 
 const requireAuth = require("../../middleware/requireAuth");
 const requireRole = require("../../middleware/requireRole");
+const { companyContext } = require("../company/company.context.middleware");
 
 const router = express.Router();
+
+router.use(requireAuth);
+router.use(requireRole("HR", "SUPER_ADMIN"));
+router.use(companyContext);
 
 router.get(
   "/:assessmentId/analytics",

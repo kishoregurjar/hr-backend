@@ -16,10 +16,20 @@ const findCompanyById = async (companyId, tx = prisma) => {
   });
 };
 
-const findCompanyBySlug = async (slug, tx = prisma) => {
-  return tx.company.findUnique({
+const findCompanyBySlug = async (slugOrDomain, tx = prisma) => {
+  const comp = await tx.company.findUnique({
     where: {
-      slug,
+      slug: slugOrDomain,
+    },
+  });
+  if (comp) return comp;
+
+  return tx.company.findFirst({
+    where: {
+      customDomain: {
+        equals: slugOrDomain,
+        mode: "insensitive",
+      },
     },
   });
 };
