@@ -781,6 +781,27 @@ class AttemptController {
    * Get HR Assessment Results List Handler
    * GET /api/v1/attempts
    */
+  /**
+   * Get HR Invitations List Handler
+   * GET /api/v1/invitations
+   */
+  getHRInvitations = asyncHandler(async (req, res) => {
+    const result = await attemptService.getHRInvitations({
+      query: req.query,
+      user: req.user,
+    });
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Invitations retrieved successfully.",
+        data: result.items.map(toHRInvitationListResponse),
+        meta: result.pagination,
+      },
+      StatusCodes.OK
+    );
+  });
+
   getHRAttemptResults = asyncHandler(async (req, res) => {
     const result = await attemptService.getHRAttemptResults({
       query: req.query,
