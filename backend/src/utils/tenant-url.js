@@ -22,10 +22,10 @@ function normalizeDomainString(rawDomain) {
  *
  * Rules:
  * 1. If verified customDomain is present: "https://careers.acme.com"
- *    (in development, unverified customDomain is also accepted for testing).
+ *    (Only used if customDomainVerified is explicitly true).
  * 2. If company slug is present:
  *    - Production: "https://<slug>.<rootDomain>" (e.g. https://acme.hirequest.com)
- *    - Development: "http://<slug>.localhost:3000" (natively resolves to 127.0.0.1 in all modern browsers)
+ *    - Development: Fallback URL (http://localhost:3000), with ?tenant=<slug> query param
  * 3. Fallback: env.frontend.url (http://localhost:3000)
  */
 function resolveCompanyOrigin(company) {
@@ -37,10 +37,9 @@ function resolveCompanyOrigin(company) {
     return fallbackUrl;
   }
 
-  // 1. Custom Domain (priority if verified, or in dev if set)
+  // 1. Custom Domain (priority ONLY if explicitly verified)
   const customDomain = company.customDomain ? normalizeDomainString(company.customDomain) : null;
-  if (customDomain && (company.customDomainVerified || !isProduction)) {
-    // In local dev, if user enters e.g. "acme.test", use http or https
+  if (customDomain && company.customDomainVerified === true) {
     const protocol = isProduction ? "https:" : "http:";
     return `${protocol}//${customDomain}`;
   }
@@ -52,14 +51,8 @@ function resolveCompanyOrigin(company) {
       return `https://${cleanSlug}.${rootDomain}`;
     }
 
-    // Development: Use *.localhost which RFC 6761 guarantees loopback to 127.0.0.1
-    try {
-      const parsed = new URL(fallbackUrl);
-      const portPart = parsed.port ? `:${parsed.port}` : "";
-      return `${parsed.protocol}//${cleanSlug}.localhost${portPart}`;
-    } catch {
-      return `http://${cleanSlug}.localhost:3000`;
-    }
+    // Development: Use fallback localhost:3000 directly
+    return fallbackUrl;
   }
 
   return fallbackUrl;
@@ -68,7 +61,7 @@ function resolveCompanyOrigin(company) {
 /**
  * Constructs a fully qualified URL for a company tenant route with query params.
  * e.g. buildCompanyTenantUrl(company, "/activate-owner", { token: "abc123" })
- * -> "http://acme.localhost:3000/activate-owner?token=abc123&tenant=acme"
+ * -> "http://localhost:3000/activate-owner?token=abc123&tenant=acme"
  */
 function buildCompanyTenantUrl(company, pathname = "/", queryParams = {}) {
   const origin = resolveCompanyOrigin(company);
@@ -96,4 +89,3 @@ module.exports = {
   resolveCompanyOrigin,
   buildCompanyTenantUrl,
 };
-
