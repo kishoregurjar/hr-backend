@@ -22,6 +22,8 @@ class AuthDto {
       lastName,
       fullName: user.name || `${firstName} ${lastName}`.trim(),
       role: user.role,
+      avatarUrl: user.avatarUrl || null,
+      avatarPath: user.avatarPath || null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

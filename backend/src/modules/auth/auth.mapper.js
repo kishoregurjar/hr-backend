@@ -54,6 +54,8 @@ class AuthMapper {
       email: user.email,
       role: user.role,
       status: user.status,
+      avatarUrl: user.avatarUrl || null,
+      avatarPath: user.avatarPath || null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

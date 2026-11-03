@@ -18,6 +18,7 @@ const findUsers = async ({ where, skip, take, orderBy }, tx = prisma) => {
         email: true,
         role: true,
         status: true,
+        avatarUrl: true,
         createdAt: true,
         updatedAt: true,
         companyMembers: {
@@ -53,7 +54,8 @@ const findUserById = async (userId, tx = prisma) => {
       email: true,
       role: true,
       status: true,
-      createdAt: true,
+        avatarUrl: true,
+        createdAt: true,
       updatedAt: true,
       companyMembers: {
         select: {
@@ -84,7 +86,8 @@ const findUserByEmail = async (email, tx = prisma) => {
       email: true,
       role: true,
       status: true,
-      createdAt: true,
+        avatarUrl: true,
+        createdAt: true,
       updatedAt: true,
     },
   });
@@ -102,7 +105,8 @@ const createUser = async (data, tx = prisma) => {
       email: true,
       role: true,
       status: true,
-      createdAt: true,
+        avatarUrl: true,
+        createdAt: true,
       updatedAt: true,
     },
   });

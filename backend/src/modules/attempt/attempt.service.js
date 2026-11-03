@@ -1845,7 +1845,7 @@ class AttemptService {
    * 6. Otherwise start new attempt & snapshot questions
    * ============================================================
    */
-  async startAttemptByToken({ token, candidateSession }) {
+  async startAttemptByToken({ token, candidateSession, verificationPhoto = null, photoCapturedAt = null }) {
     if (!candidateSession && (typeof token !== "string" || !token.trim())) {
       throw new BadRequestError(
         "Candidate verification session or invitation token is required.",
@@ -1960,6 +1960,23 @@ class AttemptService {
       );
 
       if (existingActiveAttempt) {
+        if (verificationPhoto && candidate?.id) {
+          try {
+            const existingMeta = typeof candidate.metadata === "object" && candidate.metadata ? candidate.metadata : {};
+            const updatedMeta = {
+              ...existingMeta,
+              verificationPhoto,
+              photoCapturedAt: photoCapturedAt || now.toISOString(),
+            };
+            await tx.candidateProfile.update({
+              where: { id: candidate.id },
+              data: { metadata: updatedMeta },
+            });
+            candidate.metadata = updatedMeta;
+          } catch (e) {
+            logger.warn("Notice updating candidate metadata photo on resume:", e?.message);
+          }
+        }
         const fullAttempt = await attemptRepository.findById(
           existingActiveAttempt.id,
           { includeQuestions: true },
@@ -2007,6 +2024,25 @@ class AttemptService {
         expiresAt,
         companyId: assessment.companyId || null,
       });
+
+      // 11b. Persist candidate verification photo if provided
+      if (verificationPhoto && candidate?.id) {
+        try {
+          const existingMeta = typeof candidate.metadata === "object" && candidate.metadata ? candidate.metadata : {};
+          const updatedMeta = {
+            ...existingMeta,
+            verificationPhoto,
+            photoCapturedAt: photoCapturedAt || now.toISOString(),
+          };
+          await tx.candidateProfile.update({
+            where: { id: candidate.id },
+            data: { metadata: updatedMeta },
+          });
+          candidate.metadata = updatedMeta;
+        } catch (photoErr) {
+          logger.warn("Notice persisting verification photo on candidate profile:", photoErr?.message);
+        }
+      }
 
       // 12. Create AssessmentAttempt
       const attempt = await attemptRepository.createAttempt(attemptData, tx);
@@ -4521,6 +4557,68 @@ class AttemptService {
       });
     }
 
+        // Real-time notification dispatch (Asynchronous background task - zero candidate latency)
+    if (submissionResult?.attemptId) {
+      const attemptIdForNotify = submissionResult.attemptId;
+      const percentageForNotify = submissionResult.percentage;
+      global.setImmediate(async () => {
+        try {
+          const { notificationService } = require("../notification");
+          const { prisma } = require("../../config/prisma");
+          const attemptRecord = await prisma.candidateAttempt.findUnique({
+            where: { id: attemptIdForNotify },
+            select: {
+              candidateId: true,
+              assessmentId: true,
+              candidate: {
+                select: { firstName: true, lastName: true, email: true, companyId: true },
+              },
+              assessment: {
+                select: {
+                  title: true,
+                  createdById: true,
+                  createdBy: {
+                    select: {
+                      companyMembers: { select: { companyId: true }, take: 1 },
+                    },
+                  },
+                },
+              },
+            },
+          });
+          const resolvedCompanyId =
+            attemptRecord?.assessment?.createdBy?.companyMembers?.[0]?.companyId ||
+            attemptRecord?.candidate?.companyId ||
+            null;
+          const candidateName =
+            [attemptRecord?.candidate?.firstName, attemptRecord?.candidate?.lastName]
+              .filter(Boolean)
+              .join(" ")
+              .trim() || "Candidate";
+          const assessmentTitle =
+            attemptRecord?.assessment?.title || "Assessment";
+          if (resolvedCompanyId) {
+            await notificationService.createAndSendNotification({
+              companyId: resolvedCompanyId,
+              title: "Assessment Completed",
+              message: `${candidateName} has completed "${assessmentTitle}" (${percentageForNotify}% score).`,
+              type: "ASSESSMENT",
+              priority: "MEDIUM",
+              link: null,
+              metadata: {
+                attemptId: attemptIdForNotify,
+                score: percentageForNotify,
+                candidateName,
+                assessmentTitle,
+              },
+            });
+          }
+        } catch (_notifyErr) {
+          console.warn("[submitCandidateAttempt] Notification dispatch notice:", _notifyErr?.message);
+        }
+      });
+    }
+
     return submissionResult;
   }
 
@@ -4881,6 +4979,9 @@ class AttemptService {
         attempt: latestAttempt || null,
         resumeUrl,
         resumeFileName,
+        metadata: item.metadata || null,
+        verificationPhoto: item.metadata?.verificationPhoto || null,
+        photoCapturedAt: item.metadata?.photoCapturedAt || null,
         addedDate: item.createdAt,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
@@ -5325,6 +5426,28 @@ class AttemptService {
       metadata: finalMetadata,
       clientAt: clientAt || new Date(),
     });
+
+        if (companyId && (sanitizedType === "MULTIPLE_FACES_DETECTED" || finalMetadata?.subType === "DIFFERENT_PERSON_DETECTED")) {
+      global.setImmediate(async () => {
+        try {
+          const { notificationService } = require("../notification");
+          const candidateName = attempt.candidate?.name || attempt.candidate?.fullName || "Candidate";
+          await notificationService.createAndSendNotification({
+            companyId,
+            title: "Proctoring Security Alert",
+            message: `${candidateName} triggered a security violation: ${sanitizedType.replace(/_/g, " ")}.`,
+            type: "PROCTORING",
+            priority: "HIGH",
+            link: `/results/${attempt.id}`,
+            metadata: {
+              attemptId: attempt.id,
+              candidateName,
+              type: sanitizedType,
+            },
+          });
+        } catch (_notifyErr) {}
+      });
+    }
 
     return {
       success: true,

@@ -27,6 +27,7 @@ const createCompanyMemberDto = (member) => ({
   role: member.role,
   email: member.email,
   name: member.name,
+  avatarUrl: member.avatarUrl,
   user: member.user,
   createdAt: member.createdAt,
   updatedAt: member.updatedAt,

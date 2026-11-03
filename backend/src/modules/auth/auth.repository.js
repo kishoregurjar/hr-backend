@@ -7,6 +7,8 @@ const AUTH_USER_SELECT = Object.freeze({
   role: true,
   status: true,
   password: true,
+  avatarUrl: true,
+  avatarPath: true,
   createdAt: true,
   updatedAt: true,
   companyMembers: {

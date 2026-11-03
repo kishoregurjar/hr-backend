@@ -48,13 +48,13 @@ app.use(diagnosticsMiddleware);
  */
 app.use(
   express.json({
-    limit: "1mb",
+    limit: "10mb",
   })
 );
 app.use(
   express.urlencoded({
     extended: true,
-    limit: "1mb",
+    limit: "10mb",
   })
 );
 app.use(cookieParser());

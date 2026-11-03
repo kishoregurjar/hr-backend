@@ -32,17 +32,21 @@ const mapCompanyMember = (member) => {
     return null;
   }
 
+  const avatarUrl = member.user?.avatarUrl || member.avatarUrl || null;
+
   return {
     id: member.id,
     userId: member.userId,
     role: member.role,
     email: member.user?.email || member.email || null,
     name: member.user?.name || member.name || null,
+    avatarUrl,
     user: member.user
       ? {
           id: member.user.id,
           email: member.user.email,
           name: member.user.name,
+          avatarUrl,
           status: member.user.status,
         }
       : null,

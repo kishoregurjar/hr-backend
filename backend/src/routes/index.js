@@ -18,6 +18,7 @@ const dashboardRoutes = require("../modules/dashboard");
 const superAdminRoutes = require("../modules/super-admin");
 const { supportRoutes } = require("../modules/support");
 const { publicContactRoutes } = require("../modules/public-contact");
+const { notificationRoutes } = require("../modules/notification");
 
 const router = express.Router();
 
@@ -136,5 +137,10 @@ router.use("/support", supportRoutes);
  * Public Contact Inquiry Routes (/api/v1/contact)
  */
 router.use("/contact", publicContactRoutes);
+
+/**
+ * Notification System Routes (/api/v1/notifications)
+ */
+router.use("/notifications", notificationRoutes);
 
 module.exports = router;

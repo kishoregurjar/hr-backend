@@ -251,6 +251,22 @@ enum EmailDeliveryStatus {
   FAILED
 }
 
+enum NotificationType {
+  ASSESSMENT
+  PROCTORING
+  CANDIDATE
+  TEAM
+  SUPPORT
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
 //
 // MODELS
 //
@@ -262,6 +278,8 @@ model User {
   name      String?
   role      Role       @default(HR)
   status    UserStatus @default(ACTIVE)
+  avatarUrl String?
+  avatarPath String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -279,6 +297,7 @@ model User {
   ownerActivation     CompanyOwnerActivation?
   supportRequests     SupportRequest[]
   passwordResetTokens PasswordResetToken[]
+  notifications       Notification[]
 
   @@index([role])
   @@index([status])
@@ -865,6 +884,7 @@ model Company {
   candidateInvitations Invitation[]
   candidateAttempts    CandidateAttempt[]
   mailboxes            UserMailbox[]
+  notifications        Notification[]
 
   @@index([createdAt])
 }
@@ -1287,4 +1307,27 @@ model QuarantineResolutionEvent {
 
   @@index([quarantineLogId])
   @@index([resolvedAt])
+}
+
+model Notification {
+  id        String               @id @default(uuid())
+  userId    String?
+  companyId String?
+  title     String
+  message   String
+  type      NotificationType     @default(SYSTEM)
+  priority  NotificationPriority @default(MEDIUM)
+  link      String?
+  isRead    Boolean              @default(false)
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([companyId, createdAt])
+  @@index([createdAt])
 }
