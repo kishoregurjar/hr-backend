@@ -46,13 +46,23 @@ async function runVerification() {
   assert(devSlugUrl.includes("token=token_123"));
   assert(devSlugUrl.includes("tenant=innovate-labs"));
 
-  const devCustomCompany = { slug: "innovate-labs", customDomain: "careers.innovate.com" };
+  // 2a: Verified Custom Domain in Dev works
+  const devCustomCompany = { slug: "innovate-labs", customDomain: "careers.innovate.com", customDomainVerified: true };
   const devCustomUrl = buildCompanyTenantUrl(devCustomCompany, "/take-test", { token: "cand_456" });
   console.log("  -> Generated Dev Custom Domain URL:", devCustomUrl);
   assert(devCustomUrl.includes("careers.innovate.com"));
   assert(devCustomUrl.includes("/take-test"));
   assert(devCustomUrl.includes("token=cand_456"));
-  console.log("  ✅ Development URL generation passed.");
+
+  // 2b: Unverified external domain (e.g. gammaedge.com) must NOT hijack workspace origin - falls back to tenant subdomain
+  const unverifiedCompany = { slug: "gammaedge", customDomain: "gammaedge.com", customDomainVerified: false };
+  const unverifiedUrl = buildCompanyTenantUrl(unverifiedCompany, "/activate-owner", { token: "tok_unverified" });
+  console.log("  -> Unverified external domain safely falls back to subdomain URL:", unverifiedUrl);
+  assert(!unverifiedUrl.includes("http://gammaedge.com/"));
+  assert(unverifiedUrl.includes("gammaedge.localhost"));
+  assert(unverifiedUrl.includes("/activate-owner"));
+  assert(unverifiedUrl.includes("token=tok_unverified"));
+  console.log("  ✅ Development URL generation and unverified domain safety passed.");
 
   // Test 3: Production Subdomain & Custom Domain URL generation
   console.log("\n[TEST 3] Testing Production Tenant URL Generation...");

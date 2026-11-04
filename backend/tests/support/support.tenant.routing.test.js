@@ -134,8 +134,14 @@ describe("Support Ticket Multi-Tenant Routing & Isolation Suite", () => {
         updatedAt: new Date(),
         user: {
           id: data.userId,
-          name: "Test Submitter",
-          email: "submitter@example.com",
+          name:
+            Object.values(tenants).find((t) => t.owner?.id === data.userId)?.owner?.name ||
+            Object.values(tenants).find((t) => t.recruiter?.id === data.userId)?.recruiter?.name ||
+            "Test Submitter",
+          email:
+            Object.values(tenants).find((t) => t.owner?.id === data.userId)?.owner?.email ||
+            Object.values(tenants).find((t) => t.recruiter?.id === data.userId)?.recruiter?.email ||
+            "submitter@example.com",
         },
         company: data.companyId
           ? {
@@ -165,15 +171,23 @@ describe("Support Ticket Multi-Tenant Routing & Isolation Suite", () => {
       return { items, total: items.length, page: 1, limit: 20, totalPages: 1 };
     };
 
-    // Mock findByCompanyId
+    // Helper to check if submitter of request is the Owner of its company
+    const isOwnerOfCompany = (r) => {
+      if (!r.companyId) return true;
+      if (r.userId === tenants.superAdmin.id) return true;
+      const tenantKey = Object.keys(tenants).find((k) => tenants[k]?.id === r.companyId);
+      return tenantKey ? tenants[tenantKey].owner.id === r.userId : false;
+    };
+
+    // Mock findByCompanyId (returns tickets for company submitted by non-owners e.g. recruiters/HR)
     supportRepository.findByCompanyId = async ({ companyId }) => {
-      const items = dbRequests.filter((r) => r.companyId === companyId);
+      const items = dbRequests.filter((r) => r.companyId === companyId && !isOwnerOfCompany(r));
       return { items, total: items.length, page: 1, limit: 20, totalPages: 1 };
     };
 
-    // Mock findAll (strictly platform-level requests: companyId === null)
+    // Mock findAll (platform-level requests or requests submitted by Company Owners)
     supportRepository.findAll = async () => {
-      const items = dbRequests.filter((r) => r.companyId === null);
+      const items = dbRequests.filter((r) => isOwnerOfCompany(r));
       return { items, total: items.length, page: 1, limit: 20, totalPages: 1 };
     };
 
@@ -805,6 +819,107 @@ describe("Support Ticket Multi-Tenant Routing & Isolation Suite", () => {
     });
     assert.strictEqual(replied.status, "RESOLVED");
     assert.strictEqual(replied.adminReply, "Platform issue has been resolved.");
+  });
+
+  // ─── Test 15: Company Owner Tickets Route to Platform Super Admin Email ───
+  it("Company Owner support tickets route to Platform Super Admin email, not the Owner themselves", async () => {
+    const res = await supportService.submitRequest({
+      userId: tenants.facebook.owner.id,
+      requestedCompanyId: tenants.facebook.id,
+      subject: "Need feature enable: cognitive games",
+      message: "Please enable cognitive games module for our company subscription.",
+    });
+
+    assert.ok(res.id);
+    assert.strictEqual(res.companyId, "comp_facebook");
+
+    // Exactly 1 email notification was sent
+    assert.strictEqual(sentEmails.length, 1);
+    const sent = sentEmails[0];
+
+    // Reached Super Admin
+    const env = require("../../src/config/env");
+    const adminEmail = env.smtp?.fromEmail || "admin@hirequest.com";
+    assert.ok(sent.to.includes(adminEmail));
+
+    // Did NOT notify the Facebook Owner themselves as an unneeded echo
+    assert.ok(!sent.to.includes("rohitpanchal722401@gmail.com"));
+  });
+
+  // ─── Test 16: Company Owner Tickets Appear in Super Admin Inbox ────────────
+  it("Company Owner support tickets appear in Super Admin dashboard and NOT in company recruiter ticket list", async () => {
+    // 1. Recruiter submits ticket
+    await supportService.submitRequest({
+      userId: tenants.facebook.recruiter.id,
+      requestedCompanyId: tenants.facebook.id,
+      subject: "Recruiter query",
+      message: "Need new job template.",
+    });
+
+    // 2. Owner submits ticket for Platform
+    await supportService.submitRequest({
+      userId: tenants.facebook.owner.id,
+      requestedCompanyId: tenants.facebook.id,
+      subject: "Upgrade enterprise plan",
+      message: "Requesting quota increase.",
+    });
+
+    // Super Admin lists platform requests -> includes the Owner ticket, excludes HR ticket
+    const adminInbox = await supportService.listAllRequests({});
+    const adminSubjects = adminInbox.items.map((i) => i.subject);
+    assert.ok(adminSubjects.includes("Upgrade enterprise plan"));
+    assert.ok(!adminSubjects.includes("Recruiter query"));
+
+    // Company Owner lists internal company tickets -> includes HR ticket, excludes Owner's own platform ticket
+    const companyTickets = await supportService.listCompanyRequests({
+      user: tenants.facebook.owner,
+    });
+    const compSubjects = companyTickets.items.map((i) => i.subject);
+    assert.ok(compSubjects.includes("Recruiter query"));
+    assert.ok(!compSubjects.includes("Upgrade enterprise plan"));
+
+    // Company Owner lists their own requests -> sees their platform ticket
+    const myTickets = await supportService.listMyRequests({
+      userId: tenants.facebook.owner.id,
+    });
+    const mySubjects = myTickets.items.map((i) => i.subject);
+    assert.ok(mySubjects.includes("Upgrade enterprise plan"));
+  });
+
+  // ─── Test 17: Super Admin Can Manage and Reply to Company Owner Tickets ────
+  it("Super Admin can view, update status, and reply to a Company Owner ticket", async () => {
+    // Owner submits ticket
+    const ownerTicket = await supportService.submitRequest({
+      userId: tenants.oracle.owner.id,
+      requestedCompanyId: tenants.oracle.id,
+      subject: "Oracle Enterprise Setup",
+      message: "Assistance required with custom domain SSL.",
+    });
+
+    // 1. Super Admin views the ticket
+    const viewed = await supportService.getRequest(ownerTicket.id, tenants.superAdmin);
+    assert.strictEqual(viewed.id, ownerTicket.id);
+
+    // 2. Super Admin updates status to IN_PROGRESS
+    const updated = await supportService.updateRequestStatus(
+      ownerTicket.id,
+      "IN_PROGRESS",
+      tenants.superAdmin
+    );
+    assert.strictEqual(updated.status, "IN_PROGRESS");
+
+    // 3. Super Admin replies to the ticket
+    const replied = await supportService.replyToRequest(ownerTicket.id, {
+      reply: "SSL has been provisioned and configured for your custom domain.",
+      user: tenants.superAdmin,
+    });
+    assert.strictEqual(replied.status, "RESOLVED");
+    assert.strictEqual(replied.adminReply, "SSL has been provisioned and configured for your custom domain.");
+
+    // Submitter (Oracle Owner) receives reply email
+    const replyEmail = sentEmails.find((e) => e.to.includes("oracle_owner@oracle.com"));
+    assert.ok(replyEmail);
+    assert.ok(replyEmail.text.includes("SSL has been provisioned"));
   });
 });
 

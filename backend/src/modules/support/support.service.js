@@ -53,6 +53,13 @@ const submitRequest = async ({ userId, requestedCompanyId, subject, message }) =
     }
   }
 
+  // Determine whether submitter is Company Owner or Platform User
+  const isOwnerSubmitter =
+    resolvedMemberRole === "OWNER" ||
+    resolvedMemberRole === "COMPANY_OWNER" ||
+    submitterUser?.role === "SUPER_ADMIN" ||
+    !resolvedCompanyId;
+
   // Persist the ticket with its verified company/tenant association
   const request = await supportRepository.createSupportRequest({
     userId,
@@ -63,26 +70,23 @@ const submitRequest = async ({ userId, requestedCompanyId, subject, message }) =
   });
 
   // Route email notification:
-  // Tenant tickets route strictly to the active Owner/Admin of that company.
-  // The Platform Super Admin does NOT receive ordinary tenant support tickets by default.
+  // - Owner tickets route directly to Platform Super Admin!
+  // - HR / Recruiter tickets route to their Company Owner / Admin!
   try {
     const { sendEmail } = require("../../utils/email");
     const env = require("../../config/env");
 
     let recipientEmails = [];
 
-    if (resolvedCompanyId) {
+    if (isOwnerSubmitter) {
+      // Owner ticket -> Super Admin
+      recipientEmails = [env.smtp?.fromEmail || "admin@hirequest.com"];
+    } else if (resolvedCompanyId) {
+      // HR ticket -> Company Owner
       const activeAdmins = await supportRepository.findCompanyActiveAdmins(resolvedCompanyId);
-      // Prioritize OWNER, but notify all active owners and admins for that company
       recipientEmails = activeAdmins
         .map((m) => m.user?.email)
-        .filter(Boolean);
-    }
-
-    // Platform Super Admin only receives notifications if the ticket is NOT tenant-scoped
-    // (e.g. submitted by a platform user without a company) or if the company has zero active admins.
-    if (recipientEmails.length === 0 && !resolvedCompanyId) {
-      recipientEmails = [env.smtp?.fromEmail || "admin@hirequest.com"];
+        .filter((email) => email && email !== submitterUser?.email);
     }
 
     if (recipientEmails.length > 0) {
@@ -92,33 +96,64 @@ const submitRequest = async ({ userId, requestedCompanyId, subject, message }) =
         ? `${submitterUser.name} (${submitterUser.email})`
         : submitterUser?.email || "Team Member";
 
-      await sendEmail({
-        to: recipientEmails.join(", "),
-        subject: `[${orgName} Support] New Request: ${subject}`,
-        text: `A new support request has been submitted.\n\nSubject: ${subject}\nMessage: ${message}\n\nSubmitted by: ${submitterDisplay}\nCompany: ${orgName}\nRole: ${resolvedMemberRole || "Member"}\n\nPlease log in to your company dashboard to review and manage this request.`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
-            <h2 style="color: #2563eb; margin-bottom: 8px;">New Support Request</h2>
-            <p style="color: #64748b; font-size: 14px; margin-top: 0;">
-              A team member in <strong>${orgName}</strong> has submitted an internal support ticket.
-            </p>
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                <tr><td style="padding: 6px 0; font-weight: bold; color: #475569; width: 120px;">Submitted By:</td><td>${submitterDisplay}</td></tr>
-                <tr><td style="padding: 6px 0; font-weight: bold; color: #475569;">Role:</td><td>${resolvedMemberRole || "Team Member"}</td></tr>
-                <tr><td style="padding: 6px 0; font-weight: bold; color: #475569;">Subject:</td><td style="font-weight: 600;">${subject}</td></tr>
-              </table>
-              <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
-                <p style="font-weight: bold; color: #475569; margin: 0 0 4px;">Message Details:</p>
-                <p style="margin: 0; white-space: pre-wrap; color: #334155;">${message}</p>
+      if (isOwnerSubmitter) {
+        await sendEmail({
+          to: recipientEmails.join(", "),
+          subject: `[HireQuest Platform Support] New Request from ${orgName}: ${subject}`,
+          text: `A new company owner support request has been submitted.\n\nSubject: ${subject}\nMessage: ${message}\n\nSubmitted by: ${submitterDisplay}\nCompany: ${orgName}\nRole: Company Owner\n\nPlease log in to the Super Admin Dashboard to review and manage this request.`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+              <h2 style="color: #2563eb; margin-bottom: 8px;">New Company Owner Support Request</h2>
+              <p style="color: #64748b; font-size: 14px; margin-top: 0;">
+                The owner of <strong>${orgName}</strong> has submitted a platform support ticket.
+              </p>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                  <tr><td style="padding: 6px 0; font-weight: bold; color: #475569; width: 120px;">Submitted By:</td><td>${submitterDisplay}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold; color: #475569;">Company:</td><td>${orgName}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold; color: #475569;">Role:</td><td>Company Owner</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold; color: #475569;">Subject:</td><td style="font-weight: 600;">${subject}</td></tr>
+                </table>
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                  <p style="font-weight: bold; color: #475569; margin: 0 0 4px;">Message Details:</p>
+                  <p style="margin: 0; white-space: pre-wrap; color: #334155;">${message}</p>
+                </div>
               </div>
+              <p style="color: #64748b; font-size: 13px; margin-top: 16px;">
+                Please log in to the <a href="${appUrl}/admin/support" style="color: #2563eb; text-decoration: underline;">Super Admin Dashboard</a> to respond to this ticket.
+              </p>
             </div>
-            <p style="color: #64748b; font-size: 13px; margin-top: 16px;">
-              Please log in to your <a href="${appUrl}/support-tickets" style="color: #2563eb; text-decoration: underline;">Company Dashboard</a> to respond to this ticket.
-            </p>
-          </div>
-        `,
-      });
+          `,
+        });
+      } else {
+        await sendEmail({
+          to: recipientEmails.join(", "),
+          subject: `[${orgName} Support] New Request: ${subject}`,
+          text: `A new support request has been submitted.\n\nSubject: ${subject}\nMessage: ${message}\n\nSubmitted by: ${submitterDisplay}\nCompany: ${orgName}\nRole: ${resolvedMemberRole || "Team Member"}\n\nPlease log in to your company dashboard to review and manage this request.`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+              <h2 style="color: #2563eb; margin-bottom: 8px;">New Support Request</h2>
+              <p style="color: #64748b; font-size: 14px; margin-top: 0;">
+                A team member in <strong>${orgName}</strong> has submitted an internal support ticket.
+              </p>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                  <tr><td style="padding: 6px 0; font-weight: bold; color: #475569; width: 120px;">Submitted By:</td><td>${submitterDisplay}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold; color: #475569;">Role:</td><td>${resolvedMemberRole || "Team Member"}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold; color: #475569;">Subject:</td><td style="font-weight: 600;">${subject}</td></tr>
+                </table>
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                  <p style="font-weight: bold; color: #475569; margin: 0 0 4px;">Message Details:</p>
+                  <p style="margin: 0; white-space: pre-wrap; color: #334155;">${message}</p>
+                </div>
+              </div>
+              <p style="color: #64748b; font-size: 13px; margin-top: 16px;">
+                Please log in to your <a href="${appUrl}/support-tickets" style="color: #2563eb; text-decoration: underline;">Company Dashboard</a> to respond to this ticket.
+              </p>
+            </div>
+          `,
+        });
+      }
     }
   } catch (emailError) {
     console.error("Failed to send support request notification email:", emailError?.message || emailError);
@@ -189,11 +224,30 @@ const listAllRequests = async ({ page, limit, status, sortBy, sortOrder }) => {
 };
 
 /**
+ * Check if a ticket was submitted by a company Owner or platform user (destined for Super Admin).
+ */
+const isOwnerOrPlatformTicket = async (request) => {
+  if (!request.companyId || request.user?.role === "SUPER_ADMIN") {
+    return true;
+  }
+  if (request.user?.companyMembers && Array.isArray(request.user.companyMembers)) {
+    const member = request.user.companyMembers.find((m) => m.companyId === request.companyId);
+    if (member && (member.role === "OWNER" || member.role === "COMPANY_OWNER")) {
+      return true;
+    }
+  }
+  const member = await supportRepository.findCompanyMember(request.companyId, request.userId);
+  if (member && (member.role === "OWNER" || member.role === "COMPANY_OWNER")) {
+    return true;
+  }
+  return false;
+};
+/**
  * Get a single support request by ID.
  * Accessible by:
  * 1. The ticket submitter (request.userId === user.id)
- * 2. Active Owner/Admin of that company (if tenant ticket: request.companyId IS NOT NULL)
- * 3. Platform Super Admin (ONLY if platform-level ticket: request.companyId IS NULL)
+ * 2. Platform Super Admin (if platform ticket or Company Owner ticket)
+ * 3. Active Owner/Admin of that company
  */
 const getRequest = async (requestId, user) => {
   const request = await supportRepository.findById(requestId);
@@ -204,30 +258,39 @@ const getRequest = async (requestId, user) => {
     );
   }
 
-  // 1. Submitter can always view their own ticket (whether tenant or platform-level)
+  // 1. Submitter can always view their own ticket
   if (request.userId === user.id) {
     return request;
   }
 
-  // 2. Tenant ticket (companyId IS NOT NULL):
-  // Strictly private between submitter and active Owner/Admin of that same company.
-  // Platform Super Admin must NOT view tenant ticket details.
-  if (request.companyId) {
-    const member = await supportRepository.findCompanyMember(request.companyId, user.id);
-    if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
+  const isOwnerTicket = await isOwnerOrPlatformTicket(request);
+
+  // 2. Owner-to-Platform ticket (submitted by Company Owner or platform user):
+  // Accessible by Platform Super Admin or Company Owner/Admin of that company.
+  if (isOwnerTicket) {
+    if (user.role === "SUPER_ADMIN") {
       return request;
     }
-
+    if (request.companyId) {
+      const member = await supportRepository.findCompanyMember(request.companyId, user.id);
+      if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
+        return request;
+      }
+    }
     throw new ForbiddenError(
       "You do not have permission to view this support request.",
       SUPPORT_CONSTANTS.ERROR_CODES.ACCESS_DENIED
     );
   }
 
-  // 3. Platform-level ticket (companyId IS NULL):
-  // Accessible by Platform Super Admin
-  if (user.role === "SUPER_ADMIN") {
-    return request;
+  // 3. Internal HR ticket (submitted by recruiter/HR for company owner):
+  // Strictly private between submitter and active Owner/Admin of that company.
+  // Platform Super Admin must NOT view internal tenant tickets.
+  if (request.companyId) {
+    const member = await supportRepository.findCompanyMember(request.companyId, user.id);
+    if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
+      return request;
+    }
   }
 
   throw new ForbiddenError(
@@ -239,8 +302,8 @@ const getRequest = async (requestId, user) => {
 /**
  * Update the status of a support request.
  * Accessible by:
- * 1. Active Owner/Admin of that company (if tenant ticket: existing.companyId IS NOT NULL)
- * 2. Platform Super Admin (ONLY if platform-level ticket: existing.companyId IS NULL)
+ * 1. Active Owner/Admin of that company
+ * 2. Platform Super Admin (if platform ticket or Company Owner ticket)
  */
 const updateRequestStatus = async (requestId, status, user) => {
   const existing = await supportRepository.findById(requestId);
@@ -251,19 +314,26 @@ const updateRequestStatus = async (requestId, status, user) => {
     );
   }
 
+  const isOwnerTicket = await isOwnerOrPlatformTicket(existing);
   let isAuthorized = false;
 
-  if (existing.companyId) {
-    // Tenant ticket: only authorized for active Owner/Admin of that same company.
-    // Platform Super Admin is NOT permitted to alter tenant tickets.
-    const member = await supportRepository.findCompanyMember(existing.companyId, user.id);
-    if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
-      isAuthorized = true;
-    }
-  } else {
-    // Platform-level ticket: authorized for Super Admin
+  if (isOwnerTicket) {
+    // Owner ticket to platform: Super Admin is authorized!
     if (user.role === "SUPER_ADMIN") {
       isAuthorized = true;
+    } else if (existing.companyId) {
+      const member = await supportRepository.findCompanyMember(existing.companyId, user.id);
+      if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
+        isAuthorized = true;
+      }
+    }
+  } else {
+    // Internal HR ticket to company: ONLY active Owner/Admin of that company is authorized!
+    if (existing.companyId) {
+      const member = await supportRepository.findCompanyMember(existing.companyId, user.id);
+      if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
+        isAuthorized = true;
+      }
     }
   }
 
@@ -280,8 +350,8 @@ const updateRequestStatus = async (requestId, status, user) => {
 /**
  * Reply to a support request.
  * Accessible by:
- * 1. Active Owner/Admin of that company (if tenant ticket: existing.companyId IS NOT NULL)
- * 2. Platform Super Admin (ONLY if platform-level ticket: existing.companyId IS NULL)
+ * 1. Active Owner/Admin of that company
+ * 2. Platform Super Admin (if platform ticket or Company Owner ticket)
  */
 const replyToRequest = async (requestId, { reply, user }) => {
   const existing = await supportRepository.findById(requestId);
@@ -292,19 +362,26 @@ const replyToRequest = async (requestId, { reply, user }) => {
     );
   }
 
+  const isOwnerTicket = await isOwnerOrPlatformTicket(existing);
   let isAuthorized = false;
 
-  if (existing.companyId) {
-    // Tenant ticket: only authorized for active Owner/Admin of that same company.
-    // Platform Super Admin is NOT permitted to reply to tenant tickets.
-    const member = await supportRepository.findCompanyMember(existing.companyId, user.id);
-    if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
-      isAuthorized = true;
-    }
-  } else {
-    // Platform-level ticket: authorized for Super Admin
+  if (isOwnerTicket) {
+    // Owner ticket to platform: Super Admin is authorized to reply!
     if (user.role === "SUPER_ADMIN") {
       isAuthorized = true;
+    } else if (existing.companyId) {
+      const member = await supportRepository.findCompanyMember(existing.companyId, user.id);
+      if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
+        isAuthorized = true;
+      }
+    }
+  } else {
+    // Internal HR ticket: ONLY active Owner/Admin of that company can reply.
+    if (existing.companyId) {
+      const member = await supportRepository.findCompanyMember(existing.companyId, user.id);
+      if (member && (member.role === "OWNER" || member.role === "ADMIN")) {
+        isAuthorized = true;
+      }
     }
   }
 
@@ -325,8 +402,9 @@ const replyToRequest = async (requestId, { reply, user }) => {
   let emailSent = false;
   try {
     const { sendEmail } = require("../../utils/email");
-    const responderName = user.name || (existing.companyId ? "Company Administrator" : "Platform Support");
-    const companyTitle = updated.company?.name || "HireQuest";
+    const isSuperAdmin = user.role === "SUPER_ADMIN";
+    const responderName = user.name || (isSuperAdmin ? "HireQuest Platform Support" : (updated.company?.name ? `${updated.company.name} Administrator` : "Company Administrator"));
+    const companyTitle = isSuperAdmin ? "HireQuest Platform" : (updated.company?.name || "HireQuest");
 
     await sendEmail({
       to: updated.user.email,

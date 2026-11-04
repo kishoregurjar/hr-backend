@@ -16,7 +16,17 @@ const findById = async (id, tx = prisma) => {
   return tx.supportRequest.findUnique({
     where: { id },
     include: {
-      user: { select: { id: true, name: true, email: true } },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          companyMembers: {
+            select: { companyId: true, role: true },
+          },
+        },
+      },
       company: { select: { id: true, name: true, slug: true } },
     },
   });
@@ -55,7 +65,17 @@ const findByCompanyId = async (
   { companyId, page = 1, limit = 20, status, sortBy = "createdAt", sortOrder = "desc" },
   tx = prisma
 ) => {
-  const where = { companyId };
+  const where = {
+    companyId,
+    user: {
+      companyMembers: {
+        none: {
+          companyId,
+          role: "OWNER",
+        },
+      },
+    },
+  };
   if (status) where.status = status;
 
   const [items, total] = await Promise.all([
@@ -83,8 +103,14 @@ const findAll = async (
   { page = 1, limit = 20, status, sortBy = "createdAt", sortOrder = "desc" },
   tx = prisma
 ) => {
-  // Strictly filter for platform-level requests (companyId IS NULL)
-  const where = { companyId: null };
+  // Platform-level requests (companyId IS NULL) and company owner tickets destined for Super Admin
+  const where = {
+    OR: [
+      { companyId: null },
+      { user: { role: "SUPER_ADMIN" } },
+      { user: { companyMembers: { some: { role: "OWNER" } } } },
+    ],
+  };
   if (status) where.status = status;
 
   const [items, total] = await Promise.all([
