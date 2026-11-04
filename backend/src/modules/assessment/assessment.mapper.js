@@ -44,7 +44,7 @@ class AssessmentMapper {
   /**
    * Create Entity
    */
-  static toCreateEntity(data, createdById) {
+  static toCreateEntity(data, createdById, companyId = null) {
     return {
       title: this.normalizeTitle(data.title),
 
@@ -65,6 +65,8 @@ class AssessmentMapper {
       endsAt: data.endsAt ? new Date(data.endsAt) : null,
 
       createdById,
+
+      companyId: companyId || null,
     };
   }
 
@@ -139,6 +141,10 @@ class AssessmentMapper {
       endsAt: assessment.endsAt,
 
       createdById: assessment.createdById,
+
+      companyId: assessment.companyId || null,
+
+      isQuarantined: Boolean(assessment.isQuarantined),
     };
   }
 

@@ -8,6 +8,7 @@ const ownerActivationService = require("./super-admin.owner-activation.service")
 const { createOutboxEvent } = require("../company/company.outbox.repository");
 const auditService = require("../company/company.audit.service");
 const { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } = require("../company/company.audit.constants");
+const { normalizeDomainString } = require("../../utils/tenant-url");
 
 const generateSlugBase = (name) => {
   const slug = name
@@ -41,6 +42,8 @@ const createCompanyWithOwner = async (
     ownerName,
     ownerEmail,
     website,
+    domain,
+    customDomain,
     industry,
     description,
     phone,
@@ -82,11 +85,16 @@ const createCompanyWithOwner = async (
 
         const slug = await generateUniqueSlug(companyName, tx);
 
+        const effectiveCustomDomain = normalizeDomainString(customDomain || domain || null);
+        const effectiveWebsite = website || (effectiveCustomDomain ? `https://${effectiveCustomDomain}` : null);
+
         const company = await superAdminCompanyRepository.createCompany(
           {
             name: companyName,
             slug,
-            website: website ?? null,
+            website: effectiveWebsite ?? null,
+            customDomain: effectiveCustomDomain ?? null,
+            customDomainVerified: false,
             industry: industry ?? null,
             description: description ?? null,
             phone: phone ?? null,
@@ -119,7 +127,7 @@ const createCompanyWithOwner = async (
           );
 
         const { activation, rawToken, activationUrl } =
-          await ownerActivationService.createOwnerActivation(owner.id, tx);
+          await ownerActivationService.createOwnerActivation(owner.id, tx, company);
 
         const emailDelivery = await tx.emailDelivery.create({
           data: {

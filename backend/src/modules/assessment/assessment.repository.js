@@ -8,6 +8,8 @@ const { getCanonicalGameCode } = require("../game/game.constants");
  */
 const ASSESSMENT_LIST_SELECT = Object.freeze({
   id: true,
+  companyId: true,
+  isQuarantined: true,
   title: true,
   description: true,
   durationMinutes: true,
@@ -43,6 +45,8 @@ const ASSESSMENT_LIST_SELECT = Object.freeze({
 
 const ASSESSMENT_DETAIL_SELECT = Object.freeze({
   id: true,
+  companyId: true,
+  isQuarantined: true,
   title: true,
   description: true,
   durationMinutes: true,
@@ -176,13 +180,19 @@ class AssessmentRepository {
     }
 
     if (companyId) {
-      where.createdBy = {
-        companyMembers: {
-          some: {
-            companyId,
+      where.OR = [
+        { companyId },
+        {
+          companyId: null,
+          createdBy: {
+            companyMembers: {
+              some: {
+                companyId,
+              },
+            },
           },
         },
-      };
+      ];
     }
 
     return db.assessment.findFirst({
@@ -231,23 +241,32 @@ class AssessmentRepository {
   }
 
   /**
-   * Soft Delete Assessment
+   * Archive Assessment (Safe soft-delete replacement preserving audit history)
    */
-  async softDelete(tx, id) {
+  async archive(tx, id) {
     const db = getClient(tx);
-    return db.assessment.delete({
+    return db.assessment.update({
       where: { id },
+      data: { status: "ARCHIVED" },
       select: ASSESSMENT_LIST_SELECT,
     });
   }
 
   /**
-   * Restore Assessment
+   * Soft Delete Assessment (Alias for archive)
+   */
+  async softDelete(tx, id) {
+    return this.archive(tx, id);
+  }
+
+  /**
+   * Restore Assessment (Reverts status to DRAFT)
    */
   async restore(tx, id) {
     const db = getClient(tx);
-    return db.assessment.findUnique({
+    return db.assessment.update({
       where: { id },
+      data: { status: "DRAFT" },
       select: ASSESSMENT_DETAIL_SELECT,
     });
   }
@@ -358,28 +377,50 @@ class AssessmentRepository {
 
     if (options.status && options.status !== "all") {
       where.status = options.status;
+    } else if (options.status !== "all") {
+      where.status = { not: "ARCHIVED" };
     }
 
     if (options.type && options.type !== "all") {
       where.type = options.type;
     }
 
+    const andConditions = [];
+
+    if (!options.includeQuarantined) {
+      andConditions.push({ isQuarantined: false });
+    }
+
     if (options.companyId) {
-      where.createdBy = {
-        companyMembers: {
-          some: { companyId: options.companyId },
-        },
-      };
+      andConditions.push({
+        OR: [
+          { companyId: options.companyId },
+          {
+            companyId: null,
+            createdBy: {
+              companyMembers: {
+                some: { companyId: options.companyId },
+              },
+            },
+          },
+        ],
+      });
     } else if (options.createdById) {
-      where.createdById = options.createdById;
+      andConditions.push({ createdById: options.createdById });
     }
 
     if (options.search && options.search.trim()) {
       const search = options.search.trim();
-      where.OR = [
-        { title: { contains: search, mode: "insensitive" } },
-        { description: { contains: search, mode: "insensitive" } },
-      ];
+      andConditions.push({
+        OR: [
+          { title: { contains: search, mode: "insensitive" } },
+          { description: { contains: search, mode: "insensitive" } },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     const sortBy = options.sortBy || "createdAt";
@@ -676,6 +717,123 @@ class AssessmentRepository {
     });
 
     return result.count;
+  }
+
+  /**
+   * Place Assessment into Administrative Quarantine (Distinct from Archive)
+   */
+  async quarantineAssessment(tx, assessmentId, { reason, evidence, quarantinedById }) {
+    const db = getClient(tx);
+    const [updated, log] = await Promise.all([
+      db.assessment.update({
+        where: { id: assessmentId },
+        data: { isQuarantined: true },
+        select: ASSESSMENT_DETAIL_SELECT,
+      }),
+      db.assessmentQuarantineLog.create({
+        data: {
+          assessmentId,
+          originalAssessmentId: assessmentId,
+          reason: reason || "ADMINISTRATIVE_QUARANTINE",
+          evidence: evidence || {},
+          quarantinedById: quarantinedById || null,
+        },
+      }),
+    ]);
+    return { assessment: updated, quarantineLog: log };
+  }
+
+  /**
+   * Resolve Quarantine and Record Resolution Audit Event
+   */
+  async resolveAssessmentQuarantine(tx, assessmentId, { action, targetCompanyId, notes, resolvedById }) {
+    const db = getClient(tx);
+    const latestLog = await db.assessmentQuarantineLog.findFirst({
+      where: { assessmentId },
+      orderBy: { quarantinedAt: "desc" },
+    });
+
+    let resolution = null;
+    if (latestLog) {
+      resolution = await db.quarantineResolutionEvent.create({
+        data: {
+          quarantineLogId: latestLog.id,
+          action: action || "RELEASE",
+          targetCompanyId: targetCompanyId || null,
+          notes: notes || null,
+          resolvedById: resolvedById || null,
+        },
+      });
+    }
+
+    const updateData = { isQuarantined: false };
+    if (targetCompanyId) {
+      updateData.companyId = targetCompanyId;
+    }
+
+    const updated = await db.assessment.update({
+      where: { id: assessmentId },
+      data: updateData,
+      select: ASSESSMENT_DETAIL_SELECT,
+    });
+
+    return { assessment: updated, resolution };
+  }
+
+  /**
+   * Duplicate Assessment and its assigned questions and games
+   */
+  async duplicate(tx, sourceAssessment, { title, createdById, companyId = null }) {
+    const db = getClient(tx);
+    const newAssessment = await db.assessment.create({
+      data: {
+        title,
+        description: sourceAssessment.description,
+        durationMinutes: sourceAssessment.durationMinutes,
+        passingScore: sourceAssessment.passingScore,
+        maximumScore: sourceAssessment.maximumScore,
+        type: sourceAssessment.type,
+        status: "DRAFT",
+        createdById,
+        companyId: companyId || sourceAssessment.companyId || null,
+      },
+      select: ASSESSMENT_DETAIL_SELECT,
+    });
+
+    const questions = sourceAssessment.questions || [];
+    if (questions.length > 0) {
+      const qRecords = questions.map((item, idx) => ({
+        assessmentId: newAssessment.id,
+        questionId: item.questionId || item.id,
+        orderIndex: item.orderIndex !== undefined ? item.orderIndex : idx,
+        points: item.points !== undefined ? item.points : (item.marks || 1),
+        negativePoints: item.negativePoints !== undefined ? item.negativePoints : 0.0,
+      }));
+      await db.assessmentQuestion.createMany({
+        data: qRecords,
+        skipDuplicates: true,
+      });
+    }
+
+    const games = sourceAssessment.games || [];
+    if (games.length > 0) {
+      const gRecords = games.map((item, idx) => ({
+        assessmentId: newAssessment.id,
+        gameId: item.gameId || item.game?.id,
+        sequence: item.sequence !== undefined ? item.sequence : idx + 1,
+        weight: item.weight !== undefined ? item.weight : 1.0,
+        config: item.config || null,
+      })).filter((g) => Boolean(g.gameId));
+
+      if (gRecords.length > 0) {
+        await db.assessmentGame.createMany({
+          data: gRecords,
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    return this.findById(newAssessment.id, { detailed: true }, tx);
   }
 }
 

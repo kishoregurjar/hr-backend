@@ -130,6 +130,12 @@ const env = Object.freeze({
   logger: {
     level: process.env.LOG_LEVEL || "info",
   },
+
+  featureFlags: {
+    mailboxSyncEnabled: process.env.FEATURE_MAILBOX_SYNC_ENABLED === "true",
+    tenantDualWriteEnabled: process.env.TENANT_DUAL_WRITE_ENABLED !== "false",
+    tenantIsolationReadsEnabled: process.env.TENANT_ISOLATION_READS_ENABLED !== "false",
+  },
 });
 
 module.exports = env;

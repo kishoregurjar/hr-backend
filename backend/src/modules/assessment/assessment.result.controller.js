@@ -30,10 +30,13 @@ async function getAssessmentResults(req, res, next) {
   try {
     const { assessmentId } = validateAssessmentIdParams(req.params);
     const query = validateResultQuery(req.query);
+    const companyId = req.companyId || req.company?.id || null;
 
     const result = await service.getAssessmentResults({
       assessmentId,
       query,
+      companyId,
+      user: req.user,
     });
 
     const mapped = result.items.map(mapper.mapAssessmentResultListItem);
@@ -54,8 +57,13 @@ async function getAssessmentResults(req, res, next) {
 async function getResultDetails(req, res, next) {
   try {
     const { candidateAssessmentId } = validateCandidateAssessmentParams(req.params);
+    const companyId = req.companyId || req.company?.id || null;
 
-    const result = await service.getResultDetails(candidateAssessmentId);
+    const result = await service.getResultDetails({
+      candidateAssessmentId,
+      companyId,
+      user: req.user,
+    });
 
     return res
       .status(200)

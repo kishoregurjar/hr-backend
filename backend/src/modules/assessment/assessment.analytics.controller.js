@@ -17,10 +17,12 @@ const {
 async function getOverview(req, res, next) {
   try {
     const { assessmentId } = validateAssessmentIdParams(req.params);
+    const companyId = req.companyId || req.company?.id || null;
 
     const data = await service.getAssessmentOverview({
       assessmentId,
       user: req.user,
+      companyId,
     });
 
     return res.status(200).json(createOverviewDto(data));
@@ -32,10 +34,12 @@ async function getOverview(req, res, next) {
 async function getDistribution(req, res, next) {
   try {
     const { assessmentId } = validateAssessmentIdParams(req.params);
+    const companyId = req.companyId || req.company?.id || null;
 
     const data = await service.getResultDistribution({
       assessmentId,
       user: req.user,
+      companyId,
     });
 
     return res.status(200).json(createDistributionDto(data));
@@ -47,10 +51,12 @@ async function getDistribution(req, res, next) {
 async function getGames(req, res, next) {
   try {
     const { assessmentId } = validateAssessmentIdParams(req.params);
+    const companyId = req.companyId || req.company?.id || null;
 
     const data = await service.getGameAnalytics({
       assessmentId,
       user: req.user,
+      companyId,
     });
 
     return res.status(200).json(createGameAnalyticsDto(data));
@@ -62,13 +68,14 @@ async function getGames(req, res, next) {
 async function getQuestions(req, res, next) {
   try {
     const { assessmentId } = validateAssessmentIdParams(req.params);
-
+    const companyId = req.companyId || req.company?.id || null;
     const query = validateAnalyticsQuery(req.query);
 
     const data = await service.getQuestionAnalytics({
       assessmentId,
       user: req.user,
       query,
+      companyId,
     });
 
     return res.status(200).json(createQuestionAnalyticsDto(data));

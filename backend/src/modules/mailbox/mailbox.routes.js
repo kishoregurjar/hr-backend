@@ -4,6 +4,7 @@ const express = require("express");
 const controller = require("./mailbox.controller");
 const requireAuth = require("../../middleware/requireAuth");
 const requireRole = require("../../middleware/requireRole");
+const { companyContext } = require("../company/company.context.middleware");
 
 const router = express.Router();
 
@@ -13,12 +14,13 @@ const router = express.Router();
 router.get("/google/callback", controller.handleGoogleCallback);
 
 /**
- * Protected HR / SUPER_ADMIN Mailbox Endpoints
+ * Protected HR / SUPER_ADMIN Mailbox Endpoints (Scoped with Company Context)
  */
 router.get(
   "/google/connect",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
   controller.connectGoogleMailbox
 );
 
@@ -26,6 +28,7 @@ router.get(
   "/status",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
   controller.getMailboxStatus
 );
 
@@ -33,6 +36,7 @@ router.post(
   "/sync-now",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
   controller.syncMailboxNow
 );
 
@@ -40,6 +44,7 @@ router.post(
   "/sync",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
   controller.syncMailboxNow
 );
 
@@ -47,6 +52,7 @@ router.post(
   "/",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
   controller.syncMailboxNow
 );
 
@@ -54,12 +60,14 @@ router.post(
   "/disconnect",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
   controller.disconnectMailbox
 );
 router.post(
   "/stop-sync",
   requireAuth,
   requireRole(["HR", "SUPER_ADMIN"]),
+  companyContext,
   controller.stopAutomaticSync
 );
 

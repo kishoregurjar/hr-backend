@@ -19,9 +19,21 @@ async function findActiveMailboxes(db = prisma) {
 }
 
 async function upsertUserMailbox(
-  { userId, email, refreshToken, accessToken, tokenExpiresAt, provider = "GOOGLE" },
+  { userId, email, refreshToken, accessToken, tokenExpiresAt, provider = "GOOGLE", companyId = null },
   db = prisma
 ) {
+  const updateData = {
+    email,
+    refreshToken,
+    accessToken,
+    tokenExpiresAt,
+    isSyncActive: true,
+    lastError: null,
+  };
+  if (companyId) {
+    updateData.companyId = companyId;
+  }
+
   return db.userMailbox.upsert({
     where: { userId },
     create: {
@@ -32,15 +44,9 @@ async function upsertUserMailbox(
       accessToken,
       tokenExpiresAt,
       isSyncActive: true,
+      companyId: companyId || null,
     },
-    update: {
-      email,
-      refreshToken,
-      accessToken,
-      tokenExpiresAt,
-      isSyncActive: true,
-      lastError: null,
-    },
+    update: updateData,
   });
 }
 

@@ -1,11 +1,15 @@
 "use strict";
 
+const crypto = require("node:crypto");
+const jwt = require("jsonwebtoken");
 const { google } = require("googleapis");
 const repository = require("./mailbox.repository");
 const resumeService = require("../resume/resume.service");
 const resumeRepository = require("../resume/resume.repository");
 const { detectForwardedEmail } = require("../resume/email.extractor.service");
 const { prisma } = require("../../config/prisma");
+const env = require("../../config/env");
+const { redisClient } = require("../../config/redis");
 const attemptService = require("../attempt/attempt.service");
 const {
   AppError,
@@ -16,6 +20,145 @@ const {
   conflict,
 } = require("../../utils/app-error");
 const driveService = require("./drive.service");
+
+// In-memory fallback tracking for single-use OAuth states (LRU / Map with timestamp cleanup)
+const consumedNonces = new Map();
+const OAUTH_STATE_PURPOSE = "GOOGLE_MAILBOX_OAUTH";
+const OAUTH_STATE_EXPIRY_SECONDS = 600; // 10 minutes
+
+function cleanupConsumedNonces() {
+  const now = Date.now();
+  for (const [nonce, expiresAt] of consumedNonces.entries()) {
+    if (expiresAt <= now) {
+      consumedNonces.delete(nonce);
+    }
+  }
+}
+
+async function generateOAuthState(userId, companyId = null) {
+  if (!userId) {
+    throw badRequest("User ID is required to generate OAuth state", "USER_ID_REQUIRED");
+  }
+
+  const nonce = crypto.randomBytes(24).toString("hex");
+  const payload = {
+    userId,
+    companyId: companyId || null,
+    nonce,
+    purpose: OAUTH_STATE_PURPOSE,
+  };
+
+  const stateToken = jwt.sign(payload, env.jwt.accessSecret, {
+    expiresIn: `${OAUTH_STATE_EXPIRY_SECONDS}s`,
+  });
+
+  // In production, shared Redis is mandatory for atomic single-use nonce tracking
+  if (env.nodeEnv === "production") {
+    if (!redisClient || !redisClient.isOpen) {
+      throw new AppError(
+        "OAuth service is temporarily unavailable. Shared session store is unreachable.",
+        { statusCode: 503, code: "SERVICE_UNAVAILABLE" }
+      );
+    }
+    await redisClient.set(`oauth:mailbox:state:${nonce}`, userId, {
+      EX: OAUTH_STATE_EXPIRY_SECONDS,
+    });
+  } else {
+    try {
+      if (redisClient && redisClient.isOpen) {
+        await redisClient.set(`oauth:mailbox:state:${nonce}`, userId, {
+          EX: OAUTH_STATE_EXPIRY_SECONDS,
+        });
+      }
+    } catch (err) {
+      console.warn("[MailboxService] Failed to persist OAuth state nonce to Redis (dev fallback):", err.message);
+    }
+  }
+
+  return stateToken;
+}
+
+async function verifyAndConsumeOAuthState(stateToken) {
+  if (!stateToken || typeof stateToken !== "string" || !stateToken.trim()) {
+    throw badRequest("OAuth state parameter is required", "OAUTH_STATE_REQUIRED");
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(stateToken.trim(), env.jwt.accessSecret);
+  } catch (err) {
+    throw badRequest(
+      "Invalid or expired OAuth state parameter. Please initiate connection again.",
+      "INVALID_OAUTH_STATE"
+    );
+  }
+
+  if (decoded.purpose !== OAUTH_STATE_PURPOSE || !decoded.userId || !decoded.nonce) {
+    throw badRequest(
+      "Malformed OAuth state token payload.",
+      "INVALID_OAUTH_STATE"
+    );
+  }
+
+  const nonceKey = `oauth:mailbox:state:${decoded.nonce}`;
+
+  if (env.nodeEnv === "production") {
+    if (!redisClient || !redisClient.isOpen) {
+      throw new AppError(
+        "OAuth verification service is temporarily unavailable. Shared session store is unreachable.",
+        { statusCode: 503, code: "SERVICE_UNAVAILABLE" }
+      );
+    }
+
+    try {
+      const deletedCount = await redisClient.del(nonceKey);
+      if (deletedCount === 0) {
+        throw badRequest(
+          "OAuth state has already been used or expired. Please re-authenticate.",
+          "OAUTH_STATE_ALREADY_USED"
+        );
+      }
+    } catch (err) {
+      if (err.statusCode) throw err;
+      throw new AppError(
+        "OAuth verification service is temporarily unavailable. Shared session store operation failed.",
+        { statusCode: 503, code: "SERVICE_UNAVAILABLE" }
+      );
+    }
+  } else {
+    // Development fallback
+    let isConsumed = false;
+    if (redisClient && redisClient.isOpen) {
+      try {
+        const deletedCount = await redisClient.del(nonceKey);
+        if (deletedCount === 0) {
+          isConsumed = true;
+        }
+      } catch (err) {
+        console.warn("[MailboxService] Redis state check failed (dev fallback):", err.message);
+      }
+    }
+
+    cleanupConsumedNonces();
+    if (consumedNonces.has(decoded.nonce)) {
+      isConsumed = true;
+    } else {
+      consumedNonces.set(decoded.nonce, Date.now() + (OAUTH_STATE_EXPIRY_SECONDS * 1000));
+    }
+
+    if (isConsumed) {
+      throw badRequest(
+        "OAuth state has already been used or expired. Please re-authenticate.",
+        "OAUTH_STATE_ALREADY_USED"
+      );
+    }
+  }
+
+  return {
+    userId: decoded.userId,
+    companyId: decoded.companyId || null,
+  };
+}
 
 function createOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -38,7 +181,7 @@ function createOAuth2Client() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-function getAuthUrl(userId) {
+async function getAuthUrl(userId, companyId = null) {
   const oauth2Client = createOAuth2Client();
 
   const scopes = [
@@ -48,17 +191,19 @@ function getAuthUrl(userId) {
     "https://www.googleapis.com/auth/drive.readonly",
   ];
 
+  const state = await generateOAuthState(userId, companyId);
+
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "select_account consent",
     scope: scopes,
-    state: userId,
+    state,
   });
 
   return authUrl;
 }
 
-async function handleCallback(code, userId) {
+async function handleCallback(code, userId, companyId = null) {
   if (!code) {
     throw badRequest("Authorization code is required", "AUTH_CODE_REQUIRED");
   }
@@ -96,6 +241,7 @@ async function handleCallback(code, userId) {
     refreshToken: tokens.refresh_token,
     accessToken: tokens.access_token || null,
     tokenExpiresAt,
+    companyId: companyId || null,
   });
 
   return {
@@ -767,7 +913,14 @@ async function processSingleGmailMessage({
   }
 }
 
-async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange = null) {
+async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange = null, targetCompanyId = null) {
+  if (!env.featureFlags?.mailboxSyncEnabled) {
+    throw forbidden(
+      "Mailbox synchronization is temporarily disabled by administrative feature switch.",
+      "MAILBOX_SYNC_DISABLED"
+    );
+  }
+
   if (activeMailboxSyncs.has(userId)) {
     throw conflict(
       "Mailbox sync is already in progress for your account. Please wait a moment.",
@@ -786,11 +939,29 @@ async function syncMailboxForUser(userId, maxDurationMs = 25000, customDateRange
       );
     }
 
-    const companyMember = await prisma.companyMember.findFirst({
-      where: { userId },
-      select: { companyId: true },
+    let userCompanyId = targetCompanyId;
+    if (!userCompanyId) {
+      throw badRequest(
+        "Active company context is required for mailbox synchronization.",
+        "COMPANY_CONTEXT_REQUIRED"
+      );
+    }
+
+    const companyMember = await prisma.companyMember.findUnique({
+      where: {
+        companyId_userId: {
+          companyId: userCompanyId,
+          userId,
+        },
+      },
     });
-    const userCompanyId = companyMember?.companyId || null;
+
+    if (!companyMember) {
+      throw forbidden(
+        "You do not have permission to sync resumes for this company.",
+        "COMPANY_ACCESS_DENIED"
+      );
+    }
 
     const oauth2Client = createOAuth2Client();
     oauth2Client.setCredentials({
@@ -1159,8 +1330,18 @@ async function stopAutomaticSync(userId) {
   return { success: true };
 }
 
-function startBackgroundSync(userId, dateRangeOptions = null) {
+function startBackgroundSync(userId, dateRangeOptions = null, targetCompanyId = null) {
   if (isSyncInProgress(userId)) {
+    return;
+  }
+
+  if (!env.featureFlags?.mailboxSyncEnabled) {
+    console.info(`[MailboxSync] Background sync skipped for user ${userId}: Kill switch engaged (FEATURE_MAILBOX_SYNC_ENABLED is false).`);
+    return;
+  }
+
+  if (!targetCompanyId) {
+    console.warn(`[MailboxSync] Background sync deferred for user ${userId}: UserMailbox lacks direct companyId binding in schema.`);
     return;
   }
 
@@ -1175,7 +1356,7 @@ function startBackgroundSync(userId, dateRangeOptions = null) {
         });
       }
 
-      await syncMailboxForUser(userId, 60000, dateRangeOptions);
+      await syncMailboxForUser(userId, 60000, dateRangeOptions, targetCompanyId);
     } catch (error) {
       if (error?.code === "MAILBOX_SYNC_IN_PROGRESS") {
         return;
@@ -1426,6 +1607,8 @@ async function getCandidateResumeStream({ candidateId, user }) {
 
 module.exports = {
   getAuthUrl,
+  generateOAuthState,
+  verifyAndConsumeOAuthState,
   handleCallback,
   getMailboxStatus,
   syncMailboxForUser,

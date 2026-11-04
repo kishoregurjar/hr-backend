@@ -10,11 +10,18 @@ async function getDashboardOverviewData({ userId, companyId }, db = prisma) {
   const userAssessments = companyId
     ? await db.assessment.findMany({
       where: {
-        createdBy: {
-          companyMembers: {
-            some: { companyId },
+        isQuarantined: false,
+        OR: [
+          { companyId },
+          {
+            companyId: null,
+            createdBy: {
+              companyMembers: {
+                some: { companyId },
+              },
+            },
           },
-        },
+        ],
       },
       select: { id: true, status: true },
     })

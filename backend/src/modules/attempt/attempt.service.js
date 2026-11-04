@@ -61,11 +61,29 @@ const {
 } = require("../../utils/app-error");
 const { sendEmail } = require("../../utils/email");
 const { buildCandidateOtpEmail, buildInvitationEmail } = require("./attempt.email");
+const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
 const { getCanonicalGameCode } = require("../game/game.constants");
 const {
   hashAttemptToken,
   validateAttemptTokenFormat,
 } = require("./attempt.security");
+
+/**
+ * Helper to resolve company ID unambiguously for a user without arbitrary findFirst guessing
+ */
+async function resolveUnambiguousCompanyId(userId, explicitCompanyId = null, client = prisma) {
+  if (explicitCompanyId) return explicitCompanyId;
+  if (!userId) return null;
+  const memberships = await client.companyMember.findMany({
+    where: { userId },
+    select: { companyId: true },
+    take: 2,
+  });
+  if (memberships.length === 1) {
+    return memberships[0].companyId;
+  }
+  return null;
+}
 
 /**
  * Helper to create standard AppError based on HTTP status code
@@ -170,6 +188,7 @@ const assertAttemptIdMatches = ({ resolvedAttemptId, requestedAttemptId }) => {
 const assertAssessmentResultAccess = async ({
   assessmentId,
   user,
+  companyId = null,
 }) => {
   if (!user) {
     throw createServiceError(
@@ -203,15 +222,84 @@ const assertAssessmentResultAccess = async ({
     );
   }
 
-  if (
-    user.role === "HR" &&
-    assessment.createdById !== user.id
-  ) {
+  // Quarantined assessments cannot be accessed by HR
+  if (assessment.isQuarantined && user.role !== "SUPER_ADMIN") {
     throw createServiceError(
       ATTEMPT_RESULT_ERROR_CODES.ACCESS_DENIED,
-      "You do not have access to this assessment.",
+      "Assessment is temporarily quarantined under administrative review.",
       403
     );
+  }
+
+  if (user.role === "HR") {
+    // 1. Direct creator access
+    if (assessment.createdById === user.id) {
+      if (companyId && assessment.companyId && assessment.companyId !== companyId) {
+        throw createServiceError(
+          ATTEMPT_RESULT_ERROR_CODES.ACCESS_DENIED,
+          "You do not have access to this assessment under the requested company.",
+          403
+        );
+      }
+      return assessment;
+    }
+
+    // 2. Company-level collaboration access
+    let hasCompanyAccess = false;
+    if (assessment.companyId) {
+      if (companyId && assessment.companyId !== companyId) {
+        throw createServiceError(
+          ATTEMPT_RESULT_ERROR_CODES.ACCESS_DENIED,
+          "You do not have access to this assessment under the requested company.",
+          403
+        );
+      }
+      const isUserMember = await prisma.companyMember.findUnique({
+        where: {
+          companyId_userId: {
+            companyId: assessment.companyId,
+            userId: user.id,
+          },
+        },
+      });
+      if (isUserMember) {
+        hasCompanyAccess = true;
+      }
+    } else {
+      // Legacy unclassified assessment: verify company membership alignment
+      const creatorCompanyIds = (assessment.createdBy?.companyMembers || []).map(
+        (cm) => cm.companyId
+      );
+
+      if (companyId) {
+        const isUserMember = await prisma.companyMember.findUnique({
+          where: {
+            companyId_userId: {
+              companyId,
+              userId: user.id,
+            },
+          },
+        });
+        if (isUserMember && creatorCompanyIds.includes(companyId)) {
+          hasCompanyAccess = true;
+        }
+      } else {
+        const userMemberships = await prisma.companyMember.findMany({
+          where: { userId: user.id },
+          select: { companyId: true },
+        });
+        const userCompanyIds = new Set(userMemberships.map((m) => m.companyId));
+        hasCompanyAccess = creatorCompanyIds.some((cid) => userCompanyIds.has(cid));
+      }
+    }
+
+    if (!hasCompanyAccess) {
+      throw createServiceError(
+        ATTEMPT_RESULT_ERROR_CODES.ACCESS_DENIED,
+        "You do not have access to this assessment.",
+        403
+      );
+    }
   }
 
   return assessment;
@@ -254,11 +342,7 @@ class AttemptService {
       }
 
       if (!companyId && assessment.createdById) {
-        const member = await prisma.companyMember.findFirst({
-          where: { userId: assessment.createdById },
-          select: { companyId: true },
-        });
-        companyId = member?.companyId || null;
+        companyId = await resolveUnambiguousCompanyId(assessment.createdById);
       }
 
       let configs = [];
@@ -408,13 +492,14 @@ class AttemptService {
       let targetCompanyId = companyId;
 
       if (!targetCompanyId && userId) {
-        const member = await tx.companyMember.findFirst({
-          where: { userId },
-          select: { companyId: true },
-        });
-        if (member?.companyId) {
-          targetCompanyId = member.companyId;
+        const resolved = await resolveUnambiguousCompanyId(userId, null, tx);
+        if (!resolved) {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required when user belongs to multiple companies.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
         }
+        targetCompanyId = resolved;
       }
 
       let candidateProfile = await tx.candidateProfile.findUnique({
@@ -486,6 +571,7 @@ class AttemptService {
     firstName,
     lastName,
     invitedByUserId,
+    companyId = null,
     expiresAt,
   }) {
     if (!assessmentId) {
@@ -524,6 +610,61 @@ class AttemptService {
         );
       }
 
+      if (assessment.isQuarantined) {
+        throw new ConflictError(
+          "Assessment is temporarily quarantined under administrative review.",
+          "ASSESSMENT_QUARANTINED"
+        );
+      }
+
+      // 1b. Tenant isolation: verify assessment belongs to the active company
+      if (!companyId) {
+        throw new BadRequestError(
+          "Active company context is required to create an invitation.",
+          "COMPANY_CONTEXT_REQUIRED"
+        );
+      }
+
+      if (assessment.companyId && assessment.companyId !== companyId) {
+        throw new NotFoundError(
+          "Assessment not found.",
+          INVITATION_ERROR_CODES.ASSESSMENT_NOT_FOUND
+        );
+      }
+
+      // Verify inviter is an active member of the active company
+      const inviterMember = await tx.companyMember.findUnique({
+        where: { companyId_userId: { companyId, userId: invitedByUserId } },
+      });
+      if (!inviterMember) {
+        throw new ForbiddenError(
+          "You do not have access to this company.",
+          "COMPANY_ACCESS_DENIED"
+        );
+      }
+
+      // Verify assessment creator belongs to the active company (never bypass merely because creator === caller)
+      const creatorMember = await tx.companyMember.findUnique({
+        where: { companyId_userId: { companyId, userId: assessment.createdById } },
+      });
+      if (!creatorMember) {
+        throw new NotFoundError(
+          "Assessment not found.",
+          INVITATION_ERROR_CODES.ASSESSMENT_NOT_FOUND
+        );
+      }
+
+      // If assessment has linked questions with an explicit companyId, verify no cross-tenant mismatch
+      const linkedQuestions = assessment.questions || [];
+      for (const item of linkedQuestions) {
+        if (item.question?.companyId && item.question.companyId !== companyId) {
+          throw new NotFoundError(
+            "Assessment not found.",
+            INVITATION_ERROR_CODES.ASSESSMENT_NOT_FOUND
+          );
+        }
+      }
+
       // 2. Archived assessment cannot receive invitations
       if (assessment.status === "ARCHIVED") {
         throw new ConflictError(
@@ -545,15 +686,16 @@ class AttemptService {
       let candidateProfile = null;
       const normalizedEmail = typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
 
-      let effectiveCompanyId = assessment.companyId || null;
+      let effectiveCompanyId = companyId || assessment.companyId || null;
       if (!effectiveCompanyId && invitedByUserId) {
-        const hrMember = await tx.companyMember.findFirst({
-          where: { userId: invitedByUserId },
-          select: { companyId: true },
-        });
-        if (hrMember?.companyId) {
-          effectiveCompanyId = hrMember.companyId;
+        const resolved = await resolveUnambiguousCompanyId(invitedByUserId, null, tx);
+        if (!resolved) {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required to issue invitations.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
         }
+        effectiveCompanyId = resolved;
       }
 
       if (candidateId || normalizedEmail) {
@@ -657,6 +799,7 @@ class AttemptService {
         email: candidateProfile.email,
         tokenHash,
         expiresAt: effectiveExpiresAt,
+        companyId: companyId || assessment.companyId || null,
       });
 
       const createdInvitation = await attemptRepository.createInvitation(
@@ -677,8 +820,31 @@ class AttemptService {
     });
 
     // 8. Automated Email Dispatch & sentAt Timestamp Update
-    const clientUrl = env.frontend.url;
-    const testLink = `${clientUrl}/take-test?token=${result.rawToken}`;
+    let hiringCompany = null;
+    const directCompanyId = result.assessment?.companyId;
+    if (directCompanyId) {
+      try {
+        hiringCompany = await prisma.company.findUnique({
+          where: { id: directCompanyId },
+          select: { id: true, name: true, slug: true, logoUrl: true, brandColor: true, brandTagline: true, showPoweredByHireQuest: true, customDomain: true, customDomainVerified: true },
+        });
+      } catch (_) {}
+    }
+
+    if (!hiringCompany && invitedByUserId) {
+      try {
+        const memberships = await prisma.companyMember.findMany({
+          where: { userId: invitedByUserId },
+          select: { company: { select: { id: true, name: true, slug: true, logoUrl: true, brandColor: true, brandTagline: true, showPoweredByHireQuest: true, customDomain: true, customDomainVerified: true } } },
+          take: 1,
+        });
+        if (memberships[0]?.company) {
+          hiringCompany = memberships[0].company;
+        }
+      } catch (_) {}
+    }
+
+    const testLink = buildCompanyTenantUrl(hiringCompany, "/take-test", { token: result.rawToken });
     let emailSent = false;
 
     // Resolve hiring company name dynamically for invitation email (Source of Truth: Assessment & Recruiter)
@@ -687,11 +853,14 @@ class AttemptService {
     // 1. Authoritative company from recruiter (invitedByUserId)
     if (invitedByUserId) {
       try {
-        const hrMember = await prisma.companyMember.findFirst({
+        const memberships = await prisma.companyMember.findMany({
           where: { userId: invitedByUserId },
           select: { company: { select: { name: true } } },
+          take: 2,
         });
-        invitationCompanyName = hrMember?.company?.name?.trim() || null;
+        if (memberships.length === 1 && memberships[0]?.company?.name) {
+          invitationCompanyName = memberships[0].company.name.trim();
+        }
       } catch (_) {}
     }
 
@@ -712,11 +881,14 @@ class AttemptService {
     // 3. Fallback to assessment creator's companyMember
     if (!invitationCompanyName && result.assessment?.createdById) {
       try {
-        const creatorMember = await prisma.companyMember.findFirst({
+        const creatorMembers = await prisma.companyMember.findMany({
           where: { userId: result.assessment.createdById },
           select: { company: { select: { name: true } } },
+          take: 2,
         });
-        invitationCompanyName = creatorMember?.company?.name?.trim() || null;
+        if (creatorMembers.length === 1 && creatorMembers[0]?.company?.name) {
+          invitationCompanyName = creatorMembers[0].company.name.trim();
+        }
       } catch (_) {}
     }
 
@@ -731,7 +903,7 @@ class AttemptService {
       } catch (_) {}
     }
 
-    const effectiveInvitationCompanyName = invitationCompanyName || "HireQuest";
+    const effectiveInvitationCompanyName = hiringCompany?.name || invitationCompanyName || "HireQuest";
     const candidateName = `${result.candidateProfile.firstName || ""} ${result.candidateProfile.lastName || ""}`.trim() || "Candidate";
     const recipientEmail = result.candidateProfile.email;
     const invitationId = result.invitation.id;
@@ -745,6 +917,7 @@ class AttemptService {
           testLink,
           expiresAt: result.effectiveExpiresAt,
           companyName: effectiveInvitationCompanyName,
+          company: hiringCompany,
         });
 
         await sendEmail({
@@ -790,6 +963,7 @@ class AttemptService {
     candidateIds,
     candidates,
     invitedByUserId,
+    companyId = null,
     expiresAt,
   }) {
     if (!assessmentId) {
@@ -925,12 +1099,19 @@ class AttemptService {
 
     const invitationExpiresAt = this.calculateInvitationExpiry(expiresAt);
 
+    if (!companyId) {
+      throw new BadRequestError(
+        "Active company context is required to create bulk invitations.",
+        "COMPANY_CONTEXT_REQUIRED"
+      );
+    }
+
     // 2. Fetch Assessment and HR Company in parallel (Zero redundant queries)
     const [assessment, hrMember] = await Promise.all([
-      assessmentRepository.findById(assessmentId, { detailed: false }),
+      assessmentRepository.findById(assessmentId, { detailed: true }),
       invitedByUserId
-        ? prisma.companyMember.findFirst({
-            where: { userId: invitedByUserId },
+        ? prisma.companyMember.findUnique({
+            where: { companyId_userId: { companyId, userId: invitedByUserId } },
             select: { companyId: true, company: { select: { name: true } } },
           })
         : null,
@@ -941,6 +1122,49 @@ class AttemptService {
         "Assessment not found.",
         INVITATION_ERROR_CODES.ASSESSMENT_NOT_FOUND
       );
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ConflictError(
+        "Assessment is temporarily quarantined under administrative review.",
+        "ASSESSMENT_QUARANTINED"
+      );
+    }
+
+    if (assessment.companyId && assessment.companyId !== companyId) {
+      throw new NotFoundError(
+        "Assessment not found.",
+        INVITATION_ERROR_CODES.ASSESSMENT_NOT_FOUND
+      );
+    }
+
+    if (!hrMember) {
+      throw new ForbiddenError(
+        "You do not have access to this company.",
+        "COMPANY_ACCESS_DENIED"
+      );
+    }
+
+    // 2b. Tenant isolation: verify assessment creator belongs to active company (never bypass merely because creator === caller)
+    const creatorMember = await prisma.companyMember.findUnique({
+      where: { companyId_userId: { companyId, userId: assessment.createdById } },
+    });
+    if (!creatorMember) {
+      throw new NotFoundError(
+        "Assessment not found.",
+        INVITATION_ERROR_CODES.ASSESSMENT_NOT_FOUND
+      );
+    }
+
+    // If assessment has linked questions with an explicit companyId, verify no cross-tenant mismatch
+    const linkedQuestions = assessment.questions || [];
+    for (const item of linkedQuestions) {
+      if (item.question?.companyId && item.question.companyId !== companyId) {
+        throw new NotFoundError(
+          "Assessment not found.",
+          INVITATION_ERROR_CODES.ASSESSMENT_NOT_FOUND
+        );
+      }
     }
 
     if (assessment.status === "ARCHIVED") {
@@ -960,16 +1184,19 @@ class AttemptService {
       } catch (_) {}
     }
 
-    let effectiveCompanyId = assessment.companyId || hrMember?.companyId || null;
+    let effectiveCompanyId = companyId || assessment.companyId || hrMember?.companyId || null;
     let effectiveBulkCompanyName = hrMember?.company?.name || null;
 
     if (!effectiveBulkCompanyName && assessment.createdById) {
       try {
-        const creatorMember = await prisma.companyMember.findFirst({
+        const creatorMembers = await prisma.companyMember.findMany({
           where: { userId: assessment.createdById },
           select: { company: { select: { name: true } } },
+          take: 2,
         });
-        effectiveBulkCompanyName = creatorMember?.company?.name || null;
+        if (creatorMembers.length === 1 && creatorMembers[0]?.company?.name) {
+          effectiveBulkCompanyName = creatorMembers[0].company.name;
+        }
       } catch (_) {}
     }
     if (!effectiveBulkCompanyName) {
@@ -1160,6 +1387,7 @@ class AttemptService {
         email: candidateProfile.email,
         tokenHash,
         expiresAt: invitationExpiresAt,
+        companyId: effectiveCompanyId,
       });
 
       invitationsToCreate.push({
@@ -1248,10 +1476,29 @@ class AttemptService {
     if (emailJobs.length > 0) {
       global.setImmediate(async () => {
         try {
-          const clientUrl = env.frontend.url;
+          let bulkCompany = null;
+          if (assessment?.companyId) {
+            try {
+              bulkCompany = await prisma.company.findUnique({
+                where: { id: assessment.companyId },
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                  logoUrl: true,
+                  brandColor: true,
+                  brandTagline: true,
+                  showPoweredByHireQuest: true,
+                  customDomain: true,
+                  customDomainVerified: true,
+                },
+              });
+            } catch (_) {}
+          }
+
           const sendSingleEmail = async (job) => {
             try {
-              const testLink = `${clientUrl}/take-test?token=${job.rawToken}`;
+              const testLink = buildCompanyTenantUrl(bulkCompany, "/take-test", { token: job.rawToken });
               const candidateObj = candidateMap.get(job.candidateId) || {};
               const candidateName = (candidateObj.name || "Candidate").trim();
 
@@ -1260,7 +1507,8 @@ class AttemptService {
                 assessmentTitle: assessment.title,
                 testLink,
                 expiresAt: job.expiresAt,
-                companyName: effectiveBulkCompanyName,
+                companyName: bulkCompany?.name || effectiveBulkCompanyName,
+                company: bulkCompany,
               });
 
               await sendEmail({
@@ -1352,6 +1600,13 @@ class AttemptService {
       throw new NotFoundError(
         "Assessment not found.",
         ATTEMPT_ERRORS.ASSESSMENT_NOT_FOUND
+      );
+    }
+
+    if (assessment.isQuarantined) {
+      throw new ConflictError(
+        "Assessment is temporarily unavailable under administrative review.",
+        "ASSESSMENT_QUARANTINED"
       );
     }
 
@@ -1534,6 +1789,7 @@ class AttemptService {
         attemptNumber,
         startedAt,
         expiresAt,
+        companyId: assessment.companyId || null,
       });
 
       // 9. Persist AssessmentAttempt Record
@@ -1766,6 +2022,7 @@ class AttemptService {
         attemptNumber,
         startedAt,
         expiresAt,
+        companyId: assessment.companyId || null,
       });
 
       // 11b. Persist candidate verification photo if provided (scoped by company)
@@ -2823,10 +3080,11 @@ class AttemptService {
    * Get Paginated Assessment Results for HR Dashboard
    * ------------------------------------------------------------
    */
-  async getAssessmentResults({ assessmentId, query, user }) {
+  async getAssessmentResults({ assessmentId, query, user, companyId = null }) {
     const assessment = await assertAssessmentResultAccess({
       assessmentId,
       user,
+      companyId,
     });
 
     const {
@@ -2940,10 +3198,11 @@ class AttemptService {
    * Get Assessment Analytics for HR Dashboard
    * ------------------------------------------------------------
    */
-  async getAssessmentAnalytics({ assessmentId, user }) {
+  async getAssessmentAnalytics({ assessmentId, user, companyId = null }) {
     const assessment = await assertAssessmentResultAccess({
       assessmentId,
       user,
+      companyId,
     });
 
     const baseWhere = {
@@ -2989,10 +3248,11 @@ class AttemptService {
    * Get Detailed Candidate Attempt Result for HR
    * ------------------------------------------------------------
    */
-  async getAttemptResultDetail({ assessmentId, attemptId, user }) {
+  async getAttemptResultDetail({ assessmentId, attemptId, user, companyId = null }) {
     await assertAssessmentResultAccess({
       assessmentId,
       user,
+      companyId,
     });
 
     const attempt = await attemptRepository.findAttemptResultDetail({
@@ -3132,12 +3392,13 @@ class AttemptService {
     // B. Direct DB lookup for assessment creator's companyMember
     if (!otpCompanyName && invitation.assessment?.createdById) {
       try {
-        const creatorMember = await dbClient.companyMember.findFirst({
+        const creatorMembers = await dbClient.companyMember.findMany({
           where: { userId: invitation.assessment.createdById },
           select: { company: { select: { name: true } } },
+          take: 2,
         });
-        if (creatorMember?.company?.name) {
-          otpCompanyName = creatorMember.company.name.trim();
+        if (creatorMembers.length === 1 && creatorMembers[0]?.company?.name) {
+          otpCompanyName = creatorMembers[0].company.name.trim();
         }
       } catch (_) {}
     }
@@ -3164,12 +3425,13 @@ class AttemptService {
         if (assmtCompName && assmtCompName.trim()) {
           otpCompanyName = assmtCompName.trim();
         } else if (assmt?.createdById) {
-          const creatorMember = await dbClient.companyMember.findFirst({
+          const creatorMembers = await dbClient.companyMember.findMany({
             where: { userId: assmt.createdById },
             select: { company: { select: { name: true } } },
+            take: 2,
           });
-          if (creatorMember?.company?.name) {
-            otpCompanyName = creatorMember.company.name.trim();
+          if (creatorMembers.length === 1 && creatorMembers[0]?.company?.name) {
+            otpCompanyName = creatorMembers[0].company.name.trim();
           }
         }
       } catch (_) {}
@@ -3241,15 +3503,36 @@ class AttemptService {
 
     const effectiveCandidateName = candidateName && candidateName.trim() ? candidateName.trim() : "Candidate";
 
-    // 7. Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
+    // 7. Resolve Company Branding for OTP Email
+    let otpCompany = null;
+    const resolvedCompanyId = invitation.companyId || invitation.assessment?.companyId;
+    if (resolvedCompanyId) {
+      try {
+        otpCompany = await dbClient.company.findUnique({
+          where: { id: resolvedCompanyId },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            logoUrl: true,
+            brandColor: true,
+            brandTagline: true,
+            showPoweredByHireQuest: true,
+          },
+        });
+      } catch (_) {}
+    }
+
+    // Queue OTP email asynchronously via Outbox (or mock emailService if provided for testing)
     try {
       if (emailService && typeof emailService.sendCandidateOtp === "function") {
         await emailService.sendCandidateOtp({
           email: normalizedEmail,
           otp,
           expiresAt,
-          companyName: effectiveOtpCompanyName,
+          companyName: otpCompany?.name || effectiveOtpCompanyName,
           candidateName: effectiveCandidateName,
+          company: otpCompany,
         });
       } else {
         await createOutboxEvent(
@@ -3260,8 +3543,9 @@ class AttemptService {
               email: normalizedEmail,
               otp,
               expiresAt: expiresAt.toISOString(),
-              companyName: effectiveOtpCompanyName,
+              companyName: otpCompany?.name || effectiveOtpCompanyName,
               candidateName: effectiveCandidateName,
+              company: otpCompany,
             },
           },
           tx
@@ -4443,7 +4727,6 @@ class AttemptService {
   /**
    * HR Attempt Results List Workflow (Paginated + Scoped)
    */
-
   /**
    * Dedicated HR Invitations List (from Invitation table)
    */
@@ -4536,7 +4819,10 @@ class AttemptService {
     };
   }
 
-  async getHRAttemptResults({ query = {}, user }) {
+  /**
+   * HR Attempt Results List Workflow (Paginated + Scoped)
+   */
+  async getHRAttemptResults({ query = {}, user, companyId = null }) {
     if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
       throw new ForbiddenError(
         "You do not have permission to access HR assessment results.",
@@ -4550,19 +4836,66 @@ class AttemptService {
     const skip = (page - 1) * limit;
 
     const where = {};
+    // Never include quarantined assessments in HR lists
+    where.assessment = {
+      isQuarantined: false,
+    };
+
+    let targetCompanyId = companyId;
     if (user.role === "HR") {
-      const userMember = await prisma.companyMember.findFirst({
-        where: { userId: user.id },
-        select: { companyId: true },
-      });
-      if (userMember?.companyId) {
-        where.assessment = {
-          createdBy: {
-            companyMembers: {
-              some: { companyId: userMember.companyId },
-            },
+      if (targetCompanyId) {
+        const member = await prisma.companyMember.findUnique({
+          where: { companyId_userId: { companyId: targetCompanyId, userId: user.id } },
+          select: { companyId: true },
+        });
+        if (!member) {
+          throw new ForbiddenError(
+            "You do not have permission to access HR assessment results for this company.",
+            "ACCESS_DENIED"
+          );
+        }
+      } else {
+        const memberships = await prisma.companyMember.findMany({
+          where: { userId: user.id },
+          select: { companyId: true },
+          take: 2,
+        });
+        if (memberships.length === 1) {
+          targetCompanyId = memberships[0].companyId;
+        } else {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required to access HR assessment results.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
+        }
+      }
+
+      if (targetCompanyId) {
+        where.AND = [
+          {
+            OR: [
+              { companyId: targetCompanyId },
+              {
+                companyId: null,
+                assessment: {
+                  OR: [
+                    { companyId: targetCompanyId },
+                    {
+                      companyId: null,
+                      createdBy: {
+                        companyMembers: {
+                          some: { companyId: targetCompanyId },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
           },
-        };
+        ];
+      } else {
+        where.assessment.createdById = user.id;
       }
     }
     if (status) {
@@ -4589,7 +4922,7 @@ class AttemptService {
       [allowedSortFields[sortBy] || "startedAt"]: sortOrder === "asc" ? "asc" : "desc",
     };
 
-    const cacheKey = `${user.id}:${page}:${limit}:${status || ""}:${search || ""}:${sortBy}:${sortOrder}`;
+    const cacheKey = `${user.id}:${targetCompanyId || "all"}:${page}:${limit}:${status || ""}:${search || ""}:${sortBy}:${sortOrder}`;
     const cached = hrResultsCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.data;
@@ -4628,24 +4961,31 @@ class AttemptService {
     let targetCompanyId = companyId;
 
     if (user.role !== "SUPER_ADMIN" && user?.id) {
-      const member = await prisma.companyMember.findFirst({
-        where: { userId: user.id },
-        select: { companyId: true },
-      });
-      
-      if (member?.companyId) {
-        if (targetCompanyId && targetCompanyId !== member.companyId) {
+      if (targetCompanyId) {
+        const member = await prisma.companyMember.findUnique({
+          where: { companyId_userId: { companyId: targetCompanyId, userId: user.id } },
+          select: { companyId: true },
+        });
+        if (!member) {
           throw new ForbiddenError(
             "You do not have permission to access candidates for this company.",
             "ACCESS_DENIED"
           );
         }
-        targetCompanyId = member.companyId;
-      } else if (targetCompanyId) {
-        throw new ForbiddenError(
-          "You do not have permission to access candidates for this company.",
-          "ACCESS_DENIED"
-        );
+      } else {
+        const memberships = await prisma.companyMember.findMany({
+          where: { userId: user.id },
+          select: { companyId: true },
+          take: 2,
+        });
+        if (memberships.length === 1) {
+          targetCompanyId = memberships[0].companyId;
+        } else {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required to access candidates.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
+        }
       }
     }
 
@@ -4782,12 +5122,70 @@ class AttemptService {
   /**
    * HR Assessment Real-Time Analytics Dashboard Workflow
    */
-  async getAssessmentDashboard({ assessmentId, query = {}, user }) {
+  async getAssessmentDashboard({ assessmentId, query = {}, user, companyId = null }) {
     if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
       throw new ForbiddenError(
         "You do not have permission to access assessment analytics.",
         "ACCESS_DENIED"
       );
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: {
+        id: true,
+        companyId: true,
+        isQuarantined: true,
+        createdById: true,
+      },
+    });
+
+    if (!assessment) {
+      throw new NotFoundError(
+        "Assessment not found.",
+        "ASSESSMENT_NOT_FOUND"
+      );
+    }
+
+    if (assessment.isQuarantined && user.role !== "SUPER_ADMIN") {
+      throw new ForbiddenError(
+        "Assessment is temporarily quarantined under administrative review.",
+        "ASSESSMENT_QUARANTINED"
+      );
+    }
+
+    if (user.role !== "SUPER_ADMIN") {
+      if (assessment.companyId) {
+        if (!companyId || assessment.companyId !== companyId) {
+          throw new ForbiddenError(
+            "You do not have permission to access assessment analytics under the requested company.",
+            "ACCESS_DENIED"
+          );
+        }
+      } else {
+        if (!companyId) {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required to access assessment analytics.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
+        }
+        if (assessment.createdById) {
+          const creatorMember = await prisma.companyMember.findUnique({
+            where: {
+              companyId_userId: {
+                companyId,
+                userId: assessment.createdById,
+              },
+            },
+          });
+          if (!creatorMember) {
+            throw new ForbiddenError(
+              "You do not have permission to access legacy assessment analytics.",
+              "ACCESS_DENIED"
+            );
+          }
+        }
+      }
     }
 
     const analytics = await attemptRepository.getAssessmentAnalytics({
@@ -4823,7 +5221,7 @@ class AttemptService {
   /**
    * HR Attempt Detail Review Workflow
    */
-  async getHRAttemptDetail({ attemptId, user }) {
+  async getHRAttemptDetail({ attemptId, user, companyId = null }) {
     if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "HR")) {
       throw new ForbiddenError(
         "You do not have permission to access attempt details.",
@@ -4839,17 +5237,44 @@ class AttemptService {
       );
     }
 
-    if (user?.role === "HR" && attempt.assessment?.createdById) {
-      if (user.id !== attempt.assessment.createdById) {
-        const [userMember, creatorMember] = await Promise.all([
-          prisma.companyMember.findFirst({ where: { userId: user.id }, select: { companyId: true } }),
-          prisma.companyMember.findFirst({ where: { userId: attempt.assessment.createdById }, select: { companyId: true } }),
-        ]);
-        if (!userMember?.companyId || !creatorMember?.companyId || userMember.companyId !== creatorMember.companyId) {
+    if (attempt.assessment?.isQuarantined && user.role !== "SUPER_ADMIN") {
+      throw new ForbiddenError(
+        "Assessment is temporarily quarantined under administrative review.",
+        "ASSESSMENT_QUARANTINED"
+      );
+    }
+
+    if (user.role !== "SUPER_ADMIN") {
+      const assessmentCompanyId = attempt.companyId || attempt.assessment?.companyId;
+      if (assessmentCompanyId) {
+        if (!companyId || assessmentCompanyId !== companyId) {
           throw new ForbiddenError(
-            "You do not have permission to access this assessment attempt.",
+            "You do not have permission to access this assessment attempt under the requested company.",
             "ACCESS_DENIED"
           );
+        }
+      } else {
+        if (!companyId) {
+          throw new BadRequestError(
+            "Active company context (X-Company-Id header) is required to access attempt details.",
+            "COMPANY_CONTEXT_REQUIRED"
+          );
+        }
+        if (attempt.assessment?.createdById) {
+          const creatorMember = await prisma.companyMember.findUnique({
+            where: {
+              companyId_userId: {
+                companyId,
+                userId: attempt.assessment.createdById,
+              },
+            },
+          });
+          if (!creatorMember) {
+            throw new ForbiddenError(
+              "You do not have permission to access this legacy assessment attempt.",
+              "ACCESS_DENIED"
+            );
+          }
         }
       }
     }
@@ -5272,8 +5697,8 @@ class AttemptService {
       <h1>${companyName}</h1>
       <p>Next Round Interview Invitation</p>
       ${isOnline
-        ? `<div class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid #3b82f6; color: #60a5fa;">💻 Online Virtual Interview</div>`
-        : `<div class="badge" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399;">🏢 In-Person Offline Interview</div>`
+        ? `<div class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid #3b82f6; color: #60a5fa;">ðŸ’» Online Virtual Interview</div>`
+        : `<div class="badge" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399;">ðŸ¢ In-Person Offline Interview</div>`
       }
     </div>
     <div class="content">
@@ -5282,10 +5707,10 @@ class AttemptService {
       <p>Based on your excellent performance, you have been shortlisted for the next stage at <strong>${companyName}</strong>: <strong>${roundName}</strong>.</p>
       
       <div class="highlight-box">
-        <p style="margin: 0 0 10px; font-weight: 800; color: #0f172a; font-size: 14px;">📅 Interview Schedule Details:</p>
+        <p style="margin: 0 0 10px; font-weight: 800; color: #0f172a; font-size: 14px;">ðŸ“… Interview Schedule Details:</p>
         <p style="margin: 4px 0;"><strong>Company:</strong> ${companyName}</p>
         <p style="margin: 4px 0;"><strong>Round:</strong> ${roundName}</p>
-        <p style="margin: 4px 0;"><strong>Interview Mode:</strong> ${isOnline ? '<strong style="color: #2563eb;">💻 Online (Virtual Video Meeting)</strong>' : '<strong style="color: #059669;">🏢 Offline (In-Person at Company Office)</strong>'}</p>
+        <p style="margin: 4px 0;"><strong>Interview Mode:</strong> ${isOnline ? '<strong style="color: #2563eb;">ðŸ’» Online (Virtual Video Meeting)</strong>' : '<strong style="color: #059669;">ðŸ¢ Offline (In-Person at Company Office)</strong>'}</p>
         <p style="margin: 4px 0;"><strong>Date & Time:</strong> ${formattedDate}</p>
         ${isOnline && cleanMeetingLink ? `<p style="margin: 4px 0;"><strong>Meeting Platform / Link:</strong> <a href="${cleanMeetingLink}" target="_blank" style="color: #2563eb; font-weight: 700;">${cleanMeetingLink}</a></p>` : ""}
         ${!isOnline ? `<p style="margin: 4px 0;"><strong>Office Venue / Address:</strong> <span style="color: #0f172a; font-weight: 700;">${effectiveOfficeAddress}</span></p>` : ""}
@@ -5293,7 +5718,7 @@ class AttemptService {
 
       ${isOnline ? `
       <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #1e40af; margin: 18px 0;">
-        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">💻 Online Interview Guidelines:</p>
+        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">ðŸ’» Online Interview Guidelines:</p>
         <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
           <li>This is an online video interview. Please ensure you have a quiet environment and a stable internet connection.</li>
           <li>Ensure your webcam and microphone are working properly before joining.</li>
@@ -5305,7 +5730,7 @@ class AttemptService {
         <a href="${cleanMeetingLink}" class="btn" target="_blank">Join Interview Meeting</a>
       </div>` : ""}` : `
       <div style="background: #f0fdf4; border-left: 4px solid #10b981; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #065f46; margin: 18px 0;">
-        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">🏢 In-Person Offline Interview Instructions:</p>
+        <p style="margin: 0 0 6px; font-weight: 800; font-size: 13px;">ðŸ¢ In-Person Offline Interview Instructions:</p>
         <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
           <li>This is an <strong>in-person offline interview</strong> at our company office.</li>
           <li><strong>Reporting Venue:</strong> ${effectiveOfficeAddress}</li>

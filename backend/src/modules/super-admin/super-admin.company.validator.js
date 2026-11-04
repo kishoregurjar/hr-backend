@@ -2,6 +2,7 @@
 
 const { z } = require("zod");
 const { SUPER_ADMIN_COMPANY_CONSTANTS } = require("./super-admin.company.constants");
+const { normalizeDomainString } = require("../../utils/tenant-url");
 
 const createSuperAdminCompanySchema = z.object({
   companyName: z
@@ -37,6 +38,18 @@ const createSuperAdminCompanySchema = z.object({
         .max(SUPER_ADMIN_COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
         .nullable()
         .optional()
+    ),
+
+  domain: z
+    .preprocess(
+      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : normalizeDomainString(val)),
+      z.string().max(255).nullable().optional()
+    ),
+
+  customDomain: z
+    .preprocess(
+      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : normalizeDomainString(val)),
+      z.string().max(255).nullable().optional()
     ),
 
   industry: z

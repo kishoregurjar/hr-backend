@@ -24,6 +24,9 @@ async function findAssessmentById(assessmentId) {
           maximumScore: true,
           durationMinutes: true,
           status: true,
+          companyId: true,
+          isQuarantined: true,
+          createdById: true,
           createdAt: true,
         },
       });

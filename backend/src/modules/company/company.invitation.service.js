@@ -250,11 +250,18 @@ const createInvitation = async (
         }
       }
 
-      const frontendUrl = env.frontend.url;
+      let company = null;
+      try {
+        company = await tx.company.findUnique({
+          where: { id: companyId },
+          select: { id: true, name: true, slug: true, customDomain: true, customDomainVerified: true },
+        });
+      } catch (_) {}
 
-      const invitationUrl = `${frontendUrl}/accept-invitation?invitation=${invitation.id}&token=${encodeURIComponent(
-        rawToken
-      )}`;
+      const invitationUrl = buildCompanyTenantUrl(company, "/accept-invitation", {
+        invitation: invitation.id,
+        token: rawToken,
+      });
 
       const emailDelivery = await createEmailDelivery(
         {
