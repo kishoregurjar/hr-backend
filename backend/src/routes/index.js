@@ -19,6 +19,7 @@ const superAdminRoutes = require("../modules/super-admin");
 const { supportRoutes } = require("../modules/support");
 const { publicContactRoutes } = require("../modules/public-contact");
 const { notificationRoutes } = require("../modules/notification");
+const { aiRoutes } = require("../modules/ai");
 
 const router = express.Router();
 
@@ -142,5 +143,10 @@ router.use("/contact", publicContactRoutes);
  * Notification System Routes (/api/v1/notifications)
  */
 router.use("/notifications", notificationRoutes);
+
+/**
+ * AI Copilot & Recruitment Intelligence Routes (/api/v1/ai)
+ */
+router.use("/ai", aiRoutes);
 
 module.exports = router;

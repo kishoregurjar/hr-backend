@@ -1768,12 +1768,22 @@ class AttemptService {
         expiresAt,
       });
 
-      // 11b. Persist candidate verification photo if provided
+      // 11b. Persist candidate verification photo if provided (scoped by company)
       if (verificationPhoto && candidate?.id) {
         try {
+          const attemptCompanyId = invitation.companyId || assessment.companyId || null;
           const existingMeta = typeof candidate.metadata === "object" && candidate.metadata ? candidate.metadata : {};
+          const companyPhotos = existingMeta.companyPhotos && typeof existingMeta.companyPhotos === "object" ? { ...existingMeta.companyPhotos } : {};
+          if (attemptCompanyId) {
+            companyPhotos[attemptCompanyId] = {
+              verificationPhoto,
+              photoCapturedAt: photoCapturedAt || now.toISOString(),
+              assessmentId: assessment.id,
+            };
+          }
           const updatedMeta = {
             ...existingMeta,
+            companyPhotos,
             verificationPhoto,
             photoCapturedAt: photoCapturedAt || now.toISOString(),
           };
@@ -4735,8 +4745,13 @@ class AttemptService {
         resumeUrl,
         resumeFileName,
         metadata: item.metadata || null,
-        verificationPhoto: item.metadata?.verificationPhoto || null,
-        photoCapturedAt: item.metadata?.photoCapturedAt || null,
+        verificationPhoto: (() => {
+          if (!latestAttempt) return null;
+          if (targetCompanyId && item.metadata?.companyPhotos?.[targetCompanyId]?.verificationPhoto) return item.metadata.companyPhotos[targetCompanyId].verificationPhoto;
+          if (item.metadata?.verificationPhoto) return item.metadata.verificationPhoto;
+          return null;
+        })(),
+        photoCapturedAt: latestAttempt ? (item.metadata?.companyPhotos?.[targetCompanyId]?.photoCapturedAt || item.metadata?.photoCapturedAt || null) : null,
         addedDate: item.createdAt,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
