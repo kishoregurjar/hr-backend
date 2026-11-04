@@ -178,6 +178,18 @@ const findCompanyById = async (companyId, tx = prisma) => {
           },
         },
       },
+      invitations: {
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          status: true,
+          expiresAt: true,
+          createdAt: true,
+        },
+      },
       _count: {
         select: {
           members: true,
