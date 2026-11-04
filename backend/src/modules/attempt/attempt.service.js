@@ -1962,7 +1962,16 @@ class AttemptService {
       if (existingActiveAttempt) {
         if (verificationPhoto && candidate?.id) {
           try {
-            const existingMeta = typeof candidate.metadata === "object" && candidate.metadata ? candidate.metadata : {};
+            const freshCand = await tx.candidateProfile.findUnique({
+              where: { id: candidate.id },
+              select: { metadata: true },
+            });
+            const existingMeta =
+              freshCand?.metadata && typeof freshCand.metadata === "object"
+                ? freshCand.metadata
+                : typeof candidate.metadata === "object" && candidate.metadata
+                ? candidate.metadata
+                : {};
             const updatedMeta = {
               ...existingMeta,
               verificationPhoto,
@@ -2028,7 +2037,16 @@ class AttemptService {
       // 11b. Persist candidate verification photo if provided
       if (verificationPhoto && candidate?.id) {
         try {
-          const existingMeta = typeof candidate.metadata === "object" && candidate.metadata ? candidate.metadata : {};
+          const freshCand = await tx.candidateProfile.findUnique({
+            where: { id: candidate.id },
+            select: { metadata: true },
+          });
+          const existingMeta =
+            freshCand?.metadata && typeof freshCand.metadata === "object"
+              ? freshCand.metadata
+              : typeof candidate.metadata === "object" && candidate.metadata
+              ? candidate.metadata
+              : {};
           const updatedMeta = {
             ...existingMeta,
             verificationPhoto,
