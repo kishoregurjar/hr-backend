@@ -125,6 +125,14 @@ const mapCompanyDetail = (company) => {
         createdAt: member.user.createdAt,
       },
     })),
+    invitations: (company.invitations || []).map((inv) => ({
+      id: inv.id,
+      email: inv.email,
+      role: inv.role,
+      status: inv.status,
+      expiresAt: inv.expiresAt,
+      createdAt: inv.createdAt,
+    })),
     statistics: {
       memberCount: company._count?.members || 0,
       jobCount: company._count?.jobs || 0,

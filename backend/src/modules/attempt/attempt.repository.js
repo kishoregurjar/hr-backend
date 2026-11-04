@@ -1034,6 +1034,7 @@ class AttemptRepository {
               email: true,
               firstName: true,
               lastName: true,
+              metadata: true,
             },
           },
         },
@@ -1104,6 +1105,7 @@ class AttemptRepository {
             email: true,
             firstName: true,
             lastName: true,
+            metadata: true,
             company: {
               select: {
                 id: true,
@@ -1170,6 +1172,7 @@ class AttemptRepository {
             email: true,
             firstName: true,
             lastName: true,
+            metadata: true,
           },
         },
       },
@@ -1224,6 +1227,7 @@ class AttemptRepository {
             email: true,
             firstName: true,
             lastName: true,
+            metadata: true,
           },
         },
       },

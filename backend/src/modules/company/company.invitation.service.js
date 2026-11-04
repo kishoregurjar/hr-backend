@@ -5,6 +5,7 @@ const env = require("../../config/env");
 const { prisma } = require("../../config/prisma");
 const { runSerializableTransaction } = require("../../utils/prisma-transaction");
 const { encryptToken } = require("../../utils/token-crypto");
+const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
 
 const companyRepository = require("./company.repository");
 const companyInvitationRepository = require("./company.invitation.repository");
