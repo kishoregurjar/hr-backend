@@ -17,21 +17,51 @@ const findCompanyById = async (companyId, tx = prisma) => {
 };
 
 const findCompanyBySlug = async (slugOrDomain, tx = prisma) => {
+  if (!slugOrDomain || typeof slugOrDomain !== "string") return null;
+  const cleanTerm = slugOrDomain.trim().toLowerCase();
+  const isProduction = process.env.NODE_ENV === "production";
+
+  // 1. Lookup by company slug
   const comp = await tx.company.findUnique({
     where: {
-      slug: slugOrDomain,
+      slug: cleanTerm,
     },
   });
   if (comp) return comp;
 
-  return tx.company.findFirst({
+  // 2. Lookup by exact customDomain
+  const domainComp = await tx.company.findFirst({
     where: {
       customDomain: {
-        equals: slugOrDomain,
+        equals: cleanTerm,
         mode: "insensitive",
       },
     },
   });
+
+  if (domainComp) {
+    // In production, unverified custom domains cannot be resolved by custom domain
+    if (isProduction && domainComp.customDomainVerified !== true) {
+      return null;
+    }
+    return domainComp;
+  }
+
+  // 3. Local Development Simulation:
+  // e.g. "facebookcompany" matching "facebookcompany.com" from "facebookcompany.localhost:3000"
+  if (!isProduction && !cleanTerm.includes(".")) {
+    const simComp = await tx.company.findFirst({
+      where: {
+        customDomain: {
+          startsWith: `${cleanTerm}.`,
+          mode: "insensitive",
+        },
+      },
+    });
+    if (simComp) return simComp;
+  }
+
+  return null;
 };
 
 const updateCompanyById = async (companyId, data, tx = prisma) => {

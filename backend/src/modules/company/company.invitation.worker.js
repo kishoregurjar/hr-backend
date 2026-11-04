@@ -235,13 +235,14 @@ const processOwnerActivationEmail = async (message) => {
   await markEmailProcessing(delivery.id, attempts);
 
   try {
-    const company = activation.user.companyMembers?.[0]?.company;
-    const rawToken = decryptToken(activation.encryptedToken);
-    const activationUrl = buildOwnerActivationUrl(rawToken, company);
-
     const userRole = String(activation.user?.role || "").toUpperCase();
     const isPlatformAdmin =
       userRole === "SUPER_ADMIN" || userRole === "PLATFORM_ADMIN";
+
+    // Platform Super Admin / Platform Admin must ALWAYS use the platform root URL, not a company domain
+    const company = isPlatformAdmin ? null : activation.user.companyMembers?.[0]?.company;
+    const rawToken = decryptToken(activation.encryptedToken);
+    const activationUrl = buildOwnerActivationUrl(rawToken, company);
 
     let subject, html;
 

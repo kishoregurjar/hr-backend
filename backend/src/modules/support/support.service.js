@@ -1,5 +1,7 @@
 "use strict";
 
+const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
+
 const supportRepository = require("./support.repository");
 const { SUPPORT_CONSTANTS } = require("./support.constants");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../../common/errors");

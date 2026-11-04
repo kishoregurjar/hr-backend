@@ -4,96 +4,143 @@ const { z } = require("zod");
 const { SUPER_ADMIN_COMPANY_CONSTANTS } = require("./super-admin.company.constants");
 const { normalizeDomainString } = require("../../utils/tenant-url");
 
-const createSuperAdminCompanySchema = z.object({
-  companyName: z
-    .string()
-    .trim()
-    .min(SUPER_ADMIN_COMPANY_CONSTANTS.NAME.MIN_LENGTH)
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.NAME.MAX_LENGTH),
+const RESERVED_DOMAINS = [
+  "hirequest.com",
+  "app.hirequest.com",
+  "admin.hirequest.com",
+  "api.hirequest.com",
+  "staging.hirequest.com",
+  "localhost",
+  "127.0.0.1",
+];
 
-  ownerName: z
-    .preprocess(
-      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : val.trim()),
-      z
-        .string()
-        .min(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MIN_LENGTH)
-        .max(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MAX_LENGTH)
-        .nullable()
-        .optional()
-    ),
+const createSuperAdminCompanySchema = z
+  .object({
+    companyName: z
+      .string()
+      .trim()
+      .min(SUPER_ADMIN_COMPANY_CONSTANTS.NAME.MIN_LENGTH)
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.NAME.MAX_LENGTH),
 
-  ownerEmail: z
-    .string()
-    .trim()
-    .email()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_EMAIL.MAX_LENGTH)
-    .transform((value) => value.toLowerCase()),
+    ownerName: z
+      .preprocess(
+        (val) => (!val || (typeof val === "string" && !val.trim()) ? null : val.trim()),
+        z
+          .string()
+          .min(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MIN_LENGTH)
+          .max(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_NAME.MAX_LENGTH)
+          .nullable()
+          .optional()
+      ),
 
-  website: z
-    .preprocess(
-      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : val.trim()),
-      z
-        .string()
-        .url()
-        .max(SUPER_ADMIN_COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
-        .nullable()
-        .optional()
-    ),
+    ownerEmail: z
+      .string()
+      .trim()
+      .email()
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.OWNER_EMAIL.MAX_LENGTH)
+      .transform((value) => value.toLowerCase()),
 
-  domain: z
-    .preprocess(
-      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : normalizeDomainString(val)),
-      z.string().max(255).nullable().optional()
-    ),
+    domainMode: z
+      .enum(["SUBDOMAIN", "CUSTOM_DOMAIN"])
+      .default("SUBDOMAIN")
+      .optional(),
 
-  customDomain: z
-    .preprocess(
-      (val) => (!val || (typeof val === "string" && !val.trim()) ? null : normalizeDomainString(val)),
-      z.string().max(255).nullable().optional()
-    ),
+    website: z
+      .preprocess(
+        (val) => (!val || (typeof val === "string" && !val.trim()) ? null : val.trim()),
+        z
+          .string()
+          .url()
+          .max(SUPER_ADMIN_COMPANY_CONSTANTS.WEBSITE.MAX_LENGTH)
+          .nullable()
+          .optional()
+      ),
 
-  industry: z
-    .string()
-    .trim()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.INDUSTRY.MAX_LENGTH)
-    .optional()
-    .nullable(),
+    domain: z
+      .preprocess(
+        (val) => (!val || (typeof val === "string" && !val.trim()) ? null : normalizeDomainString(val)),
+        z.string().max(255).nullable().optional()
+      ),
 
-  description: z
-    .string()
-    .trim()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.DESCRIPTION.MAX_LENGTH)
-    .optional()
-    .nullable(),
+    customDomain: z
+      .preprocess(
+        (val) => (!val || (typeof val === "string" && !val.trim()) ? null : normalizeDomainString(val)),
+        z.string().max(255).nullable().optional()
+      ),
 
-  phone: z
-    .string()
-    .trim()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.PHONE.MAX_LENGTH)
-    .optional()
-    .nullable(),
+    industry: z
+      .string()
+      .trim()
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.INDUSTRY.MAX_LENGTH)
+      .optional()
+      .nullable(),
 
-  address: z
-    .string()
-    .trim()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.ADDRESS.MAX_LENGTH)
-    .optional()
-    .nullable(),
+    description: z
+      .string()
+      .trim()
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.DESCRIPTION.MAX_LENGTH)
+      .optional()
+      .nullable(),
 
-  city: z
-    .string()
-    .trim()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.CITY.MAX_LENGTH)
-    .optional()
-    .nullable(),
+    phone: z
+      .string()
+      .trim()
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.PHONE.MAX_LENGTH)
+      .optional()
+      .nullable(),
 
-  country: z
-    .string()
-    .trim()
-    .max(SUPER_ADMIN_COMPANY_CONSTANTS.COUNTRY.MAX_LENGTH)
-    .optional()
-    .nullable(),
-});
+    address: z
+      .string()
+      .trim()
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.ADDRESS.MAX_LENGTH)
+      .optional()
+      .nullable(),
+
+    city: z
+      .string()
+      .trim()
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.CITY.MAX_LENGTH)
+      .optional()
+      .nullable(),
+
+    country: z
+      .string()
+      .trim()
+      .max(SUPER_ADMIN_COMPANY_CONSTANTS.COUNTRY.MAX_LENGTH)
+      .optional()
+      .nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.domainMode === "CUSTOM_DOMAIN") {
+      const candidateDomain = data.customDomain || data.domain;
+      if (!candidateDomain) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["customDomain"],
+          message: "Custom domain is required when Domain Mode is set to Custom Domain.",
+        });
+        return;
+      }
+
+      const domainLower = candidateDomain.toLowerCase();
+      if (!domainLower.includes(".") || domainLower.startsWith(".") || domainLower.endsWith(".")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["customDomain"],
+          message: "Please enter a valid fully-qualified domain name (e.g. company.com).",
+        });
+        return;
+      }
+
+      if (RESERVED_DOMAINS.includes(domainLower) || domainLower.endsWith(".hirequest.com")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["customDomain"],
+          message: "This domain name is reserved and cannot be assigned as a custom domain.",
+        });
+      }
+    }
+  });
 
 const listCompaniesSchema = z.object({
   page: z.coerce

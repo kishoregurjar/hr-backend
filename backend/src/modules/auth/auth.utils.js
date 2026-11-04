@@ -48,15 +48,19 @@ const JWT_OPTIONS = Object.freeze({
   audience: env.app.name || "HireQuest",
 });
 
-const generateAccessToken = (user) => {
+const generateAccessToken = (user, companyId = null) => {
+  const payload = {
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    tokenVersion: user.tokenVersion ?? 0,
+    type: TOKEN_TYPES.ACCESS,
+  };
+  if (companyId) {
+    payload.companyId = companyId;
+  }
   return jwt.sign(
-    {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      tokenVersion: user.tokenVersion ?? 0,
-      type: TOKEN_TYPES.ACCESS,
-    },
+    payload,
     env.jwt.accessSecret,
     {
       expiresIn: env.jwt.accessExpiresIn,
@@ -67,13 +71,17 @@ const generateAccessToken = (user) => {
   );
 };
 
-const generateRefreshToken = (user) => {
+const generateRefreshToken = (user, companyId = null) => {
+  const payload = {
+    sub: user.id,
+    tokenVersion: user.tokenVersion ?? 0,
+    type: TOKEN_TYPES.REFRESH,
+  };
+  if (companyId) {
+    payload.companyId = companyId;
+  }
   return jwt.sign(
-    {
-      sub: user.id,
-      tokenVersion: user.tokenVersion ?? 0,
-      type: TOKEN_TYPES.REFRESH,
-    },
+    payload,
     env.jwt.refreshSecret,
     {
       expiresIn: env.jwt.refreshExpiresIn,

@@ -45,6 +45,7 @@ router.post(
   controller.activateOwner
 );
 router.get("/owner/activate/verify", controller.verifyOwnerActivation);
+router.post("/exchange-ticket/consume", controller.consumeExchangeTicket);
 
 // Protected Routes
 router.use(requireAuth);
@@ -58,5 +59,6 @@ router.delete("/avatar", controller.removeAvatar);
 router.get("/me/companies", controller.getUserCompanies);
 router.post("/logout-all", controller.logoutAllDevices);
 router.post("/change-password", validateRequest(changePasswordSchema), controller.changePassword);
+router.post("/exchange-ticket", controller.createExchangeTicket);
 
 module.exports = router;

@@ -20,6 +20,9 @@ const AUTH_USER_SELECT = Object.freeze({
           id: true,
           status: true,
           name: true,
+          slug: true,
+          customDomain: true,
+          customDomainVerified: true,
         },
       },
     },
@@ -33,6 +36,10 @@ class AuthRepository {
       where: { email: email.toLowerCase().trim() },
       select: AUTH_USER_SELECT,
     });
+  }
+
+  findById(id, db = defaultPrisma) {
+    return this.findUserById(id, db);
   }
 
   findUserById(id, db = defaultPrisma) {

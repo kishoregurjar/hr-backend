@@ -40,7 +40,7 @@ class AuthController {
 
   login = asyncHandler(async (req, res) => {
     const payload = req.validatedData || req.body;
-    const result = await authService.login(payload);
+    const result = await authService.login(payload, req);
 
     if (result.refreshToken) {
       setRefreshTokenCookie(res, result.refreshToken);
@@ -63,7 +63,7 @@ class AuthController {
 
   refreshToken = asyncHandler(async (req, res) => {
     const incomingRefreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || req.body?.refreshToken;
-    const result = await authService.refreshAccessToken(incomingRefreshToken);
+    const result = await authService.refreshAccessToken(incomingRefreshToken, req);
 
     if (result.refreshToken) {
       setRefreshTokenCookie(res, result.refreshToken);
@@ -115,7 +115,7 @@ class AuthController {
 
   forgotPassword = asyncHandler(async (req, res) => {
     const payload = req.validatedData || req.body;
-    const result = await authService.forgotPassword(payload);
+    const result = await authService.forgotPassword(payload, req);
 
     return SuccessResponse.send(
       res,
@@ -269,6 +269,46 @@ class AuthController {
       {
         message: "Profile photo removed successfully.",
         data: result,
+      },
+      StatusCodes.OK
+    );
+  });
+
+
+  createExchangeTicket = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const { targetCompanyId } = req.body || {};
+    const result = await authService.createExchangeTicket(userId, targetCompanyId);
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Exchange ticket generated successfully.",
+        data: result,
+      },
+      StatusCodes.CREATED
+    );
+  });
+
+  consumeExchangeTicket = asyncHandler(async (req, res) => {
+    const { ticket } = req.body || {};
+    const result = await authService.consumeExchangeTicket(ticket, req);
+
+    if (result.refreshToken) {
+      setRefreshTokenCookie(res, result.refreshToken);
+    }
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Exchange ticket consumed successfully.",
+        data: {
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          user: result.user,
+          company: result.company,
+          companies: result.companies,
+        },
       },
       StatusCodes.OK
     );

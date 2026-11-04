@@ -34,7 +34,8 @@ const clearUserCache = (userId) => {
  * Checks User status as well as Company suspension status for non-Super Admins.
  * Placed directly at src/middleware/requireAuth.js matching Clean Middleware Standard.
  * Uses 60s in-memory cache to eliminate DB query latency on every request.
- * Supports Bearer Authorization header, query parameter `token`, or cookie `accessToken`.
+ * Strict Security: Supports ONLY Bearer Authorization header or HttpOnly cookie accessToken.
+ * Query parameters (token, auth_token) are strictly prohibited and never accepted.
  * ==========================================================
  */
 const requireAuth = async (req, res, next) => {
@@ -43,8 +44,6 @@ const requireAuth = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.split(" ")[1];
-    } else if (req.query?.token) {
-      token = req.query.token;
     } else if (req.cookies?.accessToken) {
       token = req.cookies.accessToken;
     }
@@ -64,9 +63,16 @@ const requireAuth = async (req, res, next) => {
       throw new UnauthorizedError("Your account has been deactivated. Please contact your company owner for assistance.", "ACCOUNT_DEACTIVATED");
     }
 
+    req.user = user;
+    req.tokenPayload = payload;
+    if (payload.companyId) {
+      req.tokenCompanyId = payload.companyId;
+    }
+
     // Check Company Suspension for non-Super Admin users
     if (user.role !== "SUPER_ADMIN" && Array.isArray(user.companyMembers) && user.companyMembers.length > 0) {
       const requestedCompanyId =
+        req.tokenCompanyId ||
         req.headers["x-company-id"] ||
         req.headers["X-Company-Id"] ||
         req.query?.companyId;
@@ -91,7 +97,6 @@ const requireAuth = async (req, res, next) => {
       }
     }
 
-    req.user = user;
     return next();
   } catch (error) {
     return next(error);
@@ -101,3 +106,5 @@ const requireAuth = async (req, res, next) => {
 module.exports = requireAuth;
 module.exports.requireAuth = requireAuth;
 module.exports.clearUserCache = clearUserCache;
+
+module.exports.clearCache = clearUserCache;

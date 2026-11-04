@@ -1495,6 +1495,33 @@ class AttemptService {
               });
             } catch (_) {}
           }
+          if (!bulkCompany && (invitedByUserId || assessment?.createdById)) {
+            try {
+              const creatorId = invitedByUserId || assessment.createdById;
+              const memberships = await prisma.companyMember.findMany({
+                where: { userId: creatorId },
+                select: {
+                  company: {
+                    select: {
+                      id: true,
+                      name: true,
+                      slug: true,
+                      logoUrl: true,
+                      brandColor: true,
+                      brandTagline: true,
+                      showPoweredByHireQuest: true,
+                      customDomain: true,
+                      customDomainVerified: true,
+                    },
+                  },
+                },
+                take: 1,
+              });
+              if (memberships[0]?.company) {
+                bulkCompany = memberships[0].company;
+              }
+            } catch (_) {}
+          }
 
           const sendSingleEmail = async (job) => {
             try {

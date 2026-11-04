@@ -1,16 +1,23 @@
 "use strict";
 
+const { resolveCompanyOrigin } = require("../../utils/tenant-url");
+
 const mapSuperAdminCompany = (company) => {
   if (!company) {
     return null;
   }
 
+  const domainMode = company.customDomain ? "CUSTOM_DOMAIN" : "SUBDOMAIN";
+  const localPreviewUrl = resolveCompanyOrigin(company);
+
   return {
     id: company.id,
     name: company.name,
     slug: company.slug,
+    domainMode,
     customDomain: company.customDomain || null,
     customDomainVerified: company.customDomainVerified || false,
+    localPreviewUrl,
     logoUrl: company.logoUrl || null,
     website: company.website || null,
     industry: company.industry || null,
@@ -41,13 +48,17 @@ const mapCompanyOwner = (owner, companyMember) => {
 
 const mapCompanyListItem = (company) => {
   const ownerMember = (company.members || []).find((m) => m.role === "OWNER");
+  const domainMode = company.customDomain ? "CUSTOM_DOMAIN" : "SUBDOMAIN";
+  const localPreviewUrl = resolveCompanyOrigin(company);
 
   return {
     id: company.id,
     name: company.name,
     slug: company.slug,
+    domainMode,
     customDomain: company.customDomain || null,
     customDomainVerified: company.customDomainVerified || false,
+    localPreviewUrl,
     status: company.status,
     logoUrl: company.logoUrl,
     industry: company.industry,
@@ -72,11 +83,17 @@ const mapCompanyListItem = (company) => {
 
 const mapCompanyDetail = (company) => {
   const ownerMember = (company.members || []).find((m) => m.role === "OWNER");
+  const domainMode = company.customDomain ? "CUSTOM_DOMAIN" : "SUBDOMAIN";
+  const localPreviewUrl = resolveCompanyOrigin(company);
 
   return {
     id: company.id,
     name: company.name,
     slug: company.slug,
+    domainMode,
+    customDomain: company.customDomain || null,
+    customDomainVerified: company.customDomainVerified || false,
+    localPreviewUrl,
     status: company.status,
     logoUrl: company.logoUrl,
     website: company.website,

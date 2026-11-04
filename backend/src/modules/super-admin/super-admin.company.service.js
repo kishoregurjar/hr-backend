@@ -41,6 +41,7 @@ const createCompanyWithOwner = async (
     companyName,
     ownerName,
     ownerEmail,
+    domainMode,
     website,
     domain,
     customDomain,
@@ -83,9 +84,29 @@ const createCompanyWithOwner = async (
           throw error;
         }
 
-        const slug = await generateUniqueSlug(companyName, tx);
+        const isCustomDomainMode = domainMode === "CUSTOM_DOMAIN";
+        const effectiveCustomDomain = isCustomDomainMode
+          ? normalizeDomainString(customDomain || domain || null)
+          : null;
 
-        const effectiveCustomDomain = normalizeDomainString(customDomain || domain || null);
+        if (effectiveCustomDomain) {
+          const existingDomain = await tx.company.findFirst({
+            where: {
+              customDomain: {
+                equals: effectiveCustomDomain,
+                mode: "insensitive",
+              },
+            },
+          });
+          if (existingDomain) {
+            const error = new Error("This custom domain is already registered to another company.");
+            error.statusCode = 409;
+            error.code = "CUSTOM_DOMAIN_ALREADY_EXISTS";
+            throw error;
+          }
+        }
+
+        const slug = await generateUniqueSlug(companyName, tx);
         const effectiveWebsite = website || (effectiveCustomDomain ? `https://${effectiveCustomDomain}` : null);
 
         const company = await superAdminCompanyRepository.createCompany(
@@ -160,6 +181,8 @@ const createCompanyWithOwner = async (
             metadata: {
               companyName: company.name,
               companySlug: company.slug,
+              domainMode: isCustomDomainMode ? "CUSTOM_DOMAIN" : "SUBDOMAIN",
+              customDomain: effectiveCustomDomain,
               ownerEmail,
               ownerName,
             },
