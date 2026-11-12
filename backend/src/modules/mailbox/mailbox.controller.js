@@ -2,6 +2,9 @@
 
 const env = require("../../config/env");
 const service = require("./mailbox.service");
+const { prisma } = require("../../config/prisma");
+const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
+const authService = require("../auth/auth.service");
 
 function getAuthenticatedUser(req) {
   if (!req.user || !req.user.id) {
@@ -17,7 +20,15 @@ async function connectGoogleMailbox(req, res, next) {
   try {
     const user = getAuthenticatedUser(req);
     const companyId = req.companyId || req.company?.id || null;
-    const authUrl = await service.getAuthUrl(user.id, companyId);
+    const originHeader = req.headers.origin || req.headers.referer || null;
+    let returnOrigin = null;
+    if (originHeader) {
+      try {
+        const parsed = new URL(originHeader);
+        returnOrigin = parsed.origin;
+      } catch {}
+    }
+    const authUrl = await service.getAuthUrl(user.id, companyId, returnOrigin);
 
     return res.status(200).json({
       success: true,
@@ -53,13 +64,89 @@ async function handleGoogleCallback(req, res, next) {
     const stateContext = await service.verifyAndConsumeOAuthState(stateToken);
     const userId = stateContext.userId;
     const companyId = stateContext.companyId || null;
+    const returnOrigin = stateContext.returnOrigin || null;
 
     const result = await service.handleCallback(code, userId, companyId);
 
-    const clientUrl = env.frontend.url;
-    return res.redirect(
-      `${clientUrl}/candidates?mailbox=connected&email=${encodeURIComponent(result.email)}`
-    );
+    // 1. Authoritative tenant company resolution
+    let targetCompany = null;
+    if (companyId) {
+      targetCompany = await prisma.company.findUnique({
+        where: { id: companyId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          customDomain: true,
+          customDomainVerified: true,
+          domainMode: true,
+        },
+      });
+    }
+
+    if (!targetCompany && userId) {
+      const membership = await prisma.companyMember.findFirst({
+        where: { userId },
+        select: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              customDomain: true,
+              customDomainVerified: true,
+              domainMode: true,
+            },
+          },
+        },
+      });
+      targetCompany = membership?.company || null;
+    }
+
+    // 2. Issue a short-lived single-use exchange ticket so user is seamlessly re-authenticated on return
+    let exchangeTicket = null;
+    try {
+      const ticketRes = await authService.createExchangeTicket(userId, targetCompany?.id || companyId);
+      exchangeTicket = ticketRes?.ticket || null;
+    } catch (ticketErr) {
+      console.warn("[MailboxController] Failed to generate exchange ticket:", ticketErr.message);
+    }
+
+    // 3. Determine the base tenant target URL for /candidates
+    let targetBaseUrl = "";
+    if (targetCompany) {
+      targetBaseUrl = buildCompanyTenantUrl(targetCompany, "/candidates", {
+        mailbox: "connected",
+        email: result.email,
+      });
+    } else if (returnOrigin) {
+      const url = new URL("/candidates", returnOrigin);
+      url.searchParams.set("mailbox", "connected");
+      url.searchParams.set("email", result.email);
+      targetBaseUrl = url.toString();
+    } else {
+      const fallbackUrl = new URL("/candidates", env.frontend.url);
+      fallbackUrl.searchParams.set("mailbox", "connected");
+      fallbackUrl.searchParams.set("email", result.email);
+      targetBaseUrl = fallbackUrl.toString();
+    }
+
+    // 4. Wrap with /auth/handoff to guarantee 100% active session persistence across domains/subdomains
+    if (exchangeTicket) {
+      try {
+        const parsedTarget = new URL(targetBaseUrl);
+        const origin = parsedTarget.origin;
+        const redirectPathWithQuery = `${parsedTarget.pathname}${parsedTarget.search}`;
+        const handoffUrl = new URL("/auth/handoff", origin);
+        handoffUrl.searchParams.set("ticket", exchangeTicket);
+        handoffUrl.searchParams.set("redirect", redirectPathWithQuery);
+        return res.redirect(handoffUrl.toString());
+      } catch (handoffErr) {
+        console.warn("[MailboxController] Failed to construct handoff URL, falling back:", handoffErr.message);
+      }
+    }
+
+    return res.redirect(targetBaseUrl);
   } catch (error) {
     return next(error);
   }

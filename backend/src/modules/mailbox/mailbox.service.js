@@ -35,7 +35,7 @@ function cleanupConsumedNonces() {
   }
 }
 
-async function generateOAuthState(userId, companyId = null) {
+async function generateOAuthState(userId, companyId = null, returnOrigin = null) {
   if (!userId) {
     throw badRequest("User ID is required to generate OAuth state", "USER_ID_REQUIRED");
   }
@@ -44,6 +44,7 @@ async function generateOAuthState(userId, companyId = null) {
   const payload = {
     userId,
     companyId: companyId || null,
+    returnOrigin: returnOrigin || null,
     nonce,
     purpose: OAUTH_STATE_PURPOSE,
   };
@@ -157,6 +158,7 @@ async function verifyAndConsumeOAuthState(stateToken) {
   return {
     userId: decoded.userId,
     companyId: decoded.companyId || null,
+    returnOrigin: decoded.returnOrigin || null,
   };
 }
 
@@ -181,7 +183,7 @@ function createOAuth2Client() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-async function getAuthUrl(userId, companyId = null) {
+async function getAuthUrl(userId, companyId = null, returnOrigin = null) {
   const oauth2Client = createOAuth2Client();
 
   const scopes = [
@@ -191,7 +193,7 @@ async function getAuthUrl(userId, companyId = null) {
     "https://www.googleapis.com/auth/drive.readonly",
   ];
 
-  const state = await generateOAuthState(userId, companyId);
+  const state = await generateOAuthState(userId, companyId, returnOrigin);
 
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
