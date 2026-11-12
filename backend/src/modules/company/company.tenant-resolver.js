@@ -16,14 +16,29 @@ function isPlatformRootHost(host) {
   if (!host || typeof host !== "string") return false;
   const hostname = host.replace(/:\d+$/, "").toLowerCase().trim();
   const rootDomain = (process.env.ROOT_DOMAIN || "hirequest.com").toLowerCase();
-  return (
+
+  if (
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
+    hostname.endsWith(".vercel.app") ||
     hostname === rootDomain ||
     hostname === `www.${rootDomain}` ||
     hostname === `app.${rootDomain}` ||
     hostname === `admin.${rootDomain}`
-  );
+  ) {
+    return true;
+  }
+
+  // Also check against configured CLIENT_URL or FRONTEND_URL hostname
+  const configuredClientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL;
+  if (configuredClientUrl) {
+    try {
+      const clientHost = new URL(configuredClientUrl).hostname.toLowerCase();
+      if (hostname === clientHost) return true;
+    } catch {}
+  }
+
+  return false;
 }
 
 function extractHostFromRequest(req) {
@@ -86,22 +101,29 @@ async function resolveTenantFromRequest(req) {
   }
 
   const rawHost = extractHostFromRequest(req);
+  const isRoot = rawHost ? isPlatformRootHost(rawHost) : false;
 
-  // If host/origin is explicitly the platform root, NEVER allow client headers to override it
-  if (rawHost && isPlatformRootHost(rawHost)) {
-    req._resolvedTenant = null;
-    return null;
+  let tenantIdentifier = null;
+
+  // 1. If host is a dedicated subdomain or custom enterprise domain (and NOT a platform root), resolve from host
+  if (rawHost && !isRoot) {
+    tenantIdentifier = resolveDomainIdentifier(rawHost);
   }
 
-  let tenantIdentifier = rawHost ? resolveDomainIdentifier(rawHost) : null;
+  // 2. On platform root (e.g. *.vercel.app, localhost) OR if host-level subdomain was not present:
+  // Allow explicit tenant workspace context via header (x-tenant-identifier) or query (?tenant=)
+  if (!tenantIdentifier) {
+    const headerVal = req.headers && req.headers["x-tenant-identifier"];
+    const queryVal = req.query && req.query.tenant;
+    const candidate = (headerVal || queryVal || "").trim().toLowerCase();
 
-  // Fallback ONLY when no host or origin was present at all (e.g. test harness / server-to-server)
-  if (!tenantIdentifier && !rawHost && req.headers && req.headers["x-tenant-identifier"]) {
-    const headerVal = req.headers["x-tenant-identifier"].trim();
-    tenantIdentifier = resolveDomainIdentifier(headerVal) || headerVal.toLowerCase();
+    // Verify candidate is an actual tenant slug and not a root platform host
+    if (candidate && !isPlatformRootHost(candidate)) {
+      tenantIdentifier = resolveDomainIdentifier(candidate) || candidate;
+    }
   }
 
-  // If no tenant identifier, request is on platform root (e.g. localhost:3000, app.hirequest.com)
+  // 3. If no tenant identifier, request is on platform root (Super Admin)
   if (!tenantIdentifier) {
     req._resolvedTenant = null;
     return null;

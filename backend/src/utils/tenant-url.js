@@ -47,11 +47,18 @@ function getLocalDevPort() {
  *    - Fallback: "https://<rootDomain>"
  */
 function resolveCompanyOrigin(company) {
-  const rootDomain = process.env.ROOT_DOMAIN || "hirequest.com";
+  const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/+$/, "") : null;
+  const isVercelDomain = clientUrl && clientUrl.includes(".vercel.app");
+  const hasCustomWildcardDomain = Boolean(
+    process.env.ROOT_DOMAIN &&
+    !process.env.ROOT_DOMAIN.includes("vercel.app") &&
+    process.env.ROOT_DOMAIN !== "hirequest.com"
+  );
+  const rootDomain = (process.env.ROOT_DOMAIN || "hirequest.com").toLowerCase();
   const isProduction = process.env.NODE_ENV === "production";
   const devPort = getLocalDevPort();
   const localRootOrigin = `http://localhost:${devPort}`;
-  const prodRootOrigin = `https://${rootDomain}`;
+  const prodRootOrigin = clientUrl || `https://${rootDomain}`;
 
   if (!company) {
     return isProduction ? prodRootOrigin : localRootOrigin;
@@ -61,7 +68,10 @@ function resolveCompanyOrigin(company) {
   if (company.domainMode === "SUBDOMAIN") {
     const slug = company.slug ? company.slug.trim().toLowerCase() : null;
     if (isProduction) {
-      return slug ? `https://${slug}.${rootDomain}` : prodRootOrigin;
+      if (hasCustomWildcardDomain && slug) {
+        return `https://${slug}.${rootDomain}`;
+      }
+      return prodRootOrigin;
     }
     return slug ? `http://${slug}.localhost:${devPort}` : localRootOrigin;
   }
@@ -74,8 +84,8 @@ function resolveCompanyOrigin(company) {
     if (customDomain && company.customDomainVerified === true) {
       return `https://${customDomain}`;
     }
-    // Subdomain fallback
-    if (slug) {
+    // Subdomain fallback if custom wildcard domain exists
+    if (hasCustomWildcardDomain && slug) {
       return `https://${slug}.${rootDomain}`;
     }
     return prodRootOrigin;
@@ -83,13 +93,11 @@ function resolveCompanyOrigin(company) {
 
   // Local Development Simulation
   if (customDomain) {
-    // e.g. "facebookcompany.com" -> simulation hostname "facebookcompany.localhost:3000"
     const simName = customDomain.split(".")[0];
     return `http://${simName}.localhost:${devPort}`;
   }
 
   if (slug) {
-    // e.g. "facebook" -> "facebook.localhost:3000"
     return `http://${slug}.localhost:${devPort}`;
   }
 
@@ -138,9 +146,16 @@ function buildCompanyTenantUrl(company, pathname = "/", queryParams = {}) {
   const cleanPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
   const url = new URL(cleanPath, origin);
 
-  // In local development, attach ?tenant=<slug> as a transparent backward-compatibility fallback
-  if (process.env.NODE_ENV !== "production" && company?.slug) {
-    url.searchParams.set("tenant", company.slug);
+  // If in local development OR if using single-domain deployment (e.g. *.vercel.app),
+  // attach ?tenant=<slug> so company workspace context is preserved on platform root
+  if (company?.slug) {
+    const urlHostname = url.hostname.toLowerCase();
+    const isDedicatedSubdomain = urlHostname.startsWith(`${company.slug.toLowerCase()}.`);
+
+    // Attach ?tenant= whenever not already on a dedicated subdomain
+    if (!isDedicatedSubdomain || process.env.NODE_ENV !== "production") {
+      url.searchParams.set("tenant", company.slug);
+    }
   }
 
   if (queryParams && typeof queryParams === "object") {
