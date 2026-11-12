@@ -79,7 +79,6 @@ async function handleGoogleCallback(req, res, next) {
           slug: true,
           customDomain: true,
           customDomainVerified: true,
-          domainMode: true,
         },
       });
     }
@@ -95,12 +94,18 @@ async function handleGoogleCallback(req, res, next) {
               slug: true,
               customDomain: true,
               customDomainVerified: true,
-              domainMode: true,
             },
           },
         },
       });
       targetCompany = membership?.company || null;
+    }
+
+    if (targetCompany) {
+      targetCompany = {
+        ...targetCompany,
+        domainMode: targetCompany.customDomain ? "CUSTOM_DOMAIN" : "SUBDOMAIN",
+      };
     }
 
     // 2. Issue a short-lived single-use exchange ticket so user is seamlessly re-authenticated on return
