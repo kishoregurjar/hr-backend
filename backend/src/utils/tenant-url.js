@@ -81,7 +81,7 @@ function resolveCompanyOrigin(company) {
     if (hasCustomWildcardDomain && slug) {
       return `https://${slug}.${rootDomain}`;
     }
-    // Otherwise, single-domain platform root (e.g. https://hr-frontend-puce-chi.vercel.app)
+    // Single-domain platform root on Vercel: enforce prodRootOrigin
     return prodRootOrigin;
   }
 
