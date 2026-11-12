@@ -47,51 +47,49 @@ function getLocalDevPort() {
  *    - Fallback: "https://<rootDomain>"
  */
 function resolveCompanyOrigin(company) {
-  const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/+$/, "") : null;
-  const isVercelDomain = clientUrl && clientUrl.includes(".vercel.app");
+  const rawClientUrl = process.env.CLIENT_URL || env.frontend?.url || "";
+  const clientUrl = rawClientUrl ? rawClientUrl.trim().replace(/\/+$/, "") : null;
+  const isLocalClient = !clientUrl || clientUrl.includes("localhost") || clientUrl.includes("127.0.0.1");
+  const nodeEnv = (process.env.NODE_ENV || "").trim().toLowerCase();
+  const isProduction = nodeEnv === "production" || !isLocalClient;
+
   const hasCustomWildcardDomain = Boolean(
     process.env.ROOT_DOMAIN &&
     !process.env.ROOT_DOMAIN.includes("vercel.app") &&
     process.env.ROOT_DOMAIN !== "hirequest.com"
   );
   const rootDomain = (process.env.ROOT_DOMAIN || "hirequest.com").toLowerCase();
-  const isProduction = process.env.NODE_ENV === "production";
   const devPort = getLocalDevPort();
   const localRootOrigin = `http://localhost:${devPort}`;
   const prodRootOrigin = clientUrl || `https://${rootDomain}`;
 
+  // If no company context, return root origin based on environment
   if (!company) {
     return isProduction ? prodRootOrigin : localRootOrigin;
-  }
-
-  // If company explicitly specifies SUBDOMAIN mode, prefer slug over customDomain
-  if (company.domainMode === "SUBDOMAIN") {
-    const slug = company.slug ? company.slug.trim().toLowerCase() : null;
-    if (isProduction) {
-      if (hasCustomWildcardDomain && slug) {
-        return `https://${slug}.${rootDomain}`;
-      }
-      return prodRootOrigin;
-    }
-    return slug ? `http://${slug}.localhost:${devPort}` : localRootOrigin;
   }
 
   const customDomain = company.customDomain ? normalizeDomainString(company.customDomain) : null;
   const slug = company.slug ? company.slug.trim().toLowerCase() : null;
 
-  if (isProduction) {
-    // In production, custom domain is only honored if verified
+  // 1. Live Production or Single-Domain (e.g. *.vercel.app, live domain)
+  if (isProduction && !isLocalClient) {
+    // If company has verified enterprise custom domain
     if (customDomain && company.customDomainVerified === true) {
       return `https://${customDomain}`;
     }
-    // Subdomain fallback if custom wildcard domain exists
+    // If real custom wildcard subdomains are active (e.g. *.yourdomain.com)
     if (hasCustomWildcardDomain && slug) {
       return `https://${slug}.${rootDomain}`;
     }
+    // Otherwise, single-domain platform root (e.g. https://hr-frontend-puce-chi.vercel.app)
     return prodRootOrigin;
   }
 
-  // Local Development Simulation
+  // 2. Local Development (when CLIENT_URL is localhost)
+  if (company.domainMode === "SUBDOMAIN") {
+    return slug ? `http://${slug}.localhost:${devPort}` : localRootOrigin;
+  }
+
   if (customDomain) {
     const simName = customDomain.split(".")[0];
     return `http://${simName}.localhost:${devPort}`;
