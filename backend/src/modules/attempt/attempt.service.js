@@ -60,7 +60,11 @@ const {
   forbidden,
 } = require("../../utils/app-error");
 const { sendEmail } = require("../../utils/email");
-const { buildCandidateOtpEmail, buildInvitationEmail } = require("./attempt.email");
+const {
+  buildCandidateOtpEmail,
+  buildInvitationEmail,
+  buildAssessmentSubmissionEmail,
+} = require("./attempt.email");
 const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
 const { getCanonicalGameCode } = require("../game/game.constants");
 const {
@@ -3098,10 +3102,52 @@ class AttemptService {
         correctCount: score.correctCount,
         incorrectCount: score.incorrectCount,
         unansweredCount: score.unansweredCount,
+        _notificationData: {
+          candidateEmail: invitation.candidate?.email,
+          candidateName: [invitation.candidate?.firstName, invitation.candidate?.lastName].filter(Boolean).join(" ") || "Candidate",
+          assessmentTitle: invitation.assessment?.title || "Skill Assessment",
+          company:
+            invitation.candidate?.company ||
+            invitation.assessment?.company ||
+            invitation.assessment?.createdBy?.companyMembers?.[0]?.company ||
+            null,
+          companyName:
+            invitation.candidate?.company?.name ||
+            invitation.assessment?.company?.name ||
+            invitation.assessment?.createdBy?.companyMembers?.[0]?.company?.name ||
+            "HireQuest",
+        },
       };
     });
 
     this.clearCandidatesCache();
+
+    // Async Non-blocking Candidate Confirmation Email Dispatch
+    if (submissionResult?._notificationData?.candidateEmail) {
+      const { candidateEmail, candidateName, assessmentTitle, company, companyName } = submissionResult._notificationData;
+      global.setImmediate(async () => {
+        try {
+          const emailContent = buildAssessmentSubmissionEmail({
+            candidateName,
+            assessmentTitle,
+            companyName,
+            company,
+          });
+
+          await sendEmail({
+            to: candidateEmail,
+            subject: emailContent.subject,
+            text: emailContent.text,
+            html: emailContent.html,
+            senderName: companyName,
+          });
+          console.info(`[submitAttemptByToken] Confirmation email sent successfully to ${candidateEmail} for ${assessmentTitle} (${companyName})`);
+        } catch (emailErr) {
+          console.error(`[submitAttemptByToken] Failed to dispatch confirmation email to ${candidateEmail}:`, emailErr.message);
+        }
+      });
+      delete submissionResult._notificationData;
+    }
 
     return submissionResult;
   }
@@ -4616,25 +4662,72 @@ class AttemptService {
               candidateId: true,
               assessmentId: true,
               candidate: {
-                select: { firstName: true, lastName: true, email: true, companyId: true },
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  companyId: true,
+                  company: {
+                    select: {
+                      id: true,
+                      name: true,
+                      logoUrl: true,
+                      slug: true,
+                      brandColor: true,
+                      accentColor: true,
+                      faviconUrl: true,
+                      brandTagline: true,
+                      showPoweredByHireQuest: true,
+                    },
+                  },
+                },
               },
               assessment: {
                 select: {
                   title: true,
+                  companyId: true,
+                  company: {
+                    select: {
+                      id: true,
+                      name: true,
+                      logoUrl: true,
+                      slug: true,
+                      brandColor: true,
+                      accentColor: true,
+                      faviconUrl: true,
+                      brandTagline: true,
+                      showPoweredByHireQuest: true,
+                    },
+                  },
                   createdById: true,
                   createdBy: {
                     select: {
-                      companyMembers: { select: { companyId: true }, take: 1 },
+                      companyMembers: {
+                        select: {
+                          companyId: true,
+                          company: {
+                            select: {
+                              id: true,
+                              name: true,
+                              logoUrl: true,
+                              slug: true,
+                              brandColor: true,
+                              accentColor: true,
+                              faviconUrl: true,
+                              brandTagline: true,
+                              showPoweredByHireQuest: true,
+                            },
+                          },
+                        },
+                        take: 1,
+                      },
                     },
                   },
                 },
               },
             },
           });
-          const resolvedCompanyId =
-            attemptRecord?.assessment?.createdBy?.companyMembers?.[0]?.companyId ||
-            attemptRecord?.candidate?.companyId ||
-            null;
+          const candidateEmail = attemptRecord?.candidate?.email;
           const candidateName =
             [attemptRecord?.candidate?.firstName, attemptRecord?.candidate?.lastName]
               .filter(Boolean)
@@ -4642,6 +4735,19 @@ class AttemptService {
               .trim() || "Candidate";
           const assessmentTitle =
             attemptRecord?.assessment?.title || "Assessment";
+          const hiringCompany =
+            attemptRecord?.candidate?.company ||
+            attemptRecord?.assessment?.company ||
+            attemptRecord?.assessment?.createdBy?.companyMembers?.[0]?.company ||
+            null;
+          const companyName = hiringCompany?.name || "HireQuest";
+          const resolvedCompanyId =
+            hiringCompany?.id ||
+            attemptRecord?.assessment?.companyId ||
+            attemptRecord?.assessment?.createdBy?.companyMembers?.[0]?.companyId ||
+            attemptRecord?.candidate?.companyId ||
+            null;
+
           if (resolvedCompanyId) {
             await notificationService.createAndSendNotification({
               companyId: resolvedCompanyId,
@@ -4657,6 +4763,29 @@ class AttemptService {
                 assessmentTitle,
               },
             });
+          }
+
+          // Automated Candidate Submission Acknowledgment Email
+          if (candidateEmail) {
+            try {
+              const emailContent = buildAssessmentSubmissionEmail({
+                candidateName,
+                assessmentTitle,
+                companyName,
+                company: hiringCompany,
+              });
+
+              await sendEmail({
+                to: candidateEmail,
+                subject: emailContent.subject,
+                text: emailContent.text,
+                html: emailContent.html,
+                senderName: companyName,
+              });
+              console.info(`[submitCandidateAttempt] Confirmation email sent successfully to ${candidateEmail} for ${assessmentTitle} (${companyName})`);
+            } catch (_mailErr) {
+              console.warn(`[submitCandidateAttempt] Candidate confirmation email dispatch failed for ${candidateEmail}:`, _mailErr?.message);
+            }
           }
         } catch (_notifyErr) {
           console.warn("[submitCandidateAttempt] Notification dispatch notice:", _notifyErr?.message);

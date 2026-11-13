@@ -40,7 +40,7 @@ const verifyEmailTransport = async () => {
   return true;
 };
 
-const sendEmail = async ({ to, subject, text, html }) => {
+const sendEmail = async ({ to, subject, text, html, senderName: customSenderName }) => {
   if (!to) {
     const error = new Error("Recipient email is required.");
     error.code = "EMAIL_RECIPIENT_REQUIRED";
@@ -62,7 +62,7 @@ const sendEmail = async ({ to, subject, text, html }) => {
   // 1. Primary: Google Apps Script Webhook (Direct native Gmail server dispatch — 100% Inbox delivery, zero DMARC rejection)
   if (process.env.GOOGLE_WEBHOOK_URL) {
     try {
-      const senderName = process.env.MAIL_FROM_NAME || "HireQuest";
+      const senderName = customSenderName || process.env.MAIL_FROM_NAME || "HireQuest";
       const payload = JSON.stringify({
         to,
         subject,
@@ -111,7 +111,7 @@ const sendEmail = async ({ to, subject, text, html }) => {
   if (process.env.BREVO_API_KEY) {
     try {
       const senderEmail = process.env.MAIL_FROM_EMAIL || process.env.EMAIL_FROM || "rshivamsingh378@gmail.com";
-      const senderName = process.env.MAIL_FROM_NAME || "HireQuest";
+      const senderName = customSenderName || process.env.MAIL_FROM_NAME || "HireQuest";
       const toList = Array.isArray(to) ? to.map((e) => ({ email: e })) : [{ email: to }];
 
       const payload = JSON.stringify({
@@ -156,7 +156,9 @@ const sendEmail = async ({ to, subject, text, html }) => {
 
   try {
     const transporter = getTransporter();
-    const sender = process.env.MAIL_FROM_EMAIL || process.env.EMAIL_FROM || '"HireQuest" <no-reply@hirequest.com>';
+    const sender = customSenderName
+      ? `"${customSenderName}" <${process.env.BREVO_SMTP_USER || process.env.SMTP_USER || "no-reply@hirequest.app"}>`
+      : (process.env.MAIL_FROM_EMAIL || process.env.EMAIL_FROM || '"HireQuest" <no-reply@hirequest.com>');
     const info = await transporter.sendMail({
       from: sender,
       to,

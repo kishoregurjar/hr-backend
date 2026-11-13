@@ -156,7 +156,92 @@ const buildInvitationEmail = ({
   };
 };
 
+const buildAssessmentSubmissionEmail = ({
+  candidateName,
+  assessmentTitle,
+  companyName = "HireQuest",
+  company = null,
+}) => {
+  const orgName = escapeHtml(company?.name || companyName || "HireQuest");
+  const personName = escapeHtml(candidateName || "Candidate");
+  const safeTitle = escapeHtml(assessmentTitle || "Skill Assessment");
+  const brandColor = company?.brandColor || "#2563eb";
+  const logoUrl = company?.logoUrl ? escapeHtml(company.logoUrl) : null;
+  const brandTagline = company?.brandTagline ? escapeHtml(company.brandTagline) : null;
+  const showPoweredByHireQuest = company?.showPoweredByHireQuest !== false;
+
+  return {
+    subject: `${orgName} — Assessment Submitted Successfully: ${safeTitle}`,
+    text:
+      `Hello ${personName},\n\n` +
+      `Thank you for completing the evaluation for ${safeTitle} at ${orgName}.\n\n` +
+      `We have successfully received your submission.\n\n` +
+      `Our Talent Acquisition & HR team is currently reviewing your assessment results. If your profile is shortlisted, our team will get in touch with you soon regarding the next steps.\n\n` +
+      `Best regards,\n` +
+      `${orgName} Recruitment Team`,
+
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px 12px; color: #1e293b; }
+            .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 36px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; }
+            .header { text-align: center; padding-bottom: 24px; border-bottom: 1px solid #f1f5f9; }
+            .header img { max-height: 44px; max-width: 180px; margin-bottom: 14px; object-fit: contain; }
+            .header h2 { color: #0f172a; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.3px; }
+            .header p.tagline { font-size: 12px; color: #64748b; font-weight: 500; margin: 4px 0 0 0; }
+            .greeting { font-size: 15px; margin-top: 24px; color: #334155; }
+            .status-badge { display: inline-block; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 13px; font-weight: 700; padding: 8px 16px; border-radius: 9999px; margin: 16px 0; }
+            .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; margin: 20px 0; }
+            .info-card h4 { margin: 0 0 8px 0; color: #0f172a; font-size: 14px; font-weight: 700; }
+            .info-card p { margin: 0; color: #475569; font-size: 13px; line-height: 1.6; }
+            .footer { font-size: 12px; color: #94a3b8; text-align: center; margin-top: 36px; border-top: 1px solid #f1f5f9; padding-top: 20px; line-height: 1.6; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              ${logoUrl ? `<img src="${logoUrl}" alt="${orgName}" /><br />` : ""}
+              <h2>${orgName}</h2>
+              ${brandTagline ? `<p class="tagline">${brandTagline}</p>` : ""}
+            </div>
+            
+            <p class="greeting">Hello <strong>${personName}</strong>,</p>
+            
+            <div style="text-align: center;">
+              <span class="status-badge">✓ Assessment Submitted Successfully</span>
+            </div>
+
+            <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+              Thank you for taking the time to complete the official evaluation for <strong>${safeTitle}</strong> at <strong>${orgName}</strong>. We have securely received all your responses.
+            </p>
+
+            <div class="info-card">
+              <h4>What happens next?</h4>
+              <p>
+                Our recruitment and technical team is currently reviewing your performance. If your profile is shortlisted, our HR team will reach out to you directly with the next steps and interview details.
+              </p>
+            </div>
+
+            <p style="color: #64748b; font-size: 13px; line-height: 1.5;">
+              We truly appreciate your dedication and interest in joining our team. If you have any questions in the meantime, please feel free to reach out to our talent acquisition team.
+            </p>
+
+            <div class="footer">
+              This is an automated confirmation sent on behalf of <strong>${orgName}</strong>.<br />
+              ${showPoweredByHireQuest ? '<span style="font-size: 11px; color: #cbd5e1;">Powered by HireQuest SaaS</span>' : ""}
+            </div>
+          </div>
+        </body>
+      </html>
+    `,
+  };
+};
+
 module.exports = {
   buildCandidateOtpEmail,
   buildInvitationEmail,
+  buildAssessmentSubmissionEmail,
 };
