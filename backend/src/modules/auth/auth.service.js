@@ -202,16 +202,21 @@ class AuthService {
       // Restrict active tenant context strictly to this company (do NOT silently switch or expose other companies)
       allowedCompanies = [membership];
     } else {
-      // Login attempted on platform root (e.g. localhost:3000 or app.hirequest.com)
+      // Login attempted on platform root (e.g. localhost:3000, vercel.app, or app.hirequest.com)
       const isPlatformUser =
         user.role === "SUPER_ADMIN" ||
         user.role === "PLATFORM_ADMIN";
 
       if (!isPlatformUser) {
-        const error = new Error("Please use your organization's login URL to access your workspace.");
-        error.statusCode = 403;
-        error.code = "COMPANY_LOGIN_REQUIRED";
-        throw error;
+        // On single-domain deployments (e.g. Vercel), auto-bind company users to their primary company
+        if (allowedCompanies && allowedCompanies.length > 0) {
+          // Allow company owner/member direct login on single domain
+        } else {
+          const error = new Error("Please use your organization's login URL to access your workspace.");
+          error.statusCode = 403;
+          error.code = "COMPANY_LOGIN_REQUIRED";
+          throw error;
+        }
       }
     }
 
@@ -301,20 +306,25 @@ class AuthService {
         throw error;
       }
     } else {
-      // Refresh attempted on platform root (e.g. localhost:3000)
+      // Refresh attempted on platform root (e.g. localhost:3000 or vercel.app)
       const isPlatformUser =
         user.role === "SUPER_ADMIN" ||
         user.role === "PLATFORM_ADMIN";
 
       if (!isPlatformUser) {
-        const error = new Error("Please use your organization's login URL to access your workspace.");
-        error.statusCode = 403;
-        error.code = "COMPANY_LOGIN_REQUIRED";
-        throw error;
+        // On single-domain deployments, allow company user token refresh
+        if ((companies && companies.length > 0) || payload.companyId) {
+          // Allow company user token refresh on single domain
+        } else {
+          const error = new Error("Please use your organization's login URL to access your workspace.");
+          error.statusCode = 403;
+          error.code = "COMPANY_LOGIN_REQUIRED";
+          throw error;
+        }
       }
     }
 
-    const boundCompanyId = resolvedTenant ? resolvedTenant.id : (payload.companyId || null);
+    const boundCompanyId = resolvedTenant ? resolvedTenant.id : (payload.companyId || companies[0]?.id || null);
     const newAccessToken = generateAccessToken(user, boundCompanyId);
     const newRefreshToken = generateRefreshToken(user, boundCompanyId);
 
