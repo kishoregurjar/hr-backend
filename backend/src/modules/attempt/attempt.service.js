@@ -3107,30 +3107,65 @@ class AttemptService {
           candidateName: [invitation.candidate?.firstName, invitation.candidate?.lastName].filter(Boolean).join(" ") || "Candidate",
           assessmentTitle: invitation.assessment?.title || "Skill Assessment",
           company:
-            invitation.candidate?.company ||
             invitation.assessment?.company ||
             invitation.assessment?.createdBy?.companyMembers?.[0]?.company ||
             null,
           companyName:
-            invitation.candidate?.company?.name ||
             invitation.assessment?.company?.name ||
             invitation.assessment?.createdBy?.companyMembers?.[0]?.company?.name ||
-            "HireQuest",
+            null,
+          companyId:
+            invitation.assessment?.companyId ||
+            invitation.assessment?.company?.id ||
+            null,
         },
       };
     });
 
     this.clearCandidatesCache();
 
-    // Async Non-blocking Candidate Confirmation Email Dispatch
+    // Async Non-blocking Candidate Confirmation Email Dispatch (Strict Tenant Isolation)
     if (submissionResult?._notificationData?.candidateEmail) {
-      const { candidateEmail, candidateName, assessmentTitle, company, companyName } = submissionResult._notificationData;
+      const {
+        candidateEmail,
+        candidateName,
+        assessmentTitle,
+        company: initialCompany,
+        companyName: initialCompanyName,
+        companyId,
+      } = submissionResult._notificationData;
+
       global.setImmediate(async () => {
         try {
+          let company = initialCompany;
+          let companyName = initialCompanyName;
+
+          if (!company && companyId) {
+            try {
+              const { prisma } = require("../../config/prisma");
+              company = await prisma.company.findUnique({
+                where: { id: companyId },
+                select: {
+                  id: true,
+                  name: true,
+                  logoUrl: true,
+                  slug: true,
+                  brandColor: true,
+                  accentColor: true,
+                  faviconUrl: true,
+                  brandTagline: true,
+                  showPoweredByHireQuest: true,
+                },
+              });
+              if (company?.name) companyName = company.name;
+            } catch (_) {}
+          }
+
+          const effectiveCompanyName = companyName || company?.name || "HireQuest";
           const emailContent = buildAssessmentSubmissionEmail({
             candidateName,
             assessmentTitle,
-            companyName,
+            companyName: effectiveCompanyName,
             company,
           });
 
@@ -3139,9 +3174,9 @@ class AttemptService {
             subject: emailContent.subject,
             text: emailContent.text,
             html: emailContent.html,
-            senderName: companyName,
+            senderName: effectiveCompanyName,
           });
-          console.info(`[submitAttemptByToken] Confirmation email sent successfully to ${candidateEmail} for ${assessmentTitle} (${companyName})`);
+          console.info(`[submitAttemptByToken] Confirmation email sent successfully to ${candidateEmail} for ${assessmentTitle} (${effectiveCompanyName})`);
         } catch (emailErr) {
           console.error(`[submitAttemptByToken] Failed to dispatch confirmation email to ${candidateEmail}:`, emailErr.message);
         }
@@ -4661,25 +4696,25 @@ class AttemptService {
             select: {
               candidateId: true,
               assessmentId: true,
+              companyId: true,
+              company: {
+                select: {
+                  id: true,
+                  name: true,
+                  logoUrl: true,
+                  slug: true,
+                  brandColor: true,
+                  accentColor: true,
+                  faviconUrl: true,
+                  brandTagline: true,
+                  showPoweredByHireQuest: true,
+                },
+              },
               candidate: {
                 select: {
                   firstName: true,
                   lastName: true,
                   email: true,
-                  companyId: true,
-                  company: {
-                    select: {
-                      id: true,
-                      name: true,
-                      logoUrl: true,
-                      slug: true,
-                      brandColor: true,
-                      accentColor: true,
-                      faviconUrl: true,
-                      brandTagline: true,
-                      showPoweredByHireQuest: true,
-                    },
-                  },
                 },
               },
               assessment: {
@@ -4735,18 +4770,42 @@ class AttemptService {
               .trim() || "Candidate";
           const assessmentTitle =
             attemptRecord?.assessment?.title || "Assessment";
-          const hiringCompany =
-            attemptRecord?.candidate?.company ||
+
+          // Strict Tenant Isolation: Always resolve hiring company from Assessment / Attempt, NEVER from Candidate profile
+          let hiringCompany =
             attemptRecord?.assessment?.company ||
+            attemptRecord?.company ||
             attemptRecord?.assessment?.createdBy?.companyMembers?.[0]?.company ||
             null;
-          const companyName = hiringCompany?.name || "HireQuest";
-          const resolvedCompanyId =
+
+          const targetCompanyId =
             hiringCompany?.id ||
             attemptRecord?.assessment?.companyId ||
+            attemptRecord?.companyId ||
             attemptRecord?.assessment?.createdBy?.companyMembers?.[0]?.companyId ||
-            attemptRecord?.candidate?.companyId ||
             null;
+
+          if (!hiringCompany && targetCompanyId) {
+            try {
+              hiringCompany = await prisma.company.findUnique({
+                where: { id: targetCompanyId },
+                select: {
+                  id: true,
+                  name: true,
+                  logoUrl: true,
+                  slug: true,
+                  brandColor: true,
+                  accentColor: true,
+                  faviconUrl: true,
+                  brandTagline: true,
+                  showPoweredByHireQuest: true,
+                },
+              });
+            } catch (_) {}
+          }
+
+          const companyName = hiringCompany?.name || "HireQuest";
+          const resolvedCompanyId = targetCompanyId || hiringCompany?.id || null;
 
           if (resolvedCompanyId) {
             await notificationService.createAndSendNotification({
