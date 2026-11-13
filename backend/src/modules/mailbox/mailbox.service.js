@@ -167,15 +167,24 @@ function createOAuth2Client() {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   let redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-  // Auto-heal offline ngrok URLs or missing redirectUri in production
-  if (!redirectUri || redirectUri.includes("ngrok")) {
-    const baseUrl = process.env.BACKEND_URL || process.env.APP_URL || "https://walkingdreamzhrmanagement.up.railway.app";
+  // Auto-heal offline ngrok URLs, old railway URLs, or missing/localhost redirectUri in production
+  if (
+    !redirectUri ||
+    redirectUri.includes("ngrok") ||
+    redirectUri.includes("walkingdreamzhrmanagement.up.railway.app") ||
+    (process.env.NODE_ENV === "production" && redirectUri.includes("localhost"))
+  ) {
+    const baseUrl =
+      process.env.RENDER_EXTERNAL_URL ||
+      process.env.BACKEND_URL ||
+      process.env.APP_URL ||
+      "https://hr-backend-xgub.onrender.com";
     redirectUri = `${baseUrl.replace(/\/$/, "")}/api/v1/mailbox/google/callback`;
   }
 
   if (!clientId || !clientSecret || !redirectUri) {
     throw badRequest(
-      "Google OAuth credentials missing in environment variables. Please check Railway setup.",
+      "Google OAuth credentials missing in environment variables. Please check configuration.",
       "GOOGLE_OAUTH_CONFIG_MISSING"
     );
   }
