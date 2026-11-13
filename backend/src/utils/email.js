@@ -32,6 +32,9 @@ const getTransporter = () => {
 };
 
 const verifyEmailTransport = async () => {
+  if (process.env.BREVO_API_KEY) {
+    return true;
+  }
   const transporter = getTransporter();
   await transporter.verify();
   return true;
@@ -54,6 +57,52 @@ const sendEmail = async ({ to, subject, text, html }) => {
     const error = new Error("Email content is required.");
     error.code = "EMAIL_CONTENT_REQUIRED";
     throw error;
+  }
+
+  if (process.env.BREVO_API_KEY) {
+    try {
+      const senderEmail = process.env.MAIL_FROM_EMAIL || process.env.EMAIL_FROM || "rshivamsingh378@gmail.com";
+      const senderName = process.env.MAIL_FROM_NAME || "HireQuest";
+      const toList = Array.isArray(to) ? to.map((e) => ({ email: e })) : [{ email: to }];
+
+      const payload = JSON.stringify({
+        sender: { name: senderName, email: senderEmail },
+        to: toList,
+        subject,
+        htmlContent: html || undefined,
+        textContent: text || undefined,
+      });
+
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": process.env.BREVO_API_KEY,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: payload,
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        const error = new Error(data.message || "Brevo email delivery failed.");
+        error.code = "EMAIL_DELIVERY_FAILED";
+        error.cause = data;
+        throw error;
+      }
+
+      return {
+        messageId: data.messageId,
+        accepted: Array.isArray(to) ? to : [to],
+        rejected: [],
+        response: "250 OK",
+      };
+    } catch (error) {
+      const emailError = new Error("Email delivery failed.");
+      emailError.code = "EMAIL_DELIVERY_FAILED";
+      emailError.cause = error;
+      throw emailError;
+    }
   }
 
   try {
