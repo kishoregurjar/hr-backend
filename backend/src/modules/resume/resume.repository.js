@@ -181,9 +181,9 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
   const hasExistingValidFirstName = existingCandidate?.firstName && existingCandidate.firstName !== "Candidate";
   const hasExistingValidLastName = existingCandidate?.lastName && existingCandidate.lastName.trim().length > 0;
   
-  // Prefer existing valid names over newly extracted ones to prevent overwriting with uncertain parsed data
-  const finalFirstName = hasExistingValidFirstName ? existingCandidate.firstName : (isExtractedNameValid ? firstName : fallbackFirstName);
-  const finalLastName = hasExistingValidLastName ? existingCandidate.lastName : (isExtractedNameValid ? lastName : fallbackLastName);
+  // Prefer authoritative extracted resume name when valid, otherwise keep existing valid candidate name
+  const finalFirstName = isExtractedNameValid ? firstName : (hasExistingValidFirstName ? existingCandidate.firstName : fallbackFirstName);
+  const finalLastName = isExtractedNameValid ? lastName : (hasExistingValidLastName ? existingCandidate.lastName : fallbackLastName);
 
   let isAlreadyAssociated = false;
   if (effectiveCompanyId) {

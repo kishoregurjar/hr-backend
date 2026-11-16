@@ -343,11 +343,11 @@ async function createCandidateIfRequired({
       if (isStaffSender) {
         email = extractedEmailValid;
       } else {
-        email = sourceEmailValid || extractedEmailValid || fallbackEmailValid;
+        email = extractedEmailValid || sourceEmailValid || fallbackEmailValid;
       }
     }
   } else {
-    email = sourceEmailValid || extractedEmailValid || fallbackEmailValid;
+    email = extractedEmailValid || sourceEmailValid || fallbackEmailValid;
   }
 
   if (!email) {

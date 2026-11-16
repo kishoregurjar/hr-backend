@@ -2116,10 +2116,21 @@ class AttemptService {
                 : typeof candidate.metadata === "object" && candidate.metadata
                 ? candidate.metadata
                 : {};
+            const companyId = assessment.companyId || null;
+            const companyVerificationPhotos = {
+              ...(existingMeta.companyVerificationPhotos || {}),
+            };
+            if (companyId) {
+              companyVerificationPhotos[companyId] = {
+                photo: verificationPhoto,
+                capturedAt: photoCapturedAt || now.toISOString(),
+              };
+            }
             const updatedMeta = {
               ...existingMeta,
               verificationPhoto,
               photoCapturedAt: photoCapturedAt || now.toISOString(),
+              companyVerificationPhotos,
             };
             await tx.candidateProfile.update({
               where: { id: candidate.id },
@@ -2191,10 +2202,21 @@ class AttemptService {
               : typeof candidate.metadata === "object" && candidate.metadata
               ? candidate.metadata
               : {};
+          const companyId = assessment.companyId || null;
+          const companyVerificationPhotos = {
+            ...(existingMeta.companyVerificationPhotos || {}),
+          };
+          if (companyId) {
+            companyVerificationPhotos[companyId] = {
+              photo: verificationPhoto,
+              capturedAt: photoCapturedAt || now.toISOString(),
+            };
+          }
           const updatedMeta = {
             ...existingMeta,
             verificationPhoto,
             photoCapturedAt: photoCapturedAt || now.toISOString(),
+            companyVerificationPhotos,
           };
           await tx.candidateProfile.update({
             where: { id: candidate.id },
@@ -5470,6 +5492,18 @@ class AttemptService {
       const resumeFileName = item.metadata?.resumeFileName || (isEmailExtraction ? `${String(item.firstName || "Candidate").replace(/\s+/g, "_")}_Resume.pdf` : null);
       const resumeUrl = isEmailExtraction || item.metadata?.resumeFileName ? `/api/v1/candidates/${item.id}/resume` : null;
 
+      // Scoped verification photo: Only show verification photo if candidate actually took an assessment for THIS company
+      let scopedVerificationPhoto = null;
+      let scopedPhotoCapturedAt = null;
+
+      if (targetCompanyId && item.metadata?.companyVerificationPhotos?.[targetCompanyId]?.photo) {
+        scopedVerificationPhoto = item.metadata.companyVerificationPhotos[targetCompanyId].photo;
+        scopedPhotoCapturedAt = item.metadata.companyVerificationPhotos[targetCompanyId].capturedAt || null;
+      } else if (latestAttempt && latestAttempt.status && latestAttempt.status !== "NOT_STARTED") {
+        scopedVerificationPhoto = item.metadata?.verificationPhoto || null;
+        scopedPhotoCapturedAt = item.metadata?.photoCapturedAt || null;
+      }
+
       return {
         id: item.id,
         name: `${item.firstName || ""} ${item.lastName || ""}`.trim() || item.email,
@@ -5490,8 +5524,8 @@ class AttemptService {
         resumeUrl,
         resumeFileName,
         metadata: item.metadata || null,
-        verificationPhoto: item.metadata?.verificationPhoto || null,
-        photoCapturedAt: item.metadata?.photoCapturedAt || null,
+        verificationPhoto: scopedVerificationPhoto,
+        photoCapturedAt: scopedPhotoCapturedAt,
         addedDate: item.createdAt,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
