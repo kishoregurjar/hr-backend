@@ -81,12 +81,14 @@ const buildTrialOtpEmail = ({ otp, recipientEmail }) => {
 const buildTrialApprovalEmail = ({
   ownerName,
   companyName,
-  planName = "Demo Trial",
+  planName = "Demo Plan",
   startDate,
   endDate,
   seatLimit = 2,
   candidateLimit = 20,
   inviteLimit = 10,
+  durationDays = 7,
+  durationHours = 168,
   workspaceUrl,
 }) => {
   const safeOwner = escapeHtml(ownerName || "Organization Owner");
@@ -97,6 +99,10 @@ const buildTrialApprovalEmail = ({
   const safeSeats = escapeHtml(String(seatLimit));
   const safeCandidates = escapeHtml(String(candidateLimit));
   const safeInvites = escapeHtml(String(inviteLimit));
+  const computedDays = durationDays || (durationHours ? Math.max(1, Math.round(durationHours / 24)) : 7);
+  const computedHours = durationHours || (computedDays * 24);
+  const safeDays = escapeHtml(String(computedDays));
+  const safeHours = escapeHtml(String(computedHours));
   const safeUrl = escapeHtml(workspaceUrl);
 
   const html = `<!DOCTYPE html>
@@ -132,7 +138,7 @@ const buildTrialApprovalEmail = ({
 
     <div class="content">
       <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 0;">
-        Great news! The Super Admin team has reviewed and approved your application for <strong>${safeCompany}</strong>. Your 7-day evaluation period is now officially active.
+        Great news! The Super Admin team has reviewed and approved your application for <strong>${safeCompany}</strong>. Your ${safeDays}-day evaluation period is now officially active.
       </p>
 
       <!-- Quota Cards -->
@@ -160,7 +166,7 @@ const buildTrialApprovalEmail = ({
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
             <td style="font-size: 13px; color: #166534; padding: 6px 0; font-weight: 600;">Plan Tier:</td>
-            <td style="font-size: 13px; color: #0f172a; padding: 6px 0; text-align: right; font-weight: 700;">${safePlan} (7-Day Trial)</td>
+            <td style="font-size: 13px; color: #0f172a; padding: 6px 0; text-align: right; font-weight: 700;">${safePlan} (${safeDays}-Day Trial)</td>
           </tr>
           <tr>
             <td style="font-size: 13px; color: #166534; padding: 6px 0; font-weight: 600;">Trial Start:</td>
@@ -168,7 +174,7 @@ const buildTrialApprovalEmail = ({
           </tr>
           <tr>
             <td style="font-size: 13px; color: #166534; padding: 6px 0; font-weight: 600;">Trial Expiry:</td>
-            <td style="font-size: 13px; color: #0f172a; padding: 6px 0; text-align: right; font-weight: 600;">${safeEndDate} (168 Hours)</td>
+            <td style="font-size: 13px; color: #0f172a; padding: 6px 0; text-align: right; font-weight: 600;">${safeEndDate} (${safeHours} Hours)</td>
           </tr>
           <tr>
             <td style="font-size: 13px; color: #166534; padding: 6px 0; font-weight: 600;">Tenant Workspace:</td>
@@ -209,18 +215,18 @@ const buildTrialApprovalEmail = ({
 
 Hello ${ownerName},
 
-Congratulations! Your Demo Trial application for ${companyName} has been approved by the HireQuest Super Admin team. Your 7-day free trial is now officially active.
+Congratulations! Your Demo Trial application for ${companyName} has been approved by the HireQuest Super Admin team. Your ${safeDays}-day free trial is now officially active.
 
 Trial & Plan Information:
-- Plan Tier: ${planName} (7-Day Free Trial)
-- Trial Duration: 7 Days (exactly 168 hours)
+- Plan Tier: ${planName} (${safeDays}-Day Free Trial)
+- Trial Duration: ${safeDays} Days (exactly ${safeHours} hours)
 - Trial Start Date & Time: ${startDate}
 - Trial Expiry Date & Time: ${endDate}
 
 Included Evaluation Quotas:
-- 2 Active HR Seats (Owner free)
-- 20 Lifetime Unique Candidates Pool
-- 10 Monthly Assessment Invitations
+- ${safeSeats} Active HR Seats (Owner free)
+- ${safeCandidates} Lifetime Unique Candidates Pool
+- ${safeInvites} Monthly Assessment Invitations
 
 Open Your HireQuest Dashboard:
 ${workspaceUrl}

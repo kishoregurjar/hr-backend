@@ -63,6 +63,28 @@ const generateUniqueSlug = async (name, tx = prisma) => {
   return slug;
 };
 
+/**
+ * Resolves current Demo Trial limits from dynamic Plan catalog entry in database.
+ * Falls back to TRIAL_LIMITS constants if database entry is not available.
+ */
+const getDynamicTrialPlan = async (tx = prisma) => {
+  let demoPlan = null;
+  try {
+    demoPlan = await tx.plan.findUnique({ where: { code: "DEMO" } });
+  } catch (_) {}
+
+  return {
+    planId: demoPlan?.id || null,
+    planCode: "DEMO",
+    planName: demoPlan?.name || "Demo Plan",
+    seatLimit: demoPlan?.seatLimit ?? TRIAL_LIMITS.HR_SEATS,
+    candidateLimit: demoPlan?.candidateLimit ?? TRIAL_LIMITS.TOTAL_CANDIDATES,
+    inviteLimit: demoPlan?.inviteLimit ?? TRIAL_LIMITS.MONTHLY_INVITATIONS,
+    durationDays: demoPlan?.durationDays || 7,
+    durationHours: (demoPlan?.durationDays || 7) * 24,
+  };
+};
+
 class TrialApplicationService {
   /**
    * 1. Public Visitor: Send Email Verification OTP
@@ -505,9 +527,12 @@ class TrialApplicationService {
         });
       }
 
+      // 1. Fetch current Demo Plan configuration from database to use updated limits
+      const trialPlan = await getDynamicTrialPlan(prisma);
+
       const approvalNow = new Date();
-      // Exactly 168 hours (7 days) starting from this exact moment
-      const expiresAt = new Date(approvalNow.getTime() + TRIAL_LIMITS.DURATION_HOURS * 60 * 60 * 1000);
+      // Exactly durationHours starting from this exact moment
+      const expiresAt = new Date(approvalNow.getTime() + trialPlan.durationHours * 60 * 60 * 1000);
       const slug = await generateUniqueSlug(normalizedCompanyName);
 
       // 2. Execute Transaction
@@ -517,17 +542,36 @@ class TrialApplicationService {
 
       await prisma.$transaction(async (tx) => {
         // Step A: Create Company with safe schema fields
-        companyResult = await tx.company.create({
-          data: {
-            name: normalizedCompanyName,
-            slug,
-            website: app.website || null,
-            industry: app.industry || null,
-            description: app.businessDescription || null,
-            phone: app.phone || null,
-            status: "ACTIVE",
-          },
-        });
+        try {
+          companyResult = await tx.company.create({
+            data: {
+              name: normalizedCompanyName,
+              slug,
+              website: app.website || null,
+              industry: app.industry || null,
+              description: app.businessDescription || null,
+              phone: app.phone || null,
+              status: "ACTIVE",
+              plan: "DEMO",
+              planStatus: "ACTIVE",
+              planStartedAt: approvalNow,
+              planExpiresAt: expiresAt,
+              hasUsedDemo: true,
+            },
+          });
+        } catch (_) {
+          companyResult = await tx.company.create({
+            data: {
+              name: normalizedCompanyName,
+              slug,
+              website: app.website || null,
+              industry: app.industry || null,
+              description: app.businessDescription || null,
+              phone: app.phone || null,
+              status: "ACTIVE",
+            },
+          });
+        }
 
         // Step B: Create Owner User
         userResult = await tx.user.create({
@@ -552,25 +596,20 @@ class TrialApplicationService {
         // Step D: Create Demo Subscription record if model available
         try {
           if (tx.subscription) {
-            let demoPlan = null;
-            try {
-              demoPlan = await tx.plan.findUnique({ where: { code: "DEMO" } });
-            } catch (_) {}
-
             subscriptionResult = await tx.subscription.create({
               data: {
                 companyId: companyResult.id,
-                planId: demoPlan?.id || null,
+                planId: trialPlan.planId,
                 planCode: "DEMO",
-                planName: "Demo Plan",
+                planName: trialPlan.planName,
                 billingCycle: "MONTHLY",
                 status: "ACTIVE",
                 isTrial: true,
                 amount: 0,
                 currency: "INR",
-                seatLimit: TRIAL_LIMITS.HR_SEATS,
-                candidateLimit: TRIAL_LIMITS.TOTAL_CANDIDATES,
-                inviteLimit: TRIAL_LIMITS.MONTHLY_INVITATIONS,
+                seatLimit: trialPlan.seatLimit,
+                candidateLimit: trialPlan.candidateLimit,
+                inviteLimit: trialPlan.inviteLimit,
                 startDate: approvalNow,
                 endDate: expiresAt,
               },
@@ -631,12 +670,14 @@ class TrialApplicationService {
         const emailContent = buildTrialApprovalEmail({
           ownerName: app.ownerName,
           companyName: companyResult.name,
-          planName: "Demo Plan",
+          planName: trialPlan.planName,
           startDate: formatDate(approvalNow),
           endDate: formatDate(expiresAt),
-          seatLimit: TRIAL_LIMITS.HR_SEATS,
-          candidateLimit: TRIAL_LIMITS.TOTAL_CANDIDATES,
-          inviteLimit: TRIAL_LIMITS.MONTHLY_INVITATIONS,
+          seatLimit: trialPlan.seatLimit,
+          candidateLimit: trialPlan.candidateLimit,
+          inviteLimit: trialPlan.inviteLimit,
+          durationDays: trialPlan.durationDays,
+          durationHours: trialPlan.durationHours,
           workspaceUrl,
         });
 
@@ -685,10 +726,11 @@ class TrialApplicationService {
         trial: {
           startsAt: approvalNow,
           expiresAt,
-          durationHours: TRIAL_LIMITS.DURATION_HOURS,
-          hrSeats: TRIAL_LIMITS.HR_SEATS,
-          candidates: TRIAL_LIMITS.TOTAL_CANDIDATES,
-          invites: TRIAL_LIMITS.MONTHLY_INVITATIONS,
+          durationHours: trialPlan.durationHours,
+          durationDays: trialPlan.durationDays,
+          hrSeats: trialPlan.seatLimit,
+          candidates: trialPlan.candidateLimit,
+          invites: trialPlan.inviteLimit,
         },
       };
     } finally {
@@ -758,8 +800,40 @@ class TrialApplicationService {
       // Generate tenant workspace login URL using centralized utility
       const workspaceUrl = buildCompanyTenantUrl(company, "/login");
 
-      const approvalNow = app.reviewedAt ? new Date(app.reviewedAt) : new Date(app.updatedAt || app.createdAt);
-      const expiresAt = new Date(approvalNow.getTime() + TRIAL_LIMITS.DURATION_HOURS * 60 * 60 * 1000);
+      // Dynamic plan limit resolution: check existing subscription first, then trialPlan catalog
+      const trialPlan = await getDynamicTrialPlan(prisma);
+
+      let seatLimit = trialPlan.seatLimit;
+      let candidateLimit = trialPlan.candidateLimit;
+      let inviteLimit = trialPlan.inviteLimit;
+      let planName = trialPlan.planName;
+      let durationDays = trialPlan.durationDays;
+      let durationHours = trialPlan.durationHours;
+
+      if (prisma.subscription) {
+        try {
+          const sub = await prisma.subscription.findFirst({
+            where: { companyId: company.id },
+            orderBy: { createdAt: "desc" },
+          });
+          if (sub) {
+            if (sub.seatLimit != null) seatLimit = sub.seatLimit;
+            if (sub.candidateLimit != null) candidateLimit = sub.candidateLimit;
+            if (sub.inviteLimit != null) inviteLimit = sub.inviteLimit;
+            if (sub.planName) planName = sub.planName;
+          }
+        } catch (_) {}
+      }
+
+      const approvalNow = company.planStartedAt
+        ? new Date(company.planStartedAt)
+        : app.reviewedAt
+        ? new Date(app.reviewedAt)
+        : new Date(app.updatedAt || app.createdAt);
+
+      const expiresAt = company.planExpiresAt
+        ? new Date(company.planExpiresAt)
+        : new Date(approvalNow.getTime() + durationHours * 60 * 60 * 1000);
 
       const formatDate = (date) =>
         new Intl.DateTimeFormat("en-IN", {
@@ -774,12 +848,14 @@ class TrialApplicationService {
         const emailContent = buildTrialApprovalEmail({
           ownerName: app.ownerName,
           companyName: company.name,
-          planName: "Demo Plan",
+          planName,
           startDate: formatDate(approvalNow),
           endDate: formatDate(expiresAt),
-          seatLimit: TRIAL_LIMITS.HR_SEATS,
-          candidateLimit: TRIAL_LIMITS.TOTAL_CANDIDATES,
-          inviteLimit: TRIAL_LIMITS.MONTHLY_INVITATIONS,
+          seatLimit,
+          candidateLimit,
+          inviteLimit,
+          durationDays,
+          durationHours,
           workspaceUrl,
         });
 
