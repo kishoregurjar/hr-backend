@@ -103,7 +103,7 @@ const sendPurchaseConfirmationEmailSafely = async ({ paymentId }) => {
       return;
     }
 
-    const workspaceUrl = buildCompanyTenantUrl(payment.company, "/dashboard");
+    const workspaceUrl = buildCompanyTenantUrl(payment.company, "/login");
 
     const sub = payment.subscription;
     const now = payment.paidAt ? new Date(payment.paidAt) : new Date(payment.createdAt);

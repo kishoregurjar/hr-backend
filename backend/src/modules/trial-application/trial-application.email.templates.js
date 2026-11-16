@@ -185,14 +185,14 @@ const buildTrialApprovalEmail = ({
 
       <!-- Login CTA Button -->
       <a href="${safeUrl}" class="btn" target="_blank" rel="noopener noreferrer">
-        Open Your HireQuest Dashboard &rarr;
+        Open Your ${safeCompany} Workspace &rarr;
       </a>
 
       <!-- Step-by-Step Instructions -->
       <div style="background: #f8fafc; border-radius: 12px; padding: 18px; margin-top: 20px; border: 1px solid #e2e8f0;">
         <h4 style="margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569;">Login Instructions:</h4>
         <ol style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: #334155;">
-          <li>Click the <strong>Open Your HireQuest Dashboard</strong> button above or navigate directly to your workspace URL: <code>${safeUrl}</code>.</li>
+          <li>Click the <strong>Open Your ${safeCompany} Workspace</strong> button above or navigate directly to your workspace URL: <code>${safeUrl}</code>.</li>
           <li>Log in using your registered business email and the password you set during registration.</li>
           <li>Invite your HR recruitment team, build your custom assessments, and start screening candidates immediately.</li>
         </ol>
@@ -228,7 +228,7 @@ Included Evaluation Quotas:
 - ${safeCandidates} Lifetime Unique Candidates Pool
 - ${safeInvites} Monthly Assessment Invitations
 
-Open Your HireQuest Dashboard:
+Open Your ${companyName} Workspace:
 ${workspaceUrl}
 
 Login Instructions:

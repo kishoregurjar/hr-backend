@@ -173,7 +173,7 @@ const buildSubscriptionPurchaseEmail = ({
     <!-- Prominent Call to Action Button -->
     <div style="text-align: center; margin: 32px 0 24px 0;">
       <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 14px 36px; border-radius: 12px; font-weight: 800; font-size: 15px; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35); letter-spacing: -0.2px;">
-        Open Your HireQuest Workspace &rarr;
+        Open Your ${safeCompany} Workspace &rarr;
       </a>
       <p style="margin: 12px 0 0 0; font-size: 11px; color: #94a3b8;">
         Direct Tenant Link: <a href="${safeUrl}" style="color: #4f46e5; text-decoration: underline; word-break: break-all;">${safeUrl}</a>
@@ -219,9 +219,9 @@ SUBSCRIPTION DETAILS & QUOTAS:
 - Lifetime Talent Pool: ${candidateLimit} unique candidates
 - Monthly Assessment Invites: ${inviteLimit} invitations/month
 
-OPEN YOUR WORKSPACE:
+OPEN YOUR ${safeCompany.toUpperCase()} WORKSPACE:
 ---------------------------------------------
-Access your workspace dashboard using the following link:
+Access your ${safeCompany} workspace using the following link:
 ${workspaceUrl}
 
 Need support? Contact us at ${supportEmail}.
