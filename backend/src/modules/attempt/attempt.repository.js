@@ -804,6 +804,19 @@ class AttemptRepository {
       include: {
         assessment: {
           include: {
+            company: {
+              select: {
+                id: true,
+                name: true,
+                logoUrl: true,
+                slug: true,
+                brandColor: true,
+                accentColor: true,
+                faviconUrl: true,
+                brandTagline: true,
+                showPoweredByHireQuest: true,
+              },
+            },
             questions: {
               orderBy: { orderIndex: "asc" },
               include: {
@@ -1048,6 +1061,19 @@ class AttemptRepository {
       include: {
         assessment: {
           include: {
+            company: {
+              select: {
+                id: true,
+                name: true,
+                logoUrl: true,
+                slug: true,
+                brandColor: true,
+                accentColor: true,
+                faviconUrl: true,
+                brandTagline: true,
+                showPoweredByHireQuest: true,
+              },
+            },
             questions: {
               orderBy: {
                 orderIndex: "asc",
@@ -1140,6 +1166,19 @@ class AttemptRepository {
       include: {
         assessment: {
           include: {
+            company: {
+              select: {
+                id: true,
+                name: true,
+                logoUrl: true,
+                slug: true,
+                brandColor: true,
+                accentColor: true,
+                faviconUrl: true,
+                brandTagline: true,
+                showPoweredByHireQuest: true,
+              },
+            },
             questions: {
               orderBy: {
                 orderIndex: "asc",
@@ -1195,6 +1234,19 @@ class AttemptRepository {
       include: {
         assessment: {
           include: {
+            company: {
+              select: {
+                id: true,
+                name: true,
+                logoUrl: true,
+                slug: true,
+                brandColor: true,
+                accentColor: true,
+                faviconUrl: true,
+                brandTagline: true,
+                showPoweredByHireQuest: true,
+              },
+            },
             questions: {
               orderBy: {
                 orderIndex: "asc",

@@ -47,49 +47,55 @@ function getLocalDevPort() {
  *    - Fallback: "https://<rootDomain>"
  */
 function resolveCompanyOrigin(company) {
-  const rootDomain = process.env.ROOT_DOMAIN || "hirequest.com";
-  const isProduction = process.env.NODE_ENV === "production";
+  const rawClientUrl = process.env.CLIENT_URL || env.frontend?.url || "";
+  const clientUrl = rawClientUrl ? rawClientUrl.trim().replace(/\/+$/, "") : null;
+  const isLocalClient = !clientUrl || clientUrl.includes("localhost") || clientUrl.includes("127.0.0.1");
+  const nodeEnv = (process.env.NODE_ENV || "").trim().toLowerCase();
+  const isProduction = nodeEnv === "production" || !isLocalClient;
+
+  const hasCustomWildcardDomain = Boolean(
+    process.env.ROOT_DOMAIN &&
+    !process.env.ROOT_DOMAIN.includes("vercel.app") &&
+    process.env.ROOT_DOMAIN !== "hirequest.com"
+  );
+  const rootDomain = (process.env.ROOT_DOMAIN || "hirequest.com").toLowerCase();
   const devPort = getLocalDevPort();
   const localRootOrigin = `http://localhost:${devPort}`;
-  const prodRootOrigin = `https://${rootDomain}`;
+  const prodRootOrigin = clientUrl || `https://${rootDomain}`;
 
+  // If no company context, return root origin based on environment
   if (!company) {
     return isProduction ? prodRootOrigin : localRootOrigin;
-  }
-
-  // If company explicitly specifies SUBDOMAIN mode, prefer slug over customDomain
-  if (company.domainMode === "SUBDOMAIN") {
-    const slug = company.slug ? company.slug.trim().toLowerCase() : null;
-    if (isProduction) {
-      return slug ? `https://${slug}.${rootDomain}` : prodRootOrigin;
-    }
-    return slug ? `http://${slug}.localhost:${devPort}` : localRootOrigin;
   }
 
   const customDomain = company.customDomain ? normalizeDomainString(company.customDomain) : null;
   const slug = company.slug ? company.slug.trim().toLowerCase() : null;
 
-  if (isProduction) {
-    // In production, custom domain is only honored if verified
+  // 1. Live Production or Single-Domain (e.g. *.vercel.app, live domain)
+  if (isProduction && !isLocalClient) {
+    // If company has verified enterprise custom domain
     if (customDomain && company.customDomainVerified === true) {
       return `https://${customDomain}`;
     }
-    // Subdomain fallback
-    if (slug) {
+    // If real custom wildcard subdomains are active (e.g. *.yourdomain.com)
+    if (hasCustomWildcardDomain && slug) {
       return `https://${slug}.${rootDomain}`;
     }
+    // Single-domain platform root on Vercel: enforce prodRootOrigin
     return prodRootOrigin;
   }
 
-  // Local Development Simulation
+  // 2. Local Development (when CLIENT_URL is localhost)
+  if (company.domainMode === "SUBDOMAIN") {
+    return slug ? `http://${slug}.localhost:${devPort}` : localRootOrigin;
+  }
+
   if (customDomain) {
-    // e.g. "facebookcompany.com" -> simulation hostname "facebookcompany.localhost:3000"
     const simName = customDomain.split(".")[0];
     return `http://${simName}.localhost:${devPort}`;
   }
 
   if (slug) {
-    // e.g. "facebook" -> "facebook.localhost:3000"
     return `http://${slug}.localhost:${devPort}`;
   }
 
@@ -138,9 +144,16 @@ function buildCompanyTenantUrl(company, pathname = "/", queryParams = {}) {
   const cleanPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
   const url = new URL(cleanPath, origin);
 
-  // In local development, attach ?tenant=<slug> as a transparent backward-compatibility fallback
-  if (process.env.NODE_ENV !== "production" && company?.slug) {
-    url.searchParams.set("tenant", company.slug);
+  // If in local development OR if using single-domain deployment (e.g. *.vercel.app),
+  // attach ?tenant=<slug> so company workspace context is preserved on platform root
+  if (company?.slug) {
+    const urlHostname = url.hostname.toLowerCase();
+    const isDedicatedSubdomain = urlHostname.startsWith(`${company.slug.toLowerCase()}.`);
+
+    // Attach ?tenant= whenever not already on a dedicated subdomain
+    if (!isDedicatedSubdomain || process.env.NODE_ENV !== "production") {
+      url.searchParams.set("tenant", company.slug);
+    }
   }
 
   if (queryParams && typeof queryParams === "object") {
