@@ -313,7 +313,7 @@ const getCompany = async (companyId) => {
   }
 
   const { getCompanyUsage } = require("../plan");
-  const planData = await getCompanyUsage(companyId);
+  const planData = await getCompanyUsage(company);
 
   const mapped = mapCompanyDetail(company);
   return {

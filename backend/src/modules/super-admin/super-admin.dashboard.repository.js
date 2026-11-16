@@ -66,11 +66,9 @@ const getPlatformStatistics = async (tx = prisma) => {
 const getCompanyStatistics = async (companyId, tx = prisma) => {
   const [
     company,
-    memberCount,
     activeMemberCount,
     pendingInvitationCount,
     activeJobCount,
-    totalJobCount,
     ownerActivation,
   ] = await Promise.all([
     tx.company.findUnique({
@@ -83,12 +81,12 @@ const getCompanyStatistics = async (companyId, tx = prisma) => {
         slug: true,
         status: true,
         createdAt: true,
-      },
-    }),
-
-    tx.companyMember.count({
-      where: {
-        companyId,
+        _count: {
+          select: {
+            members: true,
+            jobs: true,
+          },
+        },
       },
     }),
 
@@ -118,12 +116,6 @@ const getCompanyStatistics = async (companyId, tx = prisma) => {
       },
     }),
 
-    tx.job.count({
-      where: {
-        companyId,
-      },
-    }),
-
     tx.companyOwnerActivation.findFirst({
       where: {
         user: {
@@ -144,11 +136,11 @@ const getCompanyStatistics = async (companyId, tx = prisma) => {
 
   return {
     company,
-    memberCount,
+    memberCount: company?._count?.members || 0,
     activeMemberCount,
     pendingInvitationCount,
     activeJobCount,
-    totalJobCount,
+    totalJobCount: company?._count?.jobs || 0,
     ownerActivation,
   };
 };

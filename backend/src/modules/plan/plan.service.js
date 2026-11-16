@@ -24,7 +24,7 @@ const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
  * Prioritizes active Subscription snapshot if present (preserving original purchase terms).
  * Falls back to Company model plan and custom limit fields.
  */
-const getEffectivePlanLimits = async (company, tx = prisma) => {
+const getEffectivePlanLimits = async (company, tx = prisma, preloadedSubscription = undefined) => {
   if (!company) {
     return {
       name: "Starter",
@@ -37,17 +37,22 @@ const getEffectivePlanLimits = async (company, tx = prisma) => {
     };
   }
 
-  // 1. Check for an active Subscription snapshot
+  // 1. Check for an active Subscription snapshot (use preloaded if provided)
   if (company.id) {
     try {
-      const activeSubscription = await tx.subscription.findFirst({
-        where: {
-          companyId: company.id,
-          status: SUBSCRIPTION_STATUS.ACTIVE,
-          endDate: { gte: new Date() },
-        },
-        orderBy: { createdAt: "desc" },
-      });
+      const activeSubscription =
+        preloadedSubscription !== undefined
+          ? (preloadedSubscription?.status === SUBSCRIPTION_STATUS.ACTIVE && new Date(preloadedSubscription.endDate) >= new Date()
+              ? preloadedSubscription
+              : null)
+          : await tx.subscription.findFirst({
+              where: {
+                companyId: company.id,
+                status: SUBSCRIPTION_STATUS.ACTIVE,
+                endDate: { gte: new Date() },
+              },
+              orderBy: { createdAt: "desc" },
+            });
 
       if (activeSubscription) {
         return {
@@ -118,7 +123,7 @@ const getEffectivePlanLimits = async (company, tx = prisma) => {
  * Checks whether a company's plan has expired or been cancelled.
  * Automatically transitions status in DB if past planExpiresAt or subscription endDate.
  */
-const checkCompanyPlanStatus = async (company, tx = prisma) => {
+const checkCompanyPlanStatus = async (company, tx = prisma, preloadedSubscription = undefined) => {
   if (!company) return { isExpired: false };
 
   const currentStatus = company.planStatus || COMPANY_PLAN_STATUS.ACTIVE;
@@ -138,16 +143,28 @@ const checkCompanyPlanStatus = async (company, tx = prisma) => {
 
   const now = new Date();
 
+  // Fast-path: If company is active and expiration is comfortably in the future, avoid querying DB
+  if (
+    currentStatus === COMPANY_PLAN_STATUS.ACTIVE &&
+    company.planExpiresAt &&
+    new Date(company.planExpiresAt) > now
+  ) {
+    return { isExpired: false, status: currentStatus };
+  }
+
   // Check active subscription expiration if present
   if (company.id) {
     try {
-      const activeSubscription = await tx.subscription.findFirst({
-        where: {
-          companyId: company.id,
-          status: SUBSCRIPTION_STATUS.ACTIVE,
-        },
-        orderBy: { createdAt: "desc" },
-      });
+      const activeSubscription =
+        preloadedSubscription !== undefined
+          ? preloadedSubscription
+          : await tx.subscription.findFirst({
+              where: {
+                companyId: company.id,
+                status: SUBSCRIPTION_STATUS.ACTIVE,
+              },
+              orderBy: { createdAt: "desc" },
+            });
 
       if (activeSubscription && activeSubscription.endDate <= now) {
         const newStatus = activeSubscription.isTrial
@@ -260,23 +277,30 @@ const getStartOfCurrentMonth = () => {
 /**
  * Retrieves comprehensive usage data and quota limits for a company.
  */
-const getCompanyUsage = async (companyId, tx = prisma) => {
-  const company = await tx.company.findUnique({
-    where: { id: companyId },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      plan: true,
-      planStatus: true,
-      planStartedAt: true,
-      planExpiresAt: true,
-      customSeatLimit: true,
-      customCandidateLimit: true,
-      customInviteLimit: true,
-      hasUsedDemo: true,
-    },
-  });
+const getCompanyUsage = async (companyOrId, tx = prisma) => {
+  let company =
+    typeof companyOrId === "object" && companyOrId !== null && companyOrId.id
+      ? companyOrId
+      : null;
+
+  if (!company) {
+    company = await tx.company.findUnique({
+      where: { id: companyOrId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        plan: true,
+        planStatus: true,
+        planStartedAt: true,
+        planExpiresAt: true,
+        customSeatLimit: true,
+        customCandidateLimit: true,
+        customInviteLimit: true,
+        hasUsedDemo: true,
+      },
+    });
+  }
 
   if (!company) {
     throw new AppError("Company not found", {
@@ -286,29 +310,32 @@ const getCompanyUsage = async (companyId, tx = prisma) => {
     });
   }
 
-  // Refresh status if expired
-  await checkCompanyPlanStatus(company, tx);
+  const companyId = company.id;
 
-  const limits = await getEffectivePlanLimits(company, tx);
-  const startOfMonth = getStartOfCurrentMonth();
-
-  // Find active subscription if exists
-  let activeSubscription = await tx.subscription.findFirst({
-    where: {
-      companyId,
-      status: SUBSCRIPTION_STATUS.ACTIVE,
-      endDate: { gte: new Date() },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // If no currently active subscription, fetch the most recent subscription snapshot
-  if (!activeSubscription) {
-    activeSubscription = await tx.subscription.findFirst({
+  // Single subscription query for both active and latest snapshot (replaces multiple sequential queries)
+  let activeSubscription = null;
+  try {
+    const recentSubs = await tx.subscription.findMany({
       where: { companyId },
       orderBy: { createdAt: "desc" },
+      take: 2,
     });
+    activeSubscription =
+      recentSubs.find(
+        (s) => s.status === SUBSCRIPTION_STATUS.ACTIVE && new Date(s.endDate) >= new Date()
+      ) ||
+      recentSubs[0] ||
+      null;
+  } catch (_) {
+    activeSubscription = null;
   }
+
+  // Refresh status if expired, passing preloaded subscription
+  await checkCompanyPlanStatus(company, tx, activeSubscription);
+
+  // Get effective plan limits using preloaded subscription
+  const limits = await getEffectivePlanLimits(company, tx, activeSubscription);
+  const startOfMonth = getStartOfCurrentMonth();
 
   const [activeHrSeats, totalCandidates, monthlyInvitations] = await Promise.all([
     // Active HR Seats: ADMIN or RECRUITER with User.status === 'ACTIVE'. (OWNER does not consume a seat)

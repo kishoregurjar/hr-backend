@@ -16,21 +16,20 @@ const auditService = require("../company/company.audit.service");
 const { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } = require("../company/company.audit.constants");
 
 const getCompanyOwner = async (companyId) => {
-  const company = await ownerRepository.findCompanyById(companyId);
-
-  if (!company) {
-    const error = new Error(
-      SUPER_ADMIN_OWNER_MANAGEMENT_CONSTANTS.ERROR_CODES.COMPANY_NOT_FOUND
-    );
-    error.statusCode = 404;
-    error.code =
-      SUPER_ADMIN_OWNER_MANAGEMENT_CONSTANTS.ERROR_CODES.COMPANY_NOT_FOUND;
-    throw error;
-  }
-
   const membership = await ownerRepository.findCompanyOwner(companyId);
 
   if (!membership) {
+    const company = await ownerRepository.findCompanyById(companyId);
+    if (!company) {
+      const error = new Error(
+        SUPER_ADMIN_OWNER_MANAGEMENT_CONSTANTS.ERROR_CODES.COMPANY_NOT_FOUND
+      );
+      error.statusCode = 404;
+      error.code =
+        SUPER_ADMIN_OWNER_MANAGEMENT_CONSTANTS.ERROR_CODES.COMPANY_NOT_FOUND;
+      throw error;
+    }
+
     const error = new Error(
       SUPER_ADMIN_OWNER_MANAGEMENT_CONSTANTS.ERROR_CODES.OWNER_NOT_FOUND
     );
