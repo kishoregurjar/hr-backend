@@ -16,7 +16,7 @@ const createCompanyContextError = (message, code, statusCode) => {
   });
 };
 
-const resolveCompanyContext = async (userId, companyId, isSuperAdmin = false) => {
+const resolveCompanyContext = async (userId, companyId, isSuperAdmin = false, options = {}) => {
   if (!companyId || typeof companyId !== "string" || !companyId.trim()) {
     throw createCompanyContextError(
       "Active company context (X-Company-Id header or companyId parameter) is required",
@@ -28,27 +28,32 @@ const resolveCompanyContext = async (userId, companyId, isSuperAdmin = false) =>
   const cleanCompanyId = companyId.trim();
   const cacheKey = `${userId}:${cleanCompanyId}:${isSuperAdmin ? "superadmin" : "member"}`;
   const cached = contextCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.data;
-  }
-
   let company = null;
+  let member = null;
 
-  if (isSuperAdmin) {
-    company = await companyRepository.findCompanyById(cleanCompanyId);
-    if (company && (!company.members || !company.members.length)) {
-      company.members = [{ role: "OWNER", userId }];
-    }
+  if (cached && cached.expiresAt > Date.now()) {
+    company = cached.data.company;
+    member = cached.data.member;
   } else {
-    company = await companyRepository.findCompanyContext(cleanCompanyId, userId);
-  }
+    if (isSuperAdmin) {
+      company = await companyRepository.findCompanyById(cleanCompanyId);
+      if (company && (!company.members || !company.members.length)) {
+        company.members = [{ role: "OWNER", userId }];
+      }
+    } else {
+      company = await companyRepository.findCompanyContext(cleanCompanyId, userId);
+    }
 
-  if (!company || !company.members || !company.members.length) {
-    throw createCompanyContextError(
-      "Company access denied",
-      COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
-      403
-    );
+    if (!company || !company.members || !company.members.length) {
+      throw createCompanyContextError(
+        "Company access denied",
+        COMPANY_CONSTANTS.ERROR_CODES.COMPANY_ACCESS_DENIED,
+        403
+      );
+    }
+
+    member = company.members[0];
+    contextCache.set(cacheKey, { data: { company, member }, expiresAt: Date.now() + CONTEXT_CACHE_TTL });
   }
 
   if (company.status === "SUSPENDED") {
@@ -59,13 +64,22 @@ const resolveCompanyContext = async (userId, companyId, isSuperAdmin = false) =>
     );
   }
 
-  const result = {
-    company,
-    member: company.members[0],
-  };
+  if (!isSuperAdmin && !options.allowExpiredPlan) {
+    const { checkCompanyPlanStatus } = require("../plan");
+    const planCheck = await checkCompanyPlanStatus(company);
+    if (planCheck.isExpired) {
+      throw createCompanyContextError(
+        "Your plan has expired. Please contact the platform administrator to purchase or renew your subscription.",
+        "PLAN_EXPIRED",
+        403
+      );
+    }
+  }
 
-  contextCache.set(cacheKey, { data: result, expiresAt: Date.now() + CONTEXT_CACHE_TTL });
-  return result;
+  return {
+    company,
+    member,
+  };
 };
 
 const clearCompanyContextCache = (userId) => {

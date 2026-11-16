@@ -213,6 +213,11 @@ const createInvitation = async (
           );
         }
 
+        const { assertCanAddHrSeat } = require("../plan");
+        if (validatedData.role === "ADMIN" || validatedData.role === "RECRUITER") {
+          await assertCanAddHrSeat(companyId, 1, tx);
+        }
+
         try {
           invitation = await companyInvitationRepository.createInvitation(
             {
@@ -453,6 +458,11 @@ const acceptInvitation = async (
     }
 
     let member;
+
+    const { assertCanAddHrSeat } = require("../plan");
+    if (invitation.role === "ADMIN" || invitation.role === "RECRUITER") {
+      await assertCanAddHrSeat(invitation.companyId, 1, tx);
+    }
 
     try {
       member = await companyRepository.createMember(

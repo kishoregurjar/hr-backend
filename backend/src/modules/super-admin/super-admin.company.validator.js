@@ -109,6 +109,18 @@ const createSuperAdminCompanySchema = z
       .max(SUPER_ADMIN_COMPANY_CONSTANTS.COUNTRY.MAX_LENGTH)
       .optional()
       .nullable(),
+
+    plan: z
+      .preprocess(
+        (val) => (typeof val === "string" ? val.toUpperCase().trim() : val),
+        z.enum(["DEMO", "STARTER", "GROWTH", "BUSINESS", "ENTERPRISE"])
+      )
+      .default("STARTER")
+      .optional(),
+
+    customSeatLimit: z.coerce.number().int().positive().nullable().optional(),
+    customCandidateLimit: z.coerce.number().int().positive().nullable().optional(),
+    customInviteLimit: z.coerce.number().int().positive().nullable().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.domainMode === "CUSTOM_DOMAIN") {

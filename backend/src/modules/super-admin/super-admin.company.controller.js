@@ -126,6 +126,28 @@ class SuperAdminCompanyController {
       StatusCodes.OK
     );
   });
+
+  updateCompanyPlan = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const auditContext = auditService.createRequestAuditContext(req);
+    const actorUserId = req.user?.id || null;
+
+    const company = await superAdminCompanyService.updateCompanyPlan(
+      companyId,
+      req.body,
+      auditContext,
+      actorUserId
+    );
+
+    return SuccessResponse.send(
+      res,
+      {
+        message: "Company plan updated successfully",
+        data: { company },
+      },
+      StatusCodes.OK
+    );
+  });
 }
 
 module.exports = new SuperAdminCompanyController();

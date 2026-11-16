@@ -97,6 +97,13 @@ class AuthService {
             city: true,
             country: true,
             description: true,
+            plan: true,
+            planStatus: true,
+            planStartedAt: true,
+            planExpiresAt: true,
+            customSeatLimit: true,
+            customCandidateLimit: true,
+            customInviteLimit: true,
           },
         },
       },
@@ -107,6 +114,13 @@ class AuthService {
       name: m.company.name,
       slug: m.company.slug,
       status: m.company.status,
+      plan: m.company.plan,
+      planStatus: m.company.planStatus,
+      planStartedAt: m.company.planStartedAt,
+      planExpiresAt: m.company.planExpiresAt,
+      customSeatLimit: m.company.customSeatLimit,
+      customCandidateLimit: m.company.customCandidateLimit,
+      customInviteLimit: m.company.customInviteLimit,
       logoUrl: m.company.logoUrl || null,
       website: m.company.website || null,
       websiteUrl: m.company.website || null,
@@ -187,6 +201,16 @@ class AuthService {
         const error = new Error("This organization has been suspended. Please contact platform support.");
         error.statusCode = 403;
         error.code = "COMPANY_SUSPENDED";
+        throw error;
+      }
+
+      // Check Company Plan Expiry
+      const { checkCompanyPlanStatus } = require("../plan");
+      const planCheck = await checkCompanyPlanStatus(resolvedTenant);
+      if (planCheck.isExpired) {
+        const error = new Error("Your plan has expired. Please contact the platform administrator to purchase or renew your subscription.");
+        error.statusCode = 403;
+        error.code = "PLAN_EXPIRED";
         throw error;
       }
 
@@ -298,6 +322,16 @@ class AuthService {
         const error = new Error("You do not have access to this organization's workspace.");
         error.statusCode = 403;
         error.code = "TENANT_ACCESS_DENIED";
+        throw error;
+      }
+
+      // Check Company Plan Expiry on Refresh
+      const { checkCompanyPlanStatus } = require("../plan");
+      const planCheck = await checkCompanyPlanStatus(resolvedTenant);
+      if (planCheck.isExpired) {
+        const error = new Error("Your plan has expired. Please contact the platform administrator to purchase or renew your subscription.");
+        error.statusCode = 403;
+        error.code = "PLAN_EXPIRED";
         throw error;
       }
     } else {

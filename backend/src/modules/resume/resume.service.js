@@ -379,119 +379,126 @@ async function createCandidateIfRequired({
   }
 
   return await withCandidateLock(email, async () => {
-    const db = tx || prisma;
-    const existingCandidate = await repository.findCandidateByEmail(email, db);
+    const runInTx = async (db) => {
+      const existingCandidate = await repository.findCandidateByEmail(email, db);
 
-    if (existingCandidate) {
-      if (existingCandidate.role === "SUPER_ADMIN") {
-        throw createApplicationError(
-          "CANDIDATE_EMAIL_CONFLICT",
-          "Resume email belongs to a non-candidate account",
-          409
-        );
-      }
-
-      let isTargetCompanyMember = false;
-      if (companyId) {
-        if (Array.isArray(existingCandidate.companyMembers)) {
-          isTargetCompanyMember = existingCandidate.companyMembers.some(
-            (m) => m.companyId === companyId
+      if (existingCandidate) {
+        if (existingCandidate.role === "SUPER_ADMIN") {
+          throw createApplicationError(
+            "CANDIDATE_EMAIL_CONFLICT",
+            "Resume email belongs to a non-candidate account",
+            409
           );
-        } else if (db?.companyMember?.findFirst) {
-          const member = await db.companyMember.findFirst({
-            where: { userId: existingCandidate.id, companyId },
-            select: { id: true },
-          });
-          isTargetCompanyMember = !!member;
         }
+
+        let isTargetCompanyMember = false;
+        if (companyId) {
+          if (Array.isArray(existingCandidate.companyMembers)) {
+            isTargetCompanyMember = existingCandidate.companyMembers.some(
+              (m) => m.companyId === companyId
+            );
+          } else if (db?.companyMember?.findFirst) {
+            const member = await db.companyMember.findFirst({
+              where: { userId: existingCandidate.id, companyId },
+              select: { id: true },
+            });
+            isTargetCompanyMember = !!member;
+          }
+        }
+
+        if (isTargetCompanyMember) {
+          throw createApplicationError(
+            "CANDIDATE_EMAIL_CONFLICT",
+            "Resume email belongs to a non-candidate account",
+            409
+          );
+        }
+
+        await repository.ensureCandidateProfile(existingCandidate, safeExtractedData, companyId, db);
+
+        return {
+          candidate: existingCandidate,
+          created: false,
+        };
       }
 
-      if (isTargetCompanyMember) {
-        throw createApplicationError(
-          "CANDIDATE_EMAIL_CONFLICT",
-          "Resume email belongs to a non-candidate account",
-          409
-        );
-      }
+      const temporaryPassword = generateTemporaryPassword();
+      const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
-      await repository.ensureCandidateProfile(existingCandidate, safeExtractedData, companyId, db);
-
-      return {
-        candidate: existingCandidate,
-        created: false,
-      };
-    }
-
-    const temporaryPassword = generateTemporaryPassword();
-    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
-
-    const candidateData = buildCandidateCreateData({
-      extractedData: {
-        ...safeExtractedData,
-        email,
-      },
-      passwordHash,
-    });
-
-    try {
-      const candidate = await repository.createCandidate(candidateData, db);
-      await repository.ensureCandidateProfile(candidate, safeExtractedData, companyId, db);
-
-      return {
-        candidate,
-        created: true,
-      };
-    } catch (error) {
-      if (error?.code === "P2002") {
-        // Fallback on clean connection to prevent 25P02 transaction abortion
-        const recoveryDb = (tx && tx !== prisma && typeof tx.$executeRaw === "function") ? prisma : db;
-        const concurrentCandidate = await repository.findCandidateByEmail(
+      const candidateData = buildCandidateCreateData({
+        extractedData: {
+          ...safeExtractedData,
           email,
-          recoveryDb
-        );
+        },
+        passwordHash,
+      });
 
-        if (concurrentCandidate) {
-          if (concurrentCandidate.role === "SUPER_ADMIN") {
-            throw createApplicationError(
-              "CANDIDATE_EMAIL_CONFLICT",
-              "Resume email belongs to a non-candidate account",
-              409
-            );
-          }
+      try {
+        const candidate = await repository.createCandidate(candidateData, db);
+        await repository.ensureCandidateProfile(candidate, safeExtractedData, companyId, db);
 
-          let isTargetCompanyMember = false;
-          if (companyId) {
-            if (Array.isArray(concurrentCandidate.companyMembers)) {
-              isTargetCompanyMember = concurrentCandidate.companyMembers.some(
-                (m) => m.companyId === companyId
+        return {
+          candidate,
+          created: true,
+        };
+      } catch (error) {
+        if (error?.code === "P2002") {
+          const recoveryDb = prisma;
+          const concurrentCandidate = await repository.findCandidateByEmail(
+            email,
+            recoveryDb
+          );
+
+          if (concurrentCandidate) {
+            if (concurrentCandidate.role === "SUPER_ADMIN") {
+              throw createApplicationError(
+                "CANDIDATE_EMAIL_CONFLICT",
+                "Resume email belongs to a non-candidate account",
+                409
               );
-            } else if (recoveryDb?.companyMember?.findFirst) {
-              const member = await recoveryDb.companyMember.findFirst({
-                where: { userId: concurrentCandidate.id, companyId },
-                select: { id: true },
-              });
-              isTargetCompanyMember = !!member;
             }
-          }
 
-          if (isTargetCompanyMember) {
-            throw createApplicationError(
-              "CANDIDATE_EMAIL_CONFLICT",
-              "Resume email belongs to a non-candidate account",
-              409
-            );
-          }
+            let isTargetCompanyMember = false;
+            if (companyId) {
+              if (Array.isArray(concurrentCandidate.companyMembers)) {
+                isTargetCompanyMember = concurrentCandidate.companyMembers.some(
+                  (m) => m.companyId === companyId
+                );
+              } else if (recoveryDb?.companyMember?.findFirst) {
+                const member = await recoveryDb.companyMember.findFirst({
+                  where: { userId: concurrentCandidate.id, companyId },
+                  select: { id: true },
+                });
+                isTargetCompanyMember = !!member;
+              }
+            }
 
-          await repository.ensureCandidateProfile(concurrentCandidate, safeExtractedData, companyId, recoveryDb);
-          return {
-            candidate: concurrentCandidate,
-            created: false,
-          };
+            if (isTargetCompanyMember) {
+              throw createApplicationError(
+                "CANDIDATE_EMAIL_CONFLICT",
+                "Resume email belongs to a non-candidate account",
+                409
+              );
+            }
+
+            await repository.ensureCandidateProfile(concurrentCandidate, safeExtractedData, companyId, recoveryDb);
+            return {
+              candidate: concurrentCandidate,
+              created: false,
+            };
+          }
         }
-      }
 
-      throw error;
+        throw error;
+      }
+    };
+
+    if (tx && tx !== prisma) {
+      return await runInTx(tx);
     }
+    return await prisma.$transaction(async (t) => {
+      return await runInTx(t);
+    }, { timeout: 15000 });
   });
 }
 

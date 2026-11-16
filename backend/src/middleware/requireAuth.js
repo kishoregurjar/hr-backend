@@ -95,6 +95,19 @@ const requireAuth = async (req, res, next) => {
           isOperational: true,
         });
       }
+
+      // Check Company Plan Expiry for non-Super Admin users (exempted if route explicitly sets req.allowExpiredPlan, e.g. payment renewal)
+      if (targetMembership?.company && !req.allowExpiredPlan) {
+        const { checkCompanyPlanStatus } = require("../modules/plan");
+        const planCheck = await checkCompanyPlanStatus(targetMembership.company);
+        if (planCheck.isExpired) {
+          throw new AppError("Your plan has expired. Please contact the platform administrator to purchase or renew your subscription.", {
+            statusCode: 403,
+            code: "PLAN_EXPIRED",
+            isOperational: true,
+          });
+        }
+      }
     }
 
     return next();

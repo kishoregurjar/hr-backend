@@ -13,11 +13,17 @@ const { supportSuperAdminRoutes } = require("../support");
 const { publicContactSuperAdminRoutes } = require("../public-contact");
 
 const superAdminAnalyticsRoutes = require("./super-admin.analytics.routes");
+const superAdminPlansRoutes = require("./super-admin.plans.routes");
+const superAdminPaymentsRoutes = require("./super-admin.payments.routes");
+const superAdminTrialRequestsRoutes = require("./super-admin.trial-requests.routes");
 
 router.use("/games", superAdminGameRoutes);
 router.use("/companies", superAdminOwnerManagementRoutes);
 router.use("/support", supportSuperAdminRoutes);
 router.use("/contact-inquiries", publicContactSuperAdminRoutes);
+router.use(superAdminPaymentsRoutes);
+router.use(superAdminPlansRoutes);
+router.use(superAdminTrialRequestsRoutes);
 router.use(superAdminAnalyticsRoutes);
 router.use(superAdminCompanyRoutes);
 router.use(superAdminDashboardRoutes);

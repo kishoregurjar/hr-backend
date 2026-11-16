@@ -233,6 +233,11 @@ const inviteMember = async (companyId, role, payload) => {
       throw error;
     }
 
+    const { assertCanAddHrSeat } = require("../plan");
+    if (validatedData.role === "ADMIN" || validatedData.role === "RECRUITER") {
+      await assertCanAddHrSeat(companyId, 1, tx);
+    }
+
     const member = await companyRepository.createMember(
       {
         companyId,
@@ -321,6 +326,16 @@ const updateMemberRole = async (
   }
 
   const updatedMember = await prisma.$transaction(async (tx) => {
+    const { assertCanAddHrSeat } = require("../plan");
+    const isGainingSeat =
+      (role === "ADMIN" || role === "RECRUITER") &&
+      member.role !== "ADMIN" &&
+      member.role !== "RECRUITER";
+
+    if (isGainingSeat) {
+      await assertCanAddHrSeat(companyId, 1, tx);
+    }
+
     const updated = await companyRepository.updateMemberRole(
       member.id,
       role,
@@ -609,6 +624,11 @@ const reactivateMember = async (
   }
 
   await prisma.$transaction(async (tx) => {
+    const { assertCanAddHrSeat } = require("../plan");
+    if (member.role === "ADMIN" || member.role === "RECRUITER") {
+      await assertCanAddHrSeat(companyId, 1, tx);
+    }
+
     await companyRepository.updateUserStatus(member.userId, "ACTIVE", tx);
 
     await auditService.createAuditLog(

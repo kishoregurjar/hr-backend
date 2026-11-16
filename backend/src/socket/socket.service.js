@@ -81,6 +81,29 @@ class SocketService {
   emitGlobalHR(event, payload) {
     this.emitToRoom("global:hr", event, payload);
   }
+
+  /**
+   * Disconnect all active sockets for an expired or suspended company
+   * @param {string} companyId - The company ID
+   * @param {string} reason - Disconnect code/reason
+   */
+  disconnectCompanySockets(companyId, reason = "PLAN_EXPIRED") {
+    if (!this.io || !companyId) return;
+
+    try {
+      const room = `company:${companyId}`;
+      this.io.to(room).emit("subscription_expired", {
+        code: reason,
+        message: "Your company subscription has expired. Please renew your plan.",
+      });
+
+      // Disconnect all sockets belonging to this company room
+      this.io.in(room).disconnectSockets(true);
+      logger.info(`Terminated active sockets for expired company: ${companyId}`);
+    } catch (error) {
+      logger.error(`Error disconnecting sockets for company ${companyId}:`, error);
+    }
+  }
 }
 
 // Export as a singleton

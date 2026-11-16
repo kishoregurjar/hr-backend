@@ -91,7 +91,9 @@ const companyContext = async (req, res, next) => {
     }
 
     // 3. Resolve and validate user's active membership in targetCompanyId
-    const context = await resolveCompanyContext(userId, targetCompanyId, isSuperAdmin);
+    const context = await resolveCompanyContext(userId, targetCompanyId, isSuperAdmin, {
+      allowExpiredPlan: Boolean(req.allowExpiredPlan),
+    });
 
     req.company = context.company;
     req.companyMember = context.member;

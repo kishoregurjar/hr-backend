@@ -637,6 +637,8 @@ async function processSingleGmailMessage({
       "DRIVE_FILE_NOT_FOUND",
       "CANDIDATE_EMAIL_CONFLICT",
       "SKIPPED_UNRELATED",
+      "CANDIDATE_LIMIT_REACHED",
+      "CANDIDATE_LIMIT_EXCEEDED",
     ]);
 
     const isDeterministic = (err) => {
@@ -653,7 +655,9 @@ async function processSingleGmailMessage({
         msg.includes("unsupported") ||
         msg.includes("invalid file signature") ||
         msg.includes("belongs to a non-candidate account") ||
-        msg.includes("invalid pdf structure")
+        msg.includes("invalid pdf structure") ||
+        msg.includes("candidate limit reached") ||
+        msg.includes("maximum unique candidate limit")
       );
     };
 

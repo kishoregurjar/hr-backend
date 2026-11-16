@@ -53,6 +53,13 @@ router.patch(
   superAdminCompanyController.updateCompanyStatus
 );
 
+router.patch(
+  "/companies/:companyId/plan",
+  requireAuth,
+  requireSuperAdmin,
+  superAdminCompanyController.updateCompanyPlan
+);
+
 router.post(
   "/companies/:companyId/owner/resend-activation",
   requireAuth,

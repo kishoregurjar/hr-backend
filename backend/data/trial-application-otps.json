@@ -1,0 +1,12 @@
+[
+  {
+    "id": "otp_7f7e351c-a780-437b-99ff-bfd4bcc90494",
+    "email": "vishnuwd@outlook.com",
+    "otpHash": "e943a4b637079d81b5e38f1739dcd491c4ce4f39bc49bb1e7324de14ae9668a0",
+    "attempts": 0,
+    "expiresAt": "2026-11-13T11:09:51.766Z",
+    "lastSentAt": "2026-11-13T10:59:51.766Z",
+    "createdAt": "2026-11-13T10:11:29.057Z",
+    "updatedAt": "2026-11-13T10:59:51.766Z"
+  }
+]

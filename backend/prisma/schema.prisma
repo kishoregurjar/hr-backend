@@ -48,6 +48,40 @@ enum CompanyStatus {
   SUSPENDED
 }
 
+enum CompanyPlan {
+  DEMO
+  STARTER
+  GROWTH
+  BUSINESS
+  ENTERPRISE
+}
+
+enum CompanyPlanStatus {
+  ACTIVE
+  DEMO_EXPIRED
+  EXPIRED
+  CANCELLED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  DEMO_EXPIRED
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 enum CompanyInvitationStatus {
   PENDING
   ACCEPTED
@@ -511,6 +545,7 @@ model Invitation {
   expiresAt    DateTime
   sentAt       DateTime?
   openedAt     DateTime?
+  createdAt    DateTime         @default(now())
 
   assessment Assessment       @relation(fields: [assessmentId], references: [id])
   candidate  CandidateProfile @relation(fields: [candidateId], references: [id])
@@ -519,6 +554,7 @@ model Invitation {
   @@index([token])
   @@index([assessmentId, candidateId])
   @@index([companyId], map: "idx_invitation_company")
+  @@index([companyId, createdAt])
 }
 
 model CandidateAttempt {
@@ -867,6 +903,16 @@ model Company {
   customDomain           String?  @unique
   customDomainVerified   Boolean  @default(false)
 
+  // SaaS Subscription & Plan Enforcement
+  plan                   CompanyPlan       @default(STARTER)
+  planStatus             CompanyPlanStatus @default(ACTIVE)
+  planStartedAt          DateTime?         @default(now())
+  planExpiresAt          DateTime?
+  customSeatLimit        Int?
+  customCandidateLimit   Int?
+  customInviteLimit      Int?
+  hasUsedDemo            Boolean           @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -879,12 +925,14 @@ model Company {
   proctoringEvents  ProctoringEvent[]
   questions         Question[]
   gameConfigs       CompanyGameConfig[]
-  supportRequests      SupportRequest[]
-  assessments          Assessment[]
+  supportRequests   SupportRequest[]
+  assessments       Assessment[]
   candidateInvitations Invitation[]
   candidateAttempts    CandidateAttempt[]
   mailboxes            UserMailbox[]
   notifications        Notification[]
+  subscriptions        Subscription[]
+  payments             Payment[]
 
   @@index([createdAt])
 }
@@ -1330,4 +1378,164 @@ model Notification {
   @@index([userId, isRead])
   @@index([companyId, createdAt])
   @@index([createdAt])
+}
+
+// ==========================================
+// Dynamic SaaS Plans, Subscriptions & Payments
+// ==========================================
+
+model Plan {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  description    String?
+  monthlyPrice   Decimal  @default(0) @db.Decimal(10, 2)
+  yearlyPrice    Decimal  @default(0) @db.Decimal(10, 2)
+  currency       String   @default("INR")
+
+  seatLimit      Int?
+  candidateLimit Int?
+  inviteLimit    Int?
+
+  durationDays   Int?
+  isTrial        Boolean  @default(false)
+  isCustom       Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  isPopular      Boolean  @default(false)
+  sortOrder      Int      @default(0)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  subscriptions  Subscription[]
+  payments       Payment[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model Subscription {
+  id             String             @id @default(cuid())
+  companyId      String
+  planId         String?
+
+  planCode       String
+  planName       String
+  billingCycle   BillingCycle       @default(MONTHLY)
+  status         SubscriptionStatus @default(ACTIVE)
+  amount         Decimal            @default(0) @db.Decimal(10, 2)
+  currency       String             @default("INR")
+
+  seatLimit      Int?
+  candidateLimit Int?
+  inviteLimit    Int?
+
+  startDate      DateTime           @default(now())
+  endDate        DateTime
+  cancelledAt    DateTime?
+
+  isTrial        Boolean            @default(false)
+
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan           Plan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
+  payments       Payment[]
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([status, endDate])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  companyId         String?
+  subscriptionId    String?
+  planId            String?
+
+  amount            Decimal       @db.Decimal(10, 2)
+  amountPaise       Int
+  currency          String        @default("INR")
+  billingCycle      BillingCycle  @default(MONTHLY)
+  status            PaymentStatus @default(PENDING)
+
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?       @unique
+  razorpaySignature String?
+
+  planSnapshot      Json
+  signupData        Json?
+  receipt           String?
+  errorMessage      String?
+  paidAt            DateTime?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  company           Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subscription      Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  plan              Plan?         @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([status])
+  @@index([razorpayOrderId])
+}
+
+
+// ==========================================
+// Request-Based Demo Trial Application System
+// ==========================================
+
+enum TrialApplicationStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model TrialApplication {
+  id                    String                 @id @default(cuid())
+  companyName           String
+  ownerName             String
+  businessEmail         String                 @unique
+  phone                 String?
+  website               String?
+  businessDescription   String?
+  industry              String?
+  passwordHash          String
+  isBusinessEmail       Boolean                @default(false)
+  emailVerified         Boolean                @default(false)
+  emailVerifiedAt       DateTime?
+
+  ipAddress             String?
+  userAgent             String?
+
+  status                TrialApplicationStatus @default(PENDING_REVIEW)
+  reviewerId            String?
+  reviewedAt            DateTime?
+  rejectionReason       String?
+  reviewNotes           String?
+
+  approvedCompanyId     String?                @unique
+  approvedCompanySlug   String?
+
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@index([businessEmail])
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+model TrialApplicationOtp {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  otpHash       String
+  attempts      Int      @default(0)
+  expiresAt     DateTime
+  lastSentAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([email])
 }

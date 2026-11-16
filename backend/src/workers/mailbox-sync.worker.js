@@ -35,6 +35,45 @@ async function processMailboxSync() {
         continue;
       }
 
+      // ── Centralized Subscription Expiry Enforcement ──
+      // Check current subscription status before performing mailbox sync or candidate resume ingestion
+      const { checkCompanyPlanStatus } = require("../modules/plan");
+      const { prisma } = require("../config/prisma");
+      const company = await prisma.company.findUnique({
+        where: { id: mailbox.companyId },
+        select: {
+          id: true,
+          plan: true,
+          planStatus: true,
+          planExpiresAt: true,
+          status: true,
+        },
+      });
+
+      if (!company || company.status === "SUSPENDED") {
+        console.warn({
+          type: "MAILBOX_SYNC_SKIPPED",
+          companyId: mailbox.companyId,
+          userId: mailbox.userId,
+          reason: !company ? "COMPANY_NOT_FOUND" : "COMPANY_SUSPENDED",
+          message: "Mailbox sync skipped: Company account is inactive or suspended.",
+        });
+        continue;
+      }
+
+      const planCheck = await checkCompanyPlanStatus(company);
+      if (planCheck.isExpired) {
+        console.warn({
+          type: "MAILBOX_SYNC_SKIPPED",
+          companyId: mailbox.companyId,
+          userId: mailbox.userId,
+          reason: "PLAN_EXPIRED",
+          status: planCheck.status,
+          message: "Mailbox sync skipped: Company subscription has expired. Sync will resume automatically upon renewal.",
+        });
+        continue;
+      }
+
       const minAllowedTime = mailbox.dateRangeSyncFrom ? mailbox.dateRangeSyncFrom.getTime() : 0;
       let effectiveFromMs = minAllowedTime;
       if (mailbox.dateRangeLastSyncedAt) {

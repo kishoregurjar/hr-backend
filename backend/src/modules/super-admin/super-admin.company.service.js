@@ -51,6 +51,10 @@ const createCompanyWithOwner = async (
     address,
     city,
     country,
+    plan,
+    customSeatLimit,
+    customCandidateLimit,
+    customInviteLimit,
   },
   auditContext = {},
   actorUserId = null
@@ -122,6 +126,25 @@ const createCompanyWithOwner = async (
             address: address ?? null,
             city: city ?? null,
             country: country ?? null,
+            plan: (plan || "STARTER").toUpperCase(),
+            planStatus: "ACTIVE",
+            planStartedAt: new Date(),
+            planExpiresAt:
+              (plan || "").toUpperCase() === "DEMO"
+                ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+                : null,
+            customSeatLimit:
+              (plan || "").toUpperCase() === "ENTERPRISE" && customSeatLimit !== undefined && customSeatLimit !== null
+                ? parseInt(customSeatLimit, 10)
+                : null,
+            customCandidateLimit:
+              (plan || "").toUpperCase() === "ENTERPRISE" && customCandidateLimit !== undefined && customCandidateLimit !== null
+                ? parseInt(customCandidateLimit, 10)
+                : null,
+            customInviteLimit:
+              (plan || "").toUpperCase() === "ENTERPRISE" && customInviteLimit !== undefined && customInviteLimit !== null
+                ? parseInt(customInviteLimit, 10)
+                : null,
           },
           tx
         );
@@ -289,7 +312,77 @@ const getCompany = async (companyId) => {
     throw error;
   }
 
-  return mapCompanyDetail(company);
+  const { getCompanyUsage } = require("../plan");
+  const planData = await getCompanyUsage(companyId);
+
+  const mapped = mapCompanyDetail(company);
+  return {
+    ...mapped,
+    plan: planData.plan,
+    planName: planData.planName,
+    planStatus: planData.planStatus,
+    planStartedAt: planData.planStartedAt,
+    planExpiresAt: planData.planExpiresAt,
+    activeSubscription: planData.activeSubscription,
+    demoRemaining: planData.demoRemaining,
+    limits: planData.limits,
+    usage: planData.usage,
+  };
+};
+
+const updateCompanyPlan = async (
+  companyId,
+  payload,
+  auditContext = {},
+  actorUserId = null
+) => {
+  const company = await superAdminCompanyRepository.findCompanyById(companyId);
+
+  if (!company) {
+    const error = new Error(
+      SUPER_ADMIN_COMPANY_CONSTANTS.ERROR_CODES.COMPANY_NOT_FOUND
+    );
+    error.statusCode = 404;
+    error.code = SUPER_ADMIN_COMPANY_CONSTANTS.ERROR_CODES.COMPANY_NOT_FOUND;
+    throw error;
+  }
+
+  const { assignCompanyPlan } = require("../plan");
+  const previousPlan = company.plan;
+  const previousStatus = company.planStatus;
+
+  await assignCompanyPlan(companyId, payload);
+
+  // Invalidate cached user sessions and context
+  try {
+    const { clearCompanyContextCache } = require("../company/company.context");
+    const { clearUserCache } = require("../../middleware/requireAuth");
+    const members = await prisma.companyMember.findMany({
+      where: { companyId },
+      select: { userId: true },
+    });
+    for (const member of members) {
+      if (clearUserCache) clearUserCache(member.userId);
+      if (clearCompanyContextCache) clearCompanyContextCache(member.userId);
+    }
+  } catch (_) {}
+
+  await auditService.createAuditLog({
+    companyId,
+    actorUserId,
+    action: "COMPANY_PLAN_UPDATED",
+    entityType: AUDIT_ENTITY_TYPES.COMPANY,
+    entityId: companyId,
+    metadata: {
+      previousPlan,
+      newPlan: payload.plan,
+      previousStatus,
+      newStatus: payload.planStatus,
+    },
+    ...auditContext,
+  });
+
+  return getCompany(companyId);
 };
 
 const updateCompanyStatus = async (
@@ -370,4 +463,5 @@ module.exports = {
   listCompanies,
   getCompany,
   updateCompanyStatus,
+  updateCompanyPlan,
 };

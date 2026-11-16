@@ -1,0 +1,38 @@
+[
+  {
+    "id": "pay_1794567735371",
+    "amount": 499,
+    "amountPaise": 49900,
+    "currency": "INR",
+    "billingCycle": "MONTHLY",
+    "status": "PENDING",
+    "razorpayOrderId": "order_TzdUj4Ltfn0c1z",
+    "planId": "starter",
+    "receipt": "onb_67734794",
+    "planSnapshot": {
+      "planId": "starter",
+      "name": "Starter Plan",
+      "code": "STARTER",
+      "seatLimit": 2,
+      "candidateLimit": 200,
+      "inviteLimit": 50,
+      "monthlyPrice": 499,
+      "yearlyPrice": 4990,
+      "durationDays": null,
+      "environment": "test",
+      "isTest": true
+    },
+    "signupData": {
+      "companyName": "Gammaedge",
+      "ownerName": "Vishu Sahu",
+      "ownerEmail": "vishnuwd@outlook.com",
+      "passwordHash": "$2b$12$APGCo.Ag7O1s16hJB/t/P.VZ32ncZPJD7fT/.PzWCKXkL5zKyR336",
+      "industry": "Technology",
+      "website": "gammaedge-comp.com",
+      "phone": "77470-84778",
+      "planCode": "STARTER",
+      "billingCycle": "MONTHLY"
+    },
+    "createdAt": "2026-11-13T11:02:15.371Z"
+  }
+]

@@ -49,6 +49,9 @@ app.use(diagnosticsMiddleware);
 app.use(
   express.json({
     limit: "10mb",
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
   })
 );
 app.use(

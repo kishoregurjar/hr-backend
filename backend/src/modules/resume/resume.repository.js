@@ -185,6 +185,33 @@ async function ensureCandidateProfile(user, extractedData = {}, companyId = null
   const finalFirstName = hasExistingValidFirstName ? existingCandidate.firstName : (isExtractedNameValid ? firstName : fallbackFirstName);
   const finalLastName = hasExistingValidLastName ? existingCandidate.lastName : (isExtractedNameValid ? lastName : fallbackLastName);
 
+  let isAlreadyAssociated = false;
+  if (effectiveCompanyId) {
+    if (existingCandidate) {
+      if (existingCandidate.companyId === effectiveCompanyId) {
+        isAlreadyAssociated = true;
+      } else {
+        const existingCc = await db.companyCandidate.findUnique({
+          where: {
+            companyId_candidateId: {
+              companyId: effectiveCompanyId,
+              candidateId: existingCandidate.id,
+            },
+          },
+        });
+        if (existingCc) {
+          isAlreadyAssociated = true;
+        }
+      }
+    }
+  }
+
+  // Quota enforcement: Must verify and reserve quota BEFORE creating or associating candidate profile
+  if (effectiveCompanyId && !isAlreadyAssociated) {
+    const { assertCanAddCandidates } = require("../plan");
+    await assertCanAddCandidates(effectiveCompanyId, 1, db);
+  }
+
   let companyIdToUpdate = undefined;
   if (existingCandidate) {
     if (!existingCandidate.companyId && effectiveCompanyId) {

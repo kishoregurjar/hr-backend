@@ -19,6 +19,10 @@ const superAdminRoutes = require("../modules/super-admin");
 const { supportRoutes } = require("../modules/support");
 const { publicContactRoutes } = require("../modules/public-contact");
 const { notificationRoutes } = require("../modules/notification");
+const planRoutes = require("../modules/plan/plan.routes");
+const subscriptionRoutes = require("../modules/plan/subscription.routes");
+const paymentRoutes = require("../modules/payment/payment.routes");
+const trialApplicationRoutes = require("../modules/trial-application/trial-application.routes");
 
 const router = express.Router();
 
@@ -127,6 +131,14 @@ router.use("/company", companyLogoRoutes);
  * Super Admin Management Routes (/api/v1/super-admin)
  */
 router.use("/super-admin", superAdminRoutes);
+
+/**
+ * SaaS Plans & Subscription Routes
+ */
+router.use("/plans", planRoutes);
+router.use("/subscriptions", subscriptionRoutes);
+router.use("/payments", paymentRoutes);
+router.use("/trial-applications", trialApplicationRoutes);
 
 /**
  * HR Support Request Routes (/api/v1/support)

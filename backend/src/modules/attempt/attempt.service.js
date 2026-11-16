@@ -524,6 +524,9 @@ class AttemptService {
             );
           }
 
+          const { assertCanAddCandidates } = require("../plan");
+          await assertCanAddCandidates(targetCompanyId, 1, tx);
+
           await tx.companyCandidate.create({
             data: {
               companyId: targetCompanyId,
@@ -536,6 +539,11 @@ class AttemptService {
 
       const fName = (firstName || "").trim() || "Candidate";
       const lName = (lastName || "").trim();
+
+      if (targetCompanyId) {
+        const { assertCanAddCandidates } = require("../plan");
+        await assertCanAddCandidates(targetCompanyId, 1, tx);
+      }
 
       candidateProfile = await tx.candidateProfile.create({
         data: {
@@ -710,14 +718,29 @@ class AttemptService {
       }
 
       if (candidateProfile) {
-        if (!candidateProfile.companyId && effectiveCompanyId) {
-          candidateProfile = await tx.candidateProfile.update({
-            where: { id: candidateProfile.id },
-            data: { companyId: effectiveCompanyId },
-          });
-        }
-        
         if (effectiveCompanyId) {
+          const { assertCanAddCandidates } = require("../plan");
+          const existingCc = await tx.companyCandidate.findUnique({
+            where: {
+              companyId_candidateId: {
+                companyId: effectiveCompanyId,
+                candidateId: candidateProfile.id,
+              },
+            },
+          });
+
+          const isAlreadyAssociated = !!existingCc || candidateProfile.companyId === effectiveCompanyId;
+          if (!isAlreadyAssociated) {
+            await assertCanAddCandidates(effectiveCompanyId, 1, tx);
+          }
+
+          if (!candidateProfile.companyId) {
+            candidateProfile = await tx.candidateProfile.update({
+              where: { id: candidateProfile.id },
+              data: { companyId: effectiveCompanyId },
+            });
+          }
+
           await tx.companyCandidate.upsert({
             where: {
               companyId_candidateId: {
@@ -733,6 +756,10 @@ class AttemptService {
           });
         }
       } else if (normalizedEmail) {
+        if (effectiveCompanyId) {
+          const { assertCanAddCandidates } = require("../plan");
+          await assertCanAddCandidates(effectiveCompanyId, 1, tx);
+        }
         const fName = (firstName || "").trim() || "Candidate";
         const lName = (lastName || "").trim();
         candidateProfile = await tx.candidateProfile.create({
@@ -792,6 +819,12 @@ class AttemptService {
       const tokenHash = attemptMapper.hashInvitationToken(rawToken);
 
       // 7. Persist invitation
+      const targetCompanyIdForInvite = companyId || assessment.companyId || null;
+      if (targetCompanyIdForInvite) {
+        const { assertCanSendInvitations } = require("../plan");
+        await assertCanSendInvitations(targetCompanyIdForInvite, 1, tx);
+      }
+
       const invitationPayload = attemptMapper.toCreateInvitationEntity({
         assessmentId,
         candidateId: effectiveCandidateId,
@@ -1256,7 +1289,70 @@ class AttemptService {
       }
     }
 
-    if (profilesToCreate.length > 0) {
+    // Create missing profiles and link CompanyCandidate within a transaction
+    if (effectiveCompanyId) {
+      await prisma.$transaction(async (tx) => {
+        const { assertCanAddCandidates } = require("../plan");
+
+        // Identify existing associations for candidates in this batch
+        const candidateProfileIds = Array.from(profileMap.values()).map((p) => p.id).filter(Boolean);
+        const existingAssociations = candidateProfileIds.length > 0
+          ? await tx.companyCandidate.findMany({
+              where: {
+                companyId: effectiveCompanyId,
+                candidateId: { in: candidateProfileIds },
+              },
+              select: { candidateId: true },
+            })
+          : [];
+        const associatedProfileIdSet = new Set(existingAssociations.map((a) => a.candidateId));
+
+        // Count how many brand new profiles are to be created + existing unassociated profiles
+        const newProfilesCount = profilesToCreate.length;
+        const unassociatedExistingCount = candidateProfileIds.filter(
+          (id) => !associatedProfileIdSet.has(id) && profileMap.get(id)?.companyId !== effectiveCompanyId
+        ).length;
+        const totalNewAssociations = newProfilesCount + unassociatedExistingCount;
+
+        if (totalNewAssociations > 0) {
+          await assertCanAddCandidates(effectiveCompanyId, totalNewAssociations, tx);
+        }
+
+        if (profilesToCreate.length > 0) {
+          await tx.candidateProfile.createMany({
+            data: profilesToCreate,
+            skipDuplicates: true,
+          });
+
+          const newlyCreatedProfiles = await tx.candidateProfile.findMany({
+            where: { email: { in: profilesToCreate.map((p) => p.email) } },
+          });
+
+          for (const p of newlyCreatedProfiles) {
+            if (p.id) profileMap.set(p.id, p);
+            if (p.userId) profileMap.set(p.userId, p);
+            if (p.email) profileMap.set(p.email.toLowerCase(), p);
+          }
+        }
+
+        const companyCandidatePairs = [];
+        for (const p of profileMap.values()) {
+          if (p.id) {
+            companyCandidatePairs.push({
+              companyId: effectiveCompanyId,
+              candidateId: p.id,
+            });
+          }
+        }
+
+        if (companyCandidatePairs.length > 0) {
+          await tx.companyCandidate.createMany({
+            data: companyCandidatePairs,
+            skipDuplicates: true,
+          });
+        }
+      });
+    } else if (profilesToCreate.length > 0) {
       await prisma.candidateProfile.createMany({
         data: profilesToCreate,
         skipDuplicates: true,
@@ -1270,27 +1366,6 @@ class AttemptService {
         if (p.id) profileMap.set(p.id, p);
         if (p.userId) profileMap.set(p.userId, p);
         if (p.email) profileMap.set(p.email.toLowerCase(), p);
-      }
-    }
-
-    // Link CompanyCandidate in bulk (non-blocking)
-    if (effectiveCompanyId) {
-      const companyCandidatePairs = [];
-      for (const p of profileMap.values()) {
-        if (p.id) {
-          companyCandidatePairs.push({
-            companyId: effectiveCompanyId,
-            candidateId: p.id,
-          });
-        }
-      }
-      if (companyCandidatePairs.length > 0) {
-        try {
-          await prisma.companyCandidate.createMany({
-            data: companyCandidatePairs,
-            skipDuplicates: true,
-          });
-        } catch (_) {}
       }
     }
 
@@ -1398,6 +1473,12 @@ class AttemptService {
         candidate,
         candidateProfile,
       });
+    }
+
+    // 6b. Enforce Monthly Assessment Invitations Limit
+    if (invitationsToCreate.length > 0 && effectiveCompanyId) {
+      const { assertCanSendInvitations } = require("../plan");
+      await assertCanSendInvitations(effectiveCompanyId, invitationsToCreate.length, prisma);
     }
 
     // 7. Parallel Batch Insertion (Chunks of 25)
@@ -1909,6 +1990,38 @@ class AttemptService {
           "Invitation not found.",
           INVITATION_ERROR_CODES.INVITATION_NOT_FOUND
         );
+      }
+
+      // Enforce hiring company's subscription status before starting assessment
+      const targetCompanyId = invitation.companyId || invitation.assessment?.companyId;
+      if (targetCompanyId) {
+        const { checkCompanyPlanStatus } = require("../plan");
+        const company = await tx.company.findUnique({
+          where: { id: targetCompanyId },
+          select: {
+            id: true,
+            plan: true,
+            planStatus: true,
+            planExpiresAt: true,
+            status: true,
+          },
+        });
+
+        if (company) {
+          if (company.status === "SUSPENDED") {
+            throw new ConflictError(
+              "The hiring organization's workspace is currently suspended. Please contact the hiring team.",
+              "COMPANY_SUSPENDED"
+            );
+          }
+          const planCheck = await checkCompanyPlanStatus(company, tx);
+          if (planCheck.isExpired) {
+            throw new ConflictError(
+              "The hiring organization's subscription has expired. This assessment is temporarily unavailable. Please contact the hiring team.",
+              "PLAN_EXPIRED"
+            );
+          }
+        }
       }
 
       // Lock invitation & candidate assessment row for concurrent start requests (safely guarded)
@@ -2858,6 +2971,38 @@ class AttemptService {
           "Invitation not found.",
           ATTEMPT_SUBMIT_ERROR_CODES.INVITATION_NOT_FOUND
         );
+      }
+
+      // Enforce hiring company's subscription status before accepting submission
+      const targetCompanyId = invitation.companyId || invitation.assessment?.companyId;
+      if (targetCompanyId) {
+        const { checkCompanyPlanStatus } = require("../plan");
+        const company = await tx.company.findUnique({
+          where: { id: targetCompanyId },
+          select: {
+            id: true,
+            plan: true,
+            planStatus: true,
+            planExpiresAt: true,
+            status: true,
+          },
+        });
+
+        if (company) {
+          if (company.status === "SUSPENDED") {
+            throw new ConflictError(
+              "The hiring organization's workspace is currently suspended. Please contact the hiring team.",
+              "COMPANY_SUSPENDED"
+            );
+          }
+          const planCheck = await checkCompanyPlanStatus(company, tx);
+          if (planCheck.isExpired) {
+            throw new ConflictError(
+              "The hiring organization's subscription has expired. Submission is temporarily unavailable. Please contact the hiring team.",
+              "PLAN_EXPIRED"
+            );
+          }
+        }
       }
 
       const now = new Date();
@@ -4218,6 +4363,43 @@ class AttemptService {
           "Assessment attempt could not be locked.",
           ATTEMPT_SUBMIT_ERROR_CODES.ATTEMPT_NOT_FOUND
         );
+      }
+
+      // Enforce hiring company's subscription status before accepting submission
+      if (lockedAttempt.assessmentId) {
+        const assessment = await tx.assessment.findUnique({
+          where: { id: lockedAttempt.assessmentId },
+          select: { companyId: true },
+        });
+        if (assessment?.companyId) {
+          const { checkCompanyPlanStatus } = require("../plan");
+          const company = await tx.company.findUnique({
+            where: { id: assessment.companyId },
+            select: {
+              id: true,
+              plan: true,
+              planStatus: true,
+              planExpiresAt: true,
+              status: true,
+            },
+          });
+
+          if (company) {
+            if (company.status === "SUSPENDED") {
+              throw new ConflictError(
+                "The hiring organization's workspace is currently suspended. Please contact the hiring team.",
+                "COMPANY_SUSPENDED"
+              );
+            }
+            const planCheck = await checkCompanyPlanStatus(company, tx);
+            if (planCheck.isExpired) {
+              throw new ConflictError(
+                "The hiring organization's subscription has expired. Submission is temporarily unavailable. Please contact the hiring team.",
+                "PLAN_EXPIRED"
+              );
+            }
+          }
+        }
       }
 
       attemptFailureService.beforeSubmit();
