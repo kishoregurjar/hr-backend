@@ -133,10 +133,14 @@ const normalizeError = (error) => {
     sanitizedMessage = "An unexpected server error occurred.";
   }
 
+  const safeDetails = (error?.isOperational || isClientError)
+    ? error?.details || null
+    : isProd ? null : error?.details || null;
+
   return new AppError(sanitizedMessage, {
     statusCode,
     code: error?.code || error?.errorCode || "INTERNAL_SERVER_ERROR",
-    details: isProd ? null : error?.details || null,
+    details: safeDetails,
     isOperational: error?.isOperational ?? isClientError,
   });
 };
