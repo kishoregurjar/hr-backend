@@ -3,7 +3,7 @@
 const RATE_LIMIT_POLICIES = Object.freeze({
   GLOBAL: {
     windowSeconds: 60,
-    maxRequests: 120,
+    maxRequests: Number(process.env.RATE_LIMIT_GLOBAL_MAX || 10000),
   },
 
   OTP_SEND: {
@@ -33,7 +33,7 @@ const RATE_LIMIT_POLICIES = Object.freeze({
 
   ADMIN_API: {
     windowSeconds: 60,
-    maxRequests: 120,
+    maxRequests: Number(process.env.RATE_LIMIT_ADMIN_MAX || 10000),
   },
 
   WEBHOOK: {
