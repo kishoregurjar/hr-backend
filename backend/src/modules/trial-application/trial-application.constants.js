@@ -84,9 +84,9 @@ const OTP_CONFIG = {
 };
 
 const TRIAL_LIMITS = {
-  HR_SEATS: 2,
-  TOTAL_CANDIDATES: 20,
-  MONTHLY_INVITATIONS: 10,
+  HR_SEATS: null, // Unlimited for 30-day evaluation
+  TOTAL_CANDIDATES: null, // Unlimited
+  MONTHLY_INVITATIONS: null, // Unlimited
   DURATION_HOURS: 720, // 30 days exactly
   DURATION_DAYS: 30,
 };

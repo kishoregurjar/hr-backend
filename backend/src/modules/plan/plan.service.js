@@ -55,16 +55,24 @@ const getEffectivePlanLimits = async (company, tx = prisma, preloadedSubscriptio
             });
 
       if (activeSubscription) {
+        const isDemo =
+          activeSubscription.planCode === COMPANY_PLANS.DEMO ||
+          Boolean(activeSubscription.isTrial);
+
         return {
           name: activeSubscription.planName,
           planCode: activeSubscription.planCode,
-          hrSeats: activeSubscription.seatLimit,
-          totalCandidates: activeSubscription.candidateLimit,
-          monthlyInvitations: activeSubscription.inviteLimit,
+          hrSeats: isDemo ? null : activeSubscription.seatLimit,
+          totalCandidates: isDemo ? null : activeSubscription.candidateLimit,
+          monthlyInvitations: isDemo ? null : activeSubscription.inviteLimit,
           billingCycle: activeSubscription.billingCycle,
           amount: Number(activeSubscription.amount),
           currency: activeSubscription.currency,
-          durationHours: null,
+          durationHours: isDemo
+            ? activeSubscription.durationDays
+              ? activeSubscription.durationDays * 24
+              : 720
+            : null,
           isSnapshot: true,
           subscriptionId: activeSubscription.id,
         };
@@ -80,6 +88,18 @@ const getEffectivePlanLimits = async (company, tx = prisma, preloadedSubscriptio
   try {
     dbPlan = await tx.plan.findUnique({ where: { code: planKey } });
   } catch (_) {}
+
+  if (planKey === COMPANY_PLANS.DEMO) {
+    return {
+      name: dbPlan?.name || "Demo Plan",
+      planCode: COMPANY_PLANS.DEMO,
+      hrSeats: null, // Unlimited for 30-day free trial
+      totalCandidates: null, // Unlimited for 30-day free trial
+      monthlyInvitations: null, // Unlimited for 30-day free trial
+      durationHours: (dbPlan?.durationDays || 30) * 24,
+      isSnapshot: false,
+    };
+  }
 
   if (planKey === COMPANY_PLANS.ENTERPRISE) {
     return {
@@ -677,9 +697,9 @@ const startDemoTrial = async (companyId, actorRole, tx = prisma) => {
       id: "demo",
       code: "DEMO",
       name: "Demo Plan",
-      seatLimit: 2,
-      candidateLimit: 20,
-      inviteLimit: 10,
+      seatLimit: null,
+      candidateLimit: null,
+      inviteLimit: null,
       durationDays: 30,
     };
   }
@@ -696,7 +716,7 @@ const startDemoTrial = async (companyId, actorRole, tx = prisma) => {
     });
   } catch (_) {}
 
-  // Create immutable trial subscription snapshot defensively
+  // Create immutable trial subscription snapshot defensively (Unlimited limits for 30-day evaluation)
   let subscription = null;
   try {
     subscription = await tx.subscription.create({
@@ -709,9 +729,9 @@ const startDemoTrial = async (companyId, actorRole, tx = prisma) => {
         status: SUBSCRIPTION_STATUS.ACTIVE,
         amount: 0.0,
         currency: "INR",
-        seatLimit: demoPlan?.seatLimit ?? 2,
-        candidateLimit: demoPlan?.candidateLimit ?? 20,
-        inviteLimit: demoPlan?.inviteLimit ?? 10,
+        seatLimit: null,
+        candidateLimit: null,
+        inviteLimit: null,
         startDate: now,
         endDate: trialEnd,
         isTrial: true,
@@ -794,19 +814,32 @@ const getActivePlans = async (tx = prisma) => {
     } catch (_) {}
   }
 
-  // Self-healing: Automatically upgrade DEMO plan from 7-day to 30-day in memory and database
+  // Self-healing: Automatically upgrade DEMO plan to 30-day unlimited in memory and database
   if (Array.isArray(plans)) {
     for (const p of plans) {
-      if (p.code === "DEMO" && (p.durationDays === 7 || (p.description && p.description.includes("7-day")))) {
+      if (
+        p.code === "DEMO" &&
+        (p.durationDays !== 30 ||
+          p.seatLimit !== null ||
+          p.candidateLimit !== null ||
+          p.inviteLimit !== null ||
+          (p.description && !p.description.includes("unlimited")))
+      ) {
         p.durationDays = 30;
-        p.description = "30-day free trial with standard feature access for evaluation.";
+        p.seatLimit = null;
+        p.candidateLimit = null;
+        p.inviteLimit = null;
+        p.description = "30-day free trial with unlimited feature access for evaluation.";
         if (p.id) {
           try {
             await tx.plan.update({
               where: { id: p.id },
               data: {
                 durationDays: 30,
-                description: "30-day free trial with standard feature access for evaluation.",
+                seatLimit: null,
+                candidateLimit: null,
+                inviteLimit: null,
+                description: "30-day free trial with unlimited feature access for evaluation.",
               },
             });
           } catch (_) {}
@@ -898,19 +931,32 @@ const getAllPlansWithStats = async (tx = prisma) => {
     } catch (_) {}
   }
 
-  // Self-healing: Automatically upgrade DEMO plan from 7-day to 30-day in memory and database
+  // Self-healing: Automatically upgrade DEMO plan to 30-day unlimited in memory and database
   if (Array.isArray(plans)) {
     for (const p of plans) {
-      if (p.code === "DEMO" && (p.durationDays === 7 || (p.description && p.description.includes("7-day")))) {
+      if (
+        p.code === "DEMO" &&
+        (p.durationDays !== 30 ||
+          p.seatLimit !== null ||
+          p.candidateLimit !== null ||
+          p.inviteLimit !== null ||
+          (p.description && !p.description.includes("unlimited")))
+      ) {
         p.durationDays = 30;
-        p.description = "30-day free trial with standard feature access for evaluation.";
+        p.seatLimit = null;
+        p.candidateLimit = null;
+        p.inviteLimit = null;
+        p.description = "30-day free trial with unlimited feature access for evaluation.";
         if (p.id) {
           try {
             await tx.plan.update({
               where: { id: p.id },
               data: {
                 durationDays: 30,
-                description: "30-day free trial with standard feature access for evaluation.",
+                seatLimit: null,
+                candidateLimit: null,
+                inviteLimit: null,
+                description: "30-day free trial with unlimited feature access for evaluation.",
               },
             });
           } catch (_) {}
@@ -1255,14 +1301,20 @@ const assignCompanyPlan = async (companyId, payload, tx = prisma) => {
       const seatLimit =
         normalizedPlan === COMPANY_PLANS.ENTERPRISE
           ? updateData.customSeatLimit
+          : normalizedPlan === COMPANY_PLANS.DEMO
+          ? null
           : catalogPlan?.seatLimit ?? 2;
       const candidateLimit =
         normalizedPlan === COMPANY_PLANS.ENTERPRISE
           ? updateData.customCandidateLimit
+          : normalizedPlan === COMPANY_PLANS.DEMO
+          ? null
           : catalogPlan?.candidateLimit ?? 100;
       const inviteLimit =
         normalizedPlan === COMPANY_PLANS.ENTERPRISE
           ? updateData.customInviteLimit
+          : normalizedPlan === COMPANY_PLANS.DEMO
+          ? null
           : catalogPlan?.inviteLimit ?? 50;
 
       await tx.subscription.updateMany({
@@ -1281,9 +1333,9 @@ const assignCompanyPlan = async (companyId, payload, tx = prisma) => {
           isTrial: normalizedPlan === COMPANY_PLANS.DEMO,
           amount: catalogPlan?.monthlyPrice || 0,
           currency: catalogPlan?.currency || "INR",
-          seatLimit: seatLimit ?? 2,
-          candidateLimit: candidateLimit ?? 100,
-          inviteLimit: inviteLimit ?? 50,
+          seatLimit: (normalizedPlan === COMPANY_PLANS.DEMO || normalizedPlan === COMPANY_PLANS.ENTERPRISE) ? seatLimit : (seatLimit ?? 2),
+          candidateLimit: (normalizedPlan === COMPANY_PLANS.DEMO || normalizedPlan === COMPANY_PLANS.ENTERPRISE) ? candidateLimit : (candidateLimit ?? 100),
+          inviteLimit: (normalizedPlan === COMPANY_PLANS.DEMO || normalizedPlan === COMPANY_PLANS.ENTERPRISE) ? inviteLimit : (inviteLimit ?? 50),
           startDate: now,
           endDate: computedExpiresAt || new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
         },
@@ -1453,9 +1505,9 @@ const registerDemoCompany = async (payload) => {
           isTrial: true,
           amount: 0,
           currency: "INR",
-          seatLimit: 2,
-          candidateLimit: 20,
-          inviteLimit: 10,
+          seatLimit: null,
+          candidateLimit: null,
+          inviteLimit: null,
           startDate: now,
           endDate: expiresAt,
         },

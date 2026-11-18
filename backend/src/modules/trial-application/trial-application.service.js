@@ -73,18 +73,30 @@ const getDynamicTrialPlan = async (tx = prisma) => {
     demoPlan = await tx.plan.findUnique({ where: { code: "DEMO" } });
   } catch (_) {}
 
-  // If DEMO plan has old 7-day setting in DB, update to 30 days
-  if (demoPlan && demoPlan.durationDays === 7) {
+  // If DEMO plan has old settings in DB, update to 30 days unlimited
+  if (
+    demoPlan &&
+    (demoPlan.durationDays !== 30 ||
+      demoPlan.seatLimit !== null ||
+      demoPlan.candidateLimit !== null ||
+      demoPlan.inviteLimit !== null)
+  ) {
     try {
       await tx.plan.update({
         where: { id: demoPlan.id },
         data: {
           durationDays: 30,
-          description: "30-day free trial with standard feature access for evaluation.",
+          seatLimit: null,
+          candidateLimit: null,
+          inviteLimit: null,
+          description: "30-day free trial with unlimited feature access for evaluation.",
         },
       });
       demoPlan.durationDays = 30;
-      demoPlan.description = "30-day free trial with standard feature access for evaluation.";
+      demoPlan.seatLimit = null;
+      demoPlan.candidateLimit = null;
+      demoPlan.inviteLimit = null;
+      demoPlan.description = "30-day free trial with unlimited feature access for evaluation.";
     } catch (_) {}
   }
 
@@ -94,9 +106,9 @@ const getDynamicTrialPlan = async (tx = prisma) => {
     planId: demoPlan?.id || null,
     planCode: "DEMO",
     planName: demoPlan?.name || "Demo Plan",
-    seatLimit: demoPlan?.seatLimit ?? TRIAL_LIMITS.HR_SEATS,
-    candidateLimit: demoPlan?.candidateLimit ?? TRIAL_LIMITS.TOTAL_CANDIDATES,
-    inviteLimit: demoPlan?.inviteLimit ?? TRIAL_LIMITS.MONTHLY_INVITATIONS,
+    seatLimit: null, // Unlimited for 30-day trial
+    candidateLimit: null, // Unlimited
+    inviteLimit: null, // Unlimited
     durationDays,
     durationHours: durationDays * 24,
   };
@@ -834,9 +846,16 @@ class TrialApplicationService {
             orderBy: { createdAt: "desc" },
           });
           if (sub) {
-            if (sub.seatLimit != null) seatLimit = sub.seatLimit;
-            if (sub.candidateLimit != null) candidateLimit = sub.candidateLimit;
-            if (sub.inviteLimit != null) inviteLimit = sub.inviteLimit;
+            const isDemo = sub.planCode === "DEMO" || Boolean(sub.isTrial);
+            if (!isDemo) {
+              if (sub.seatLimit != null) seatLimit = sub.seatLimit;
+              if (sub.candidateLimit != null) candidateLimit = sub.candidateLimit;
+              if (sub.inviteLimit != null) inviteLimit = sub.inviteLimit;
+            } else {
+              seatLimit = null;
+              candidateLimit = null;
+              inviteLimit = null;
+            }
             if (sub.planName) planName = sub.planName;
           }
         } catch (_) {}

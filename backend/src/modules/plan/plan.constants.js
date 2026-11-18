@@ -37,9 +37,9 @@ const PAYMENT_STATUS = Object.freeze({
 const PLAN_LIMITS = Object.freeze({
   [COMPANY_PLANS.DEMO]: Object.freeze({
     name: "Demo",
-    hrSeats: 2,
-    totalCandidates: 20,
-    monthlyInvitations: 10,
+    hrSeats: null, // Unlimited for 30-day evaluation
+    totalCandidates: null, // Unlimited
+    monthlyInvitations: null, // Unlimited
     durationHours: 720, // 30 days (30 * 24 hours)
   }),
   [COMPANY_PLANS.STARTER]: Object.freeze({

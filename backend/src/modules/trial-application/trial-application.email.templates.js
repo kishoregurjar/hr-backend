@@ -84,9 +84,9 @@ const buildTrialApprovalEmail = ({
   planName = "Demo Plan",
   startDate,
   endDate,
-  seatLimit = 2,
-  candidateLimit = 20,
-  inviteLimit = 10,
+  seatLimit = null,
+  candidateLimit = null,
+  inviteLimit = null,
   durationDays = 30,
   durationHours = 720,
   workspaceUrl,
@@ -96,9 +96,18 @@ const buildTrialApprovalEmail = ({
   const safePlan = escapeHtml(planName);
   const safeStartDate = escapeHtml(startDate || "Today");
   const safeEndDate = escapeHtml(endDate || "In 30 days");
-  const safeSeats = escapeHtml(String(seatLimit));
-  const safeCandidates = escapeHtml(String(candidateLimit));
-  const safeInvites = escapeHtml(String(inviteLimit));
+  const safeSeats =
+    seatLimit !== null && seatLimit !== undefined && seatLimit !== "null"
+      ? escapeHtml(String(seatLimit))
+      : "Unlimited";
+  const safeCandidates =
+    candidateLimit !== null && candidateLimit !== undefined && candidateLimit !== "null"
+      ? escapeHtml(String(candidateLimit))
+      : "Unlimited";
+  const safeInvites =
+    inviteLimit !== null && inviteLimit !== undefined && inviteLimit !== "null"
+      ? escapeHtml(String(inviteLimit))
+      : "Unlimited";
   const computedDays = durationDays || (durationHours ? Math.max(1, Math.round(durationHours / 24)) : 30);
   const computedHours = durationHours || (computedDays * 24);
   const safeDays = escapeHtml(String(computedDays));
