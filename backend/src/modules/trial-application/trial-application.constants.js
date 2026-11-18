@@ -87,8 +87,8 @@ const TRIAL_LIMITS = {
   HR_SEATS: 2,
   TOTAL_CANDIDATES: 20,
   MONTHLY_INVITATIONS: 10,
-  DURATION_HOURS: 168, // 7 days exactly
-  DURATION_DAYS: 7,
+  DURATION_HOURS: 720, // 30 days exactly
+  DURATION_DAYS: 30,
 };
 
 module.exports = {

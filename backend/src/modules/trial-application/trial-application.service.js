@@ -73,6 +73,23 @@ const getDynamicTrialPlan = async (tx = prisma) => {
     demoPlan = await tx.plan.findUnique({ where: { code: "DEMO" } });
   } catch (_) {}
 
+  // If DEMO plan has old 7-day setting in DB, update to 30 days
+  if (demoPlan && demoPlan.durationDays === 7) {
+    try {
+      await tx.plan.update({
+        where: { id: demoPlan.id },
+        data: {
+          durationDays: 30,
+          description: "30-day free trial with standard feature access for evaluation.",
+        },
+      });
+      demoPlan.durationDays = 30;
+      demoPlan.description = "30-day free trial with standard feature access for evaluation.";
+    } catch (_) {}
+  }
+
+  const durationDays = (demoPlan?.durationDays && demoPlan.durationDays !== 7) ? demoPlan.durationDays : 30;
+
   return {
     planId: demoPlan?.id || null,
     planCode: "DEMO",
@@ -80,8 +97,8 @@ const getDynamicTrialPlan = async (tx = prisma) => {
     seatLimit: demoPlan?.seatLimit ?? TRIAL_LIMITS.HR_SEATS,
     candidateLimit: demoPlan?.candidateLimit ?? TRIAL_LIMITS.TOTAL_CANDIDATES,
     inviteLimit: demoPlan?.inviteLimit ?? TRIAL_LIMITS.MONTHLY_INVITATIONS,
-    durationDays: demoPlan?.durationDays || 7,
-    durationHours: (demoPlan?.durationDays || 7) * 24,
+    durationDays,
+    durationHours: durationDays * 24,
   };
 };
 
@@ -434,8 +451,8 @@ class TrialApplicationService {
   /**
    * 5. Super Admin: Approve Demo Trial Application
    * Follows exact Specification 5:
-   * - 7-day timer starts at exact moment of approval.
-   * - Sets 168 hours duration.
+   * - 30-day timer starts at exact moment of approval.
+   * - Sets 720 hours duration.
    * - Enforces Demo limits: 2 HR seats, 20 unique candidates, 10 monthly assessment invites.
    * - Centralized tenant URL utility (zero tokens in links).
    * - Sends approval email to verified Owner.

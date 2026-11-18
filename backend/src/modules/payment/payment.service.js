@@ -233,7 +233,7 @@ const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorR
   }
 
   if (plan.code === COMPANY_PLANS.DEMO) {
-    throw new AppError("The Demo plan is a free 7-day trial. Please use 'Start Free Trial' directly.", {
+    throw new AppError("The Demo plan is a free 30-day trial. Please use 'Start Free Trial' directly.", {
       statusCode: 400,
       code: "DEMO_CANNOT_BE_PURCHASED",
       isOperational: true,
@@ -664,7 +664,7 @@ const createOnboardingOrder = async ({
   }
 
   if (plan.code === COMPANY_PLANS.DEMO) {
-    throw new AppError("Demo is a free 7-day trial. Please use 'Start Free Trial'.", {
+    throw new AppError("Demo is a free 30-day trial. Please use 'Start Free Trial'.", {
       statusCode: 400,
       code: "DEMO_CANNOT_BE_PURCHASED",
       isOperational: true,

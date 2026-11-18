@@ -42,7 +42,7 @@ class PlanController {
   });
 
   /**
-   * Start 7-Day Free Demo Trial
+   * Start 30-Day Free Demo Trial
    * POST /api/v1/subscriptions/demo/start
    */
   startDemo = asyncHandler(async (req, res) => {
@@ -54,7 +54,7 @@ class PlanController {
     return SuccessResponse.send(
       res,
       {
-        message: "7-day Demo trial started successfully! Your workspace is active.",
+        message: "30-day Demo trial started successfully! Your workspace is active.",
         data: { subscription },
       },
       StatusCodes.CREATED
@@ -62,7 +62,7 @@ class PlanController {
   });
 
   /**
-   * Public Onboarding: Register new company and owner with 7-Day Demo Trial
+   * Public Onboarding: Register new company and owner with 30-Day Demo Trial
    * POST /api/v1/plans/register-demo
    */
   registerDemo = asyncHandler(async (req, res) => {

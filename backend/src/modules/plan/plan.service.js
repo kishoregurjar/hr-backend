@@ -655,7 +655,7 @@ const startDemoTrial = async (companyId, actorRole, tx = prisma) => {
 
   if (company.hasUsedDemo || (company.subscriptions && company.subscriptions.length > 0)) {
     throw new AppError(
-      "Your organization has already used its free 7-day Demo trial. Please choose a paid subscription plan.",
+      "Your organization has already used its free 30-day Demo trial. Please choose a paid subscription plan.",
       {
         statusCode: 400,
         code: PLAN_ERROR_CODES.TRIAL_ALREADY_USED,
@@ -680,11 +680,13 @@ const startDemoTrial = async (companyId, actorRole, tx = prisma) => {
       seatLimit: 2,
       candidateLimit: 20,
       inviteLimit: 10,
+      durationDays: 30,
     };
   }
 
+  const durationDays = demoPlan.durationDays || 30;
   const now = new Date();
-  const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // Exactly 168 hours
+  const trialEnd = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000); // 30 days (720 hours)
 
   // Expire any previous active subscriptions defensively
   try {
@@ -792,6 +794,27 @@ const getActivePlans = async (tx = prisma) => {
     } catch (_) {}
   }
 
+  // Self-healing: Automatically upgrade DEMO plan from 7-day to 30-day in memory and database
+  if (Array.isArray(plans)) {
+    for (const p of plans) {
+      if (p.code === "DEMO" && (p.durationDays === 7 || (p.description && p.description.includes("7-day")))) {
+        p.durationDays = 30;
+        p.description = "30-day free trial with standard feature access for evaluation.";
+        if (p.id) {
+          try {
+            await tx.plan.update({
+              where: { id: p.id },
+              data: {
+                durationDays: 30,
+                description: "30-day free trial with standard feature access for evaluation.",
+              },
+            });
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
   return (plans || []).map((p) => ({
     id: p.id || p.code?.toLowerCase() || `plan-${p.code || "custom"}`,
     code: p.code,
@@ -873,6 +896,27 @@ const getAllPlansWithStats = async (tx = prisma) => {
       const { DEFAULT_PLANS } = require("../../scripts/seed-plans");
       plans = DEFAULT_PLANS;
     } catch (_) {}
+  }
+
+  // Self-healing: Automatically upgrade DEMO plan from 7-day to 30-day in memory and database
+  if (Array.isArray(plans)) {
+    for (const p of plans) {
+      if (p.code === "DEMO" && (p.durationDays === 7 || (p.description && p.description.includes("7-day")))) {
+        p.durationDays = 30;
+        p.description = "30-day free trial with standard feature access for evaluation.";
+        if (p.id) {
+          try {
+            await tx.plan.update({
+              where: { id: p.id },
+              data: {
+                durationDays: 30,
+                description: "30-day free trial with standard feature access for evaluation.",
+              },
+            });
+          } catch (_) {}
+        }
+      }
+    }
   }
 
   const now = new Date();
@@ -1259,8 +1303,8 @@ const assignCompanyPlan = async (companyId, payload, tx = prisma) => {
 };
 
 /**
- * Public onboarding: registers a new company and owner with an active 7-Day Demo Trial.
- * Guaranteed 168 hours duration, strictly single trial per company/email.
+ * Public onboarding: registers a new company and owner with an active 30-Day Demo Trial.
+ * Guaranteed 720 hours duration, strictly single trial per company/email.
  */
 const registerDemoCompany = async (payload) => {
   const { companyName, ownerName, ownerEmail, password, industry, website, phone } = payload;
@@ -1320,9 +1364,11 @@ const registerDemoCompany = async (payload) => {
     });
   }
 
+  const demoCatalogPlan = await prisma.plan.findUnique({ where: { code: COMPANY_PLANS.DEMO } }).catch(() => null);
+  const durationDays = demoCatalogPlan?.durationDays || 30;
   const hashedPassword = await hashPassword(password);
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // exactly 168 hours
+  const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000); // 30 days (720 hours)
 
   // Unique slug generation
   const baseSlug =
@@ -1435,7 +1481,7 @@ const registerDemoCompany = async (payload) => {
   const tenantUrl = buildCompanyTenantUrl(result.company, "/login");
 
   return {
-    message: "Company registered successfully with 7-Day Free Demo Trial!",
+    message: "Company registered successfully with 30-Day Free Demo Trial!",
     tenantUrl,
     company: {
       id: result.company.id,

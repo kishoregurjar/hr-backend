@@ -12,7 +12,7 @@ const planController = require("./plan.controller");
  */
 router.get("/", planController.listActivePlans);
 
-// Public onboarding: Free 7-Day Demo Trial registration
+// Public onboarding: Free 30-Day Demo Trial registration
 router.post("/register-demo", planController.registerDemo);
 
 module.exports = router;

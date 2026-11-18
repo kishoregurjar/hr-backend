@@ -40,7 +40,7 @@ const PLAN_LIMITS = Object.freeze({
     hrSeats: 2,
     totalCandidates: 20,
     monthlyInvitations: 10,
-    durationHours: 168, // 7 days (7 * 24 hours)
+    durationHours: 720, // 30 days (30 * 24 hours)
   }),
   [COMPANY_PLANS.STARTER]: Object.freeze({
     name: "Starter",
