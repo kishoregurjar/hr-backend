@@ -306,16 +306,16 @@ enum NotificationPriority {
 //
 
 model User {
-  id        String     @id @default(uuid())
-  email     String     @unique
-  password  String?
-  name      String?
-  role      Role       @default(HR)
-  status    UserStatus @default(ACTIVE)
-  avatarUrl String?
+  id         String     @id @default(uuid())
+  email      String     @unique
+  password   String?
+  name       String?
+  role       Role       @default(HR)
+  status     UserStatus @default(ACTIVE)
+  avatarUrl  String?
   avatarPath String?
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   // Navigation Properties
   assessments       Assessment[]       @relation("CreatedAssessments")
@@ -462,8 +462,8 @@ model Assessment {
   createdBy   User     @relation("CreatedAssessments", fields: [createdById], references: [id])
   company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
-  companyId       String?
-  isQuarantined   Boolean          @default(false)
+  companyId     String?
+  isQuarantined Boolean @default(false)
 
   startsAt DateTime?
   endsAt   DateTime?
@@ -510,13 +510,13 @@ model CandidateProfile {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user             User?              @relation(fields: [userId], references: [id])
-  company          Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  user              User?              @relation(fields: [userId], references: [id])
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   companyCandidates CompanyCandidate[]
   proctoringEvents  ProctoringEvent[]
-  invitations      Invitation[]
-  attempts         CandidateAttempt[]
-  attemptAuditLogs AttemptAuditLog[]
+  invitations       Invitation[]
+  attempts          CandidateAttempt[]
+  attemptAuditLogs  AttemptAuditLog[]
 
   @@index([companyId])
   @@index([companyId, email])
@@ -900,39 +900,40 @@ model Company {
   showPoweredByHireQuest Boolean @default(true)
 
   // Phase 3C Custom Domain Extensions
-  customDomain           String?  @unique
-  customDomainVerified   Boolean  @default(false)
+  customDomain         String? @unique
+  customDomainVerified Boolean @default(false)
 
   // SaaS Subscription & Plan Enforcement
-  plan                   CompanyPlan       @default(STARTER)
-  planStatus             CompanyPlanStatus @default(ACTIVE)
-  planStartedAt          DateTime?         @default(now())
-  planExpiresAt          DateTime?
-  customSeatLimit        Int?
-  customCandidateLimit   Int?
-  customInviteLimit      Int?
-  hasUsedDemo            Boolean           @default(false)
+  plan                 CompanyPlan       @default(STARTER)
+  planStatus           CompanyPlanStatus @default(ACTIVE)
+  planStartedAt        DateTime?         @default(now())
+  planExpiresAt        DateTime?
+  customSeatLimit      Int?
+  customCandidateLimit Int?
+  customInviteLimit    Int?
+  hasUsedDemo          Boolean           @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members           CompanyMember[]
-  jobs              Job[]
-  invitations       CompanyInvitation[]
-  auditLogs         AuditLog[]
-  candidateProfiles CandidateProfile[]
-  companyCandidates CompanyCandidate[]
-  proctoringEvents  ProctoringEvent[]
-  questions         Question[]
-  gameConfigs       CompanyGameConfig[]
-  supportRequests   SupportRequest[]
-  assessments       Assessment[]
+  members              CompanyMember[]
+  jobs                 Job[]
+  invitations          CompanyInvitation[]
+  auditLogs            AuditLog[]
+  candidateProfiles    CandidateProfile[]
+  companyCandidates    CompanyCandidate[]
+  proctoringEvents     ProctoringEvent[]
+  questions            Question[]
+  gameConfigs          CompanyGameConfig[]
+  supportRequests      SupportRequest[]
+  assessments          Assessment[]
   candidateInvitations Invitation[]
   candidateAttempts    CandidateAttempt[]
   mailboxes            UserMailbox[]
   notifications        Notification[]
   subscriptions        Subscription[]
   payments             Payment[]
+  couponRedemptions    CouponRedemption[]
 
   @@index([createdAt])
 }
@@ -1328,13 +1329,13 @@ model PublicContactInquiry {
 // MULTI-TENANT QUARANTINE AUDIT MODELS (PHASE 2A)
 //
 model AssessmentQuarantineLog {
-  id                   String    @id @default(cuid())
+  id                   String   @id @default(cuid())
   assessmentId         String
   originalAssessmentId String?
   reason               String
   evidence             Json
   quarantinedById      String?
-  quarantinedAt        DateTime  @default(now())
+  quarantinedAt        DateTime @default(now())
 
   resolutions QuarantineResolutionEvent[]
 
@@ -1385,103 +1386,197 @@ model Notification {
 // ==========================================
 
 model Plan {
-  id             String   @id @default(cuid())
-  code           String   @unique
-  name           String
-  description    String?
-  monthlyPrice   Decimal  @default(0) @db.Decimal(10, 2)
-  yearlyPrice    Decimal  @default(0) @db.Decimal(10, 2)
-  currency       String   @default("INR")
+  id           String  @id @default(cuid())
+  code         String  @unique
+  name         String
+  description  String?
+  monthlyPrice Decimal @default(0) @db.Decimal(10, 2)
+  yearlyPrice  Decimal @default(0) @db.Decimal(10, 2)
+  currency     String  @default("INR")
 
   seatLimit      Int?
   candidateLimit Int?
   inviteLimit    Int?
 
-  durationDays   Int?
-  isTrial        Boolean  @default(false)
-  isCustom       Boolean  @default(false)
-  isActive       Boolean  @default(true)
-  isPopular      Boolean  @default(false)
-  sortOrder      Int      @default(0)
+  durationDays Int?
+  isTrial      Boolean @default(false)
+  isCustom     Boolean @default(false)
+  isActive     Boolean @default(true)
+  isPopular    Boolean @default(false)
+  sortOrder    Int     @default(0)
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  subscriptions  Subscription[]
-  payments       Payment[]
+  subscriptions Subscription[]
+  payments      Payment[]
 
   @@index([isActive])
   @@index([sortOrder])
 }
 
 model Subscription {
-  id             String             @id @default(cuid())
-  companyId      String
-  planId         String?
+  id        String  @id @default(cuid())
+  companyId String
+  planId    String?
 
-  planCode       String
-  planName       String
-  billingCycle   BillingCycle       @default(MONTHLY)
-  status         SubscriptionStatus @default(ACTIVE)
-  amount         Decimal            @default(0) @db.Decimal(10, 2)
-  currency       String             @default("INR")
+  planCode     String
+  planName     String
+  billingCycle BillingCycle       @default(MONTHLY)
+  status       SubscriptionStatus @default(ACTIVE)
+  amount       Decimal            @default(0) @db.Decimal(10, 2)
+  currency     String             @default("INR")
 
   seatLimit      Int?
   candidateLimit Int?
   inviteLimit    Int?
 
-  startDate      DateTime           @default(now())
-  endDate        DateTime
-  cancelledAt    DateTime?
+  startDate   DateTime  @default(now())
+  endDate     DateTime
+  cancelledAt DateTime?
 
-  isTrial        Boolean            @default(false)
+  isTrial Boolean @default(false)
 
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  couponId               String?
+  couponCode             String?
+  recurringDiscountType  CouponDiscountType?
+  recurringDiscountValue Decimal?            @db.Decimal(10, 2)
+  recurringMaxDiscount   Decimal?            @db.Decimal(10, 2)
 
-  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan           Plan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
-  payments       Payment[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan              Plan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
+  coupon            Coupon?            @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  payments          Payment[]
+  couponRedemptions CouponRedemption[]
 
   @@index([companyId])
   @@index([companyId, status])
   @@index([status, endDate])
+  @@index([couponId])
 }
 
 model Payment {
-  id                String        @id @default(cuid())
-  companyId         String?
-  subscriptionId    String?
-  planId            String?
+  id             String  @id @default(cuid())
+  companyId      String?
+  subscriptionId String?
+  planId         String?
+  couponId       String?
+  couponCode     String?
 
-  amount            Decimal       @db.Decimal(10, 2)
-  amountPaise       Int
-  currency          String        @default("INR")
-  billingCycle      BillingCycle  @default(MONTHLY)
-  status            PaymentStatus @default(PENDING)
+  originalAmount Decimal?      @db.Decimal(10, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(10, 2)
+  amount         Decimal       @db.Decimal(10, 2)
+  amountPaise    Int
+  currency       String        @default("INR")
+  billingCycle   BillingCycle  @default(MONTHLY)
+  status         PaymentStatus @default(PENDING)
 
-  razorpayOrderId   String?       @unique
-  razorpayPaymentId String?       @unique
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String? @unique
   razorpaySignature String?
 
-  planSnapshot      Json
-  signupData        Json?
-  receipt           String?
-  errorMessage      String?
-  paidAt            DateTime?
+  planSnapshot Json
+  signupData   Json?
+  receipt      String?
+  errorMessage String?
+  paidAt       DateTime?
 
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company           Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  subscription      Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  plan              Plan?         @relation(fields: [planId], references: [id], onDelete: SetNull)
+  company          Company?          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subscription     Subscription?     @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  plan             Plan?             @relation(fields: [planId], references: [id], onDelete: SetNull)
+  coupon           Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponRedemption CouponRedemption?
 
   @@index([companyId])
   @@index([status])
   @@index([razorpayOrderId])
+  @@index([couponId])
 }
 
+// ==========================================
+// Super Admin Coupon & Discount System
+// ==========================================
+
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum CouponApplicability {
+  FIRST_PURCHASE
+  EVERY_RENEWAL
+}
+
+enum CouponRedemptionType {
+  FIRST_PURCHASE
+  RENEWAL
+}
+
+model Coupon {
+  id                String              @id @default(cuid())
+  code              String              @unique
+  name              String?
+  discountType      CouponDiscountType  @default(PERCENTAGE)
+  discountValue     Decimal             @db.Decimal(10, 2)
+  maxDiscountAmount Decimal?            @db.Decimal(10, 2)
+  applicability     CouponApplicability @default(FIRST_PURCHASE)
+  applicablePlans   String[]            @default([])
+  applicableCycles  String[]            @default([])
+  validFrom         DateTime            @default(now())
+  validUntil        DateTime?
+  maxRedemptions    Int?
+  perCompanyLimit   Int?                @default(1)
+  redemptionCount   Int                 @default(0)
+  isActive          Boolean             @default(true)
+  showOnPricingPage Boolean             @default(false)
+  publicDescription String?
+  displayPriority   Int                 @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  redemptions   CouponRedemption[]
+  subscriptions Subscription[]
+  payments      Payment[]
+
+  @@index([code])
+  @@index([isActive])
+  @@index([applicability])
+  @@index([validFrom, validUntil])
+  @@index([showOnPricingPage, isActive])
+}
+
+model CouponRedemption {
+  id             String               @id @default(cuid())
+  couponId       String
+  companyId      String
+  paymentId      String?              @unique
+  subscriptionId String?
+  redemptionType CouponRedemptionType @default(FIRST_PURCHASE)
+  originalAmount Decimal              @db.Decimal(10, 2)
+  discountAmount Decimal              @db.Decimal(10, 2)
+  finalAmount    Decimal              @db.Decimal(10, 2)
+  currency       String               @default("INR")
+
+  createdAt DateTime @default(now())
+
+  coupon       Coupon        @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  payment      Payment?      @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([couponId])
+  @@index([companyId])
+  @@index([couponId, companyId])
+  @@index([redemptionType])
+  @@index([createdAt])
+}
 
 // ==========================================
 // Request-Based Demo Trial Application System
@@ -1494,33 +1589,33 @@ enum TrialApplicationStatus {
 }
 
 model TrialApplication {
-  id                    String                 @id @default(cuid())
-  companyName           String
-  ownerName             String
-  businessEmail         String                 @unique
-  phone                 String?
-  website               String?
-  businessDescription   String?
-  industry              String?
-  passwordHash          String
-  isBusinessEmail       Boolean                @default(false)
-  emailVerified         Boolean                @default(false)
-  emailVerifiedAt       DateTime?
+  id                  String    @id @default(cuid())
+  companyName         String
+  ownerName           String
+  businessEmail       String    @unique
+  phone               String?
+  website             String?
+  businessDescription String?
+  industry            String?
+  passwordHash        String
+  isBusinessEmail     Boolean   @default(false)
+  emailVerified       Boolean   @default(false)
+  emailVerifiedAt     DateTime?
 
-  ipAddress             String?
-  userAgent             String?
+  ipAddress String?
+  userAgent String?
 
-  status                TrialApplicationStatus @default(PENDING_REVIEW)
-  reviewerId            String?
-  reviewedAt            DateTime?
-  rejectionReason       String?
-  reviewNotes           String?
+  status          TrialApplicationStatus @default(PENDING_REVIEW)
+  reviewerId      String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  reviewNotes     String?
 
-  approvedCompanyId     String?                @unique
-  approvedCompanySlug   String?
+  approvedCompanyId   String? @unique
+  approvedCompanySlug String?
 
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([businessEmail])
   @@index([status, createdAt])
@@ -1528,14 +1623,14 @@ model TrialApplication {
 }
 
 model TrialApplicationOtp {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  otpHash       String
-  attempts      Int      @default(0)
-  expiresAt     DateTime
-  lastSentAt    DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id         String   @id @default(cuid())
+  email      String   @unique
+  otpHash    String
+  attempts   Int      @default(0)
+  expiresAt  DateTime
+  lastSentAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([email])
 }

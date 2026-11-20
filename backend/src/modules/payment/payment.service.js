@@ -18,6 +18,11 @@ const {
   COMPANY_PLAN_STATUS,
   COMPANY_PLANS,
 } = require("../plan/plan.constants");
+const couponService = require("../coupon/coupon.service");
+const {
+  COUPON_APPLICABILITY,
+  COUPON_REDEMPTION_TYPE,
+} = require("../coupon/coupon.constants");
 const {
   hashPassword,
   generateAccessToken,
@@ -198,7 +203,7 @@ const sendPurchaseConfirmationEmailSafely = async ({ paymentId }) => {
  * Only the Company OWNER is permitted to initiate purchases.
  * Plan price is strictly calculated server-side from the database catalog.
  */
-const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorRole }) => {
+const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorRole, couponCode }) => {
   if (actorRole !== "OWNER" && actorRole !== "COMPANY_OWNER") {
     throw new AppError("Only the company owner can purchase or renew subscription plans.", {
       statusCode: 403,
@@ -240,13 +245,13 @@ const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorR
     });
   }
 
-  // Server-side amount computation
-  const amount =
+  // Server-side base amount computation
+  const baseAmount =
     normalizedCycle === BILLING_CYCLES.YEARLY
       ? Number(plan.yearlyPrice)
       : Number(plan.monthlyPrice);
 
-  if (amount <= 0 && !plan.isCustom) {
+  if (baseAmount <= 0 && !plan.isCustom) {
     throw new AppError("Invalid pricing for selected plan tier.", {
       statusCode: 400,
       code: "INVALID_PLAN_AMOUNT",
@@ -254,8 +259,50 @@ const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorR
     });
   }
 
+  // Determine if this purchase is a renewal
+  const priorCompletedPayments = await prisma.payment.count({
+    where: {
+      companyId,
+      status: PAYMENT_STATUS.COMPLETED,
+      amount: { gt: 0 },
+    },
+  });
+  const isRenewal = priorCompletedPayments > 0;
+
+  // Coupon evaluation
+  let couponData = null;
+  let discountAmount = 0;
+  let finalAmount = baseAmount;
+
+  if (couponCode && typeof couponCode === "string" && couponCode.trim()) {
+    // Explicit user-provided promo code
+    const validation = await couponService.validateCoupon({
+      code: couponCode.trim(),
+      planCode: plan.code,
+      billingCycle: normalizedCycle,
+      companyId,
+      isRenewal,
+    });
+    couponData = validation.coupon;
+    discountAmount = validation.discountAmount;
+    finalAmount = validation.finalAmount;
+  } else if (isRenewal) {
+    // Automatic recurring renewal coupon check:
+    // If previous subscription had an active EVERY_RENEWAL coupon attached, check validity
+    const recurringCheck = await couponService.getRecurringRenewalCouponForCompany({
+      companyId,
+      planCode: plan.code,
+      billingCycle: normalizedCycle,
+    });
+    if (recurringCheck.hasRecurringCoupon && recurringCheck.coupon) {
+      couponData = recurringCheck.coupon;
+      discountAmount = recurringCheck.discountAmount;
+      finalAmount = recurringCheck.finalAmount;
+    }
+  }
+
   // Razorpay requires amount in smallest currency unit (paise: ₹1 = 100 paise)
-  const amountPaise = Math.round(amount * 100);
+  const amountPaise = Math.round(finalAmount * 100);
   const receipt = `rcpt_${companyId.slice(-6)}_${Date.now().toString().slice(-6)}`;
 
   // Create official Razorpay order in Test Mode
@@ -268,6 +315,10 @@ const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorR
       planId: plan.id,
       planCode: plan.code,
       billingCycle: normalizedCycle,
+      couponCode: couponData?.code || null,
+      originalAmount: baseAmount,
+      discountAmount,
+      finalAmount,
       environment: process.env.RAZORPAY_ENV || "test",
     },
   });
@@ -277,18 +328,31 @@ const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorR
     data: {
       companyId,
       planId: plan.id,
-      amount,
+      amount: finalAmount,
       amountPaise,
       currency: plan.currency || "INR",
       billingCycle: normalizedCycle,
       status: PAYMENT_STATUS.PENDING,
       razorpayOrderId: razorpayOrder.id,
       receipt,
+      couponId: couponData?.id || null,
+      couponCode: couponData?.code || null,
+      originalAmount: baseAmount,
+      discountAmount,
       planSnapshot: {
         planId: plan.id,
         code: plan.code,
         name: plan.name,
-        amount,
+        amount: finalAmount,
+        originalAmount: baseAmount,
+        discountAmount,
+        finalAmount,
+        couponId: couponData?.id || null,
+        couponCode: couponData?.code || null,
+        couponApplicability: couponData?.applicability || null,
+        couponDiscountType: couponData?.discountType || null,
+        couponDiscountValue: couponData?.discountValue ? Number(couponData.discountValue) : null,
+        couponMaxDiscount: couponData?.maxDiscountAmount ? Number(couponData.maxDiscountAmount) : null,
         currency: plan.currency || "INR",
         billingCycle: normalizedCycle,
         seatLimit: plan.seatLimit,
@@ -303,7 +367,11 @@ const createSubscriptionOrder = async ({ companyId, planId, billingCycle, actorR
   return {
     orderId: razorpayOrder.id,
     amount: amountPaise,
-    amountInRupees: amount,
+    amountInRupees: finalAmount,
+    originalAmount: baseAmount,
+    discountAmount,
+    couponCode: couponData?.code || null,
+    couponApplicability: couponData?.applicability || null,
     currency: plan.currency || "INR",
     keyId: process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY,
     planName: plan.name,
@@ -460,6 +528,10 @@ const verifyAndActivateSubscription = async ({
       },
     });
 
+    // Check if this subscription carries recurring renewal coupon privileges
+    const hasRecurringCoupon =
+      snapshot.couponApplicability === COUPON_APPLICABILITY.EVERY_RENEWAL;
+
     // Create new immutable subscription snapshot
     const subscription = await tx.subscription.create({
       data: {
@@ -477,8 +549,37 @@ const verifyAndActivateSubscription = async ({
         startDate: now,
         endDate,
         isTrial: false,
+        couponId: hasRecurringCoupon ? storedPayment.couponId : null,
+        couponCode: hasRecurringCoupon ? storedPayment.couponCode : null,
+        recurringDiscountType: hasRecurringCoupon ? snapshot.couponDiscountType : null,
+        recurringDiscountValue: hasRecurringCoupon ? snapshot.couponDiscountValue : null,
+        recurringMaxDiscount: hasRecurringCoupon ? snapshot.couponMaxDiscount : null,
       },
     });
+
+    // Record coupon redemption audit record if a coupon was used
+    if (storedPayment.couponId) {
+      const priorSubsCount = await tx.subscription.count({
+        where: { companyId, id: { not: subscription.id } },
+      });
+      const redemptionType =
+        priorSubsCount > 0
+          ? COUPON_REDEMPTION_TYPE.RENEWAL
+          : COUPON_REDEMPTION_TYPE.FIRST_PURCHASE;
+
+      await couponService.recordCouponRedemption({
+        couponId: storedPayment.couponId,
+        companyId,
+        paymentId: storedPayment.id,
+        subscriptionId: subscription.id,
+        originalAmount: storedPayment.originalAmount || storedPayment.amount,
+        discountAmount: storedPayment.discountAmount || 0,
+        finalAmount: storedPayment.amount,
+        currency: storedPayment.currency,
+        redemptionType,
+        tx,
+      });
+    }
 
     // Mark payment as COMPLETED and update snapshot with method
     const updatedSnapshot = {
@@ -576,6 +677,9 @@ const getCompanyPaymentHistory = async (companyId) => {
       razorpayPaymentId: p.razorpayPaymentId,
       method: snapshot.paymentMethod || "online",
       planName: planNameVal,
+      couponCode: p.couponCode || snapshot.couponCode || null,
+      originalAmount: p.originalAmount || snapshot.originalAmount || amountVal,
+      discountAmount: p.discountAmount || snapshot.discountAmount || 0,
       plan: {
         name: planNameVal,
         code: snapshot.code || "STARTER",
@@ -602,6 +706,7 @@ const createOnboardingOrder = async ({
   industry,
   website,
   phone,
+  couponCode,
 }) => {
   if (!companyName?.trim()) {
     throw new AppError("Company name is required.", {
@@ -707,7 +812,26 @@ const createOnboardingOrder = async ({
     normalizedCycle === BILLING_CYCLES.YEARLY
       ? Number(plan.yearlyPrice)
       : Number(plan.monthlyPrice);
-  const amountPaise = Math.round(amount * 100);
+
+  // Validate coupon code for onboarding (strictly first purchase)
+  let couponData = null;
+  let discountAmount = 0;
+  let finalAmount = amount;
+
+  if (couponCode && typeof couponCode === "string" && couponCode.trim()) {
+    const validation = await couponService.validateCoupon({
+      code: couponCode.trim(),
+      planCode: plan.code,
+      billingCycle: normalizedCycle,
+      companyId: null,
+      isRenewal: false,
+    });
+    couponData = validation.coupon;
+    discountAmount = validation.discountAmount;
+    finalAmount = validation.finalAmount;
+  }
+
+  const amountPaise = Math.round(finalAmount * 100);
   const receipt = `onb_${Date.now().toString().slice(-8)}`;
 
   // Create official Razorpay order in Test Mode
@@ -720,6 +844,10 @@ const createOnboardingOrder = async ({
       ownerEmail: normalizedEmail,
       planCode: plan.code,
       billingCycle: normalizedCycle,
+      couponCode: couponData?.code || null,
+      originalAmount: amount,
+      discountAmount,
+      finalAmount,
       environment: process.env.RAZORPAY_ENV || "test",
     },
   });
@@ -739,7 +867,7 @@ const createOnboardingOrder = async ({
   }
 
   const paymentData = {
-    amount,
+    amount: finalAmount,
     amountPaise,
     currency: plan.currency || "INR",
     billingCycle: normalizedCycle,
@@ -747,10 +875,24 @@ const createOnboardingOrder = async ({
     razorpayOrderId: razorpayOrder.id,
     planId: validDbPlanId,
     receipt,
+    couponId: couponData?.id || null,
+    couponCode: couponData?.code || null,
+    originalAmount: amount,
+    discountAmount,
     planSnapshot: {
       planId: plan.id || plan.code.toLowerCase(),
       name: plan.name,
       code: plan.code,
+      amount: finalAmount,
+      originalAmount: amount,
+      discountAmount,
+      finalAmount,
+      couponId: couponData?.id || null,
+      couponCode: couponData?.code || null,
+      couponApplicability: couponData?.applicability || null,
+      couponDiscountType: couponData?.discountType || null,
+      couponDiscountValue: couponData?.discountValue ? Number(couponData.discountValue) : null,
+      couponMaxDiscount: couponData?.maxDiscountAmount ? Number(couponData.maxDiscountAmount) : null,
       seatLimit: plan.seatLimit,
       candidateLimit: plan.candidateLimit,
       inviteLimit: plan.inviteLimit,
@@ -803,13 +945,18 @@ const createOnboardingOrder = async ({
     keyId: process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY,
     orderId: razorpayOrder.id,
     amount: amountPaise,
-    amountInRupees: amount,
+    amountInRupees: finalAmount,
+    originalAmount: amount,
+    discountAmount,
+    couponCode: couponData?.code || null,
     currency: plan.currency || "INR",
     plan: {
       name: plan.name,
       code: plan.code,
       billingCycle: normalizedCycle,
-      amount,
+      amount: finalAmount,
+      originalAmount: amount,
+      discountAmount,
     },
   };
 };
@@ -1019,6 +1166,9 @@ const verifyOnboardingPayment = async ({
 
       // Create Subscription snapshot with exact purchased quotas
       try {
+        const hasRecurringCoupon =
+          payment.planSnapshot?.couponApplicability === COUPON_APPLICABILITY.EVERY_RENEWAL;
+
         subscription = await tx.subscription.create({
           data: {
             companyId: company.id,
@@ -1035,8 +1185,29 @@ const verifyOnboardingPayment = async ({
             startDate: now,
             endDate: expiresAt,
             isTrial: false,
+            couponId: hasRecurringCoupon ? payment.couponId : null,
+            couponCode: hasRecurringCoupon ? payment.couponCode : null,
+            recurringDiscountType: hasRecurringCoupon ? payment.planSnapshot?.couponDiscountType : null,
+            recurringDiscountValue: hasRecurringCoupon ? payment.planSnapshot?.couponDiscountValue : null,
+            recurringMaxDiscount: hasRecurringCoupon ? payment.planSnapshot?.couponMaxDiscount : null,
           },
         });
+
+        // Record coupon redemption if coupon was applied
+        if (payment.couponId) {
+          await couponService.recordCouponRedemption({
+            couponId: payment.couponId,
+            companyId: company.id,
+            paymentId: payment.id && !payment.id.startsWith("pay_") ? payment.id : null,
+            subscriptionId: subscription?.id || null,
+            originalAmount: payment.originalAmount || payment.amount,
+            discountAmount: payment.discountAmount || 0,
+            finalAmount: payment.amount,
+            currency: payment.currency,
+            redemptionType: COUPON_REDEMPTION_TYPE.FIRST_PURCHASE,
+            tx,
+          });
+        }
       } catch (subErr) {
         console.warn("[verifyOnboardingPayment] Subscription table missing, skipped:", subErr.message);
       }

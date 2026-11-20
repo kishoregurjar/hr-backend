@@ -16,6 +16,7 @@ const superAdminAnalyticsRoutes = require("./super-admin.analytics.routes");
 const superAdminPlansRoutes = require("./super-admin.plans.routes");
 const superAdminPaymentsRoutes = require("./super-admin.payments.routes");
 const superAdminTrialRequestsRoutes = require("./super-admin.trial-requests.routes");
+const superAdminCouponsRoutes = require("./super-admin.coupons.routes");
 
 router.use("/games", superAdminGameRoutes);
 router.use("/companies", superAdminOwnerManagementRoutes);
@@ -24,6 +25,7 @@ router.use("/contact-inquiries", publicContactSuperAdminRoutes);
 router.use(superAdminPaymentsRoutes);
 router.use(superAdminPlansRoutes);
 router.use(superAdminTrialRequestsRoutes);
+router.use(superAdminCouponsRoutes);
 router.use(superAdminAnalyticsRoutes);
 router.use(superAdminCompanyRoutes);
 router.use(superAdminDashboardRoutes);

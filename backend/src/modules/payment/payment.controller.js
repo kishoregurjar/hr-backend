@@ -13,13 +13,14 @@ class PaymentController {
   createOrder = asyncHandler(async (req, res) => {
     const companyId = req.companyId;
     const actorRole = req.companyMember?.role;
-    const { planId, billingCycle } = req.body;
+    const { planId, billingCycle, couponCode } = req.body;
 
     const order = await paymentService.createSubscriptionOrder({
       companyId,
       planId,
       billingCycle,
       actorRole,
+      couponCode,
     });
 
     return SuccessResponse.send(

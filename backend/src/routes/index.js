@@ -23,6 +23,7 @@ const planRoutes = require("../modules/plan/plan.routes");
 const subscriptionRoutes = require("../modules/plan/subscription.routes");
 const paymentRoutes = require("../modules/payment/payment.routes");
 const trialApplicationRoutes = require("../modules/trial-application/trial-application.routes");
+const couponRoutes = require("../modules/coupon/coupon.routes");
 
 const router = express.Router();
 
@@ -139,6 +140,7 @@ router.use("/plans", planRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/payments", paymentRoutes);
 router.use("/trial-applications", trialApplicationRoutes);
+router.use("/coupons", couponRoutes);
 
 /**
  * HR Support Request Routes (/api/v1/support)
