@@ -3,7 +3,13 @@
 const crypto = require("node:crypto");
 const { prisma } = require("../../config/prisma");
 const { AppError } = require("../../utils/app-error");
-const { hashPassword } = require("../auth/auth.utils");
+const {
+  hashPassword,
+  generateAccessToken,
+  generateRefreshToken,
+  hashToken,
+} = require("../auth/auth.utils");
+const authRepository = require("../auth/auth.repository");
 const { buildCompanyTenantUrl } = require("../../utils/tenant-url");
 const { sendEmail } = require("../../utils/email");
 const auditService = require("../company/company.audit.service");
@@ -270,23 +276,7 @@ class TrialApplicationService {
       });
     }
 
-    // 4. Check for pending application
-    const pendingApp = await trialApplicationStore.findPendingByEmailOrCompany(
-      normalizedEmail,
-      normalizedCompanyName
-    );
-    if (pendingApp) {
-      throw new AppError(
-        "A trial application for this organization or email is already pending review. Our team will notify you shortly.",
-        {
-          statusCode: 409,
-          code: "TRIAL_APPLICATION_ALREADY_PENDING",
-          isOperational: true,
-        }
-      );
-    }
-
-    // 5. Check previously approved trial history
+    // 4. Check previously approved trial history
     const previousApproved = await trialApplicationStore.findApplicationByEmail(normalizedEmail);
     if (previousApproved && previousApproved.status === TRIAL_APPLICATION_STATUS.APPROVED) {
       throw new AppError("This organization or email has already utilized a free Demo trial.", {
@@ -296,13 +286,104 @@ class TrialApplicationService {
       });
     }
 
-    // 6. Hash password
+    // 5. Hash password
     const passwordHash = await hashPassword(validated.password);
 
-    // 7. Detect business email vs free consumer email
+    // 6. Detect business email vs free consumer email
     const isBusiness = isBusinessDomain(normalizedEmail);
 
-    // 8. Create application in store
+    // 7. Dynamic Trial Plan (30 Days Demo plan with unlimited evaluation quotas)
+    const trialPlan = await getDynamicTrialPlan(prisma);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + trialPlan.durationHours * 60 * 60 * 1000);
+    const slug = await generateUniqueSlug(normalizedCompanyName);
+
+    // 8. Provision Company, Owner User, Member & Subscription in a transaction
+    let companyResult = null;
+    let userResult = null;
+    let subscriptionResult = null;
+
+    await prisma.$transaction(async (tx) => {
+      // Step A: Create Company with safe schema fields
+      try {
+        companyResult = await tx.company.create({
+          data: {
+            name: normalizedCompanyName,
+            slug,
+            website: validated.website?.trim() || null,
+            industry: validated.industry?.trim() || null,
+            description: validated.businessDescription?.trim() || null,
+            phone: validated.phone?.trim() || null,
+            status: "ACTIVE",
+            plan: "DEMO",
+            planStatus: "ACTIVE",
+            planStartedAt: now,
+            planExpiresAt: expiresAt,
+            hasUsedDemo: true,
+          },
+        });
+      } catch (_) {
+        companyResult = await tx.company.create({
+          data: {
+            name: normalizedCompanyName,
+            slug,
+            website: validated.website?.trim() || null,
+            industry: validated.industry?.trim() || null,
+            description: validated.businessDescription?.trim() || null,
+            phone: validated.phone?.trim() || null,
+            status: "ACTIVE",
+          },
+        });
+      }
+
+      // Step B: Create Owner User
+      userResult = await tx.user.create({
+        data: {
+          name: validated.ownerName.trim(),
+          email: normalizedEmail,
+          password: passwordHash,
+          status: "ACTIVE",
+          role: "HR",
+        },
+      });
+
+      // Step C: Create Company Member (OWNER role)
+      await tx.companyMember.create({
+        data: {
+          companyId: companyResult.id,
+          userId: userResult.id,
+          role: "OWNER",
+        },
+      });
+
+      // Step D: Create Demo Subscription record if model available
+      try {
+        if (tx.subscription) {
+          subscriptionResult = await tx.subscription.create({
+            data: {
+              companyId: companyResult.id,
+              planId: trialPlan.planId,
+              planCode: "DEMO",
+              planName: trialPlan.planName,
+              billingCycle: "MONTHLY",
+              status: "ACTIVE",
+              isTrial: true,
+              amount: 0,
+              currency: "INR",
+              seatLimit: trialPlan.seatLimit,
+              candidateLimit: trialPlan.candidateLimit,
+              inviteLimit: trialPlan.inviteLimit,
+              startDate: now,
+              endDate: expiresAt,
+            },
+          });
+        }
+      } catch (subErr) {
+        console.warn("[TrialApplication] Subscription snapshot creation warning:", subErr.message);
+      }
+    });
+
+    // 9. Store Application Details for Super Admin audit & management
     const application = await trialApplicationStore.createApplication({
       companyName: normalizedCompanyName,
       ownerName: validated.ownerName.trim(),
@@ -315,13 +396,122 @@ class TrialApplicationService {
       isBusinessEmail: isBusiness,
       ipAddress: clientIp,
       userAgent,
+      status: TRIAL_APPLICATION_STATUS.APPROVED,
+      reviewedAt: now,
+      reviewNotes: "Instant Free Trial (Self-Service Registration)",
+      approvedCompanyId: companyResult.id,
+      approvedCompanySlug: companyResult.slug,
     });
 
-    // 9. Clean up verified OTP
+    // 10. Clean up verified OTP
     await trialApplicationStore.deleteOtp(normalizedEmail);
 
+    // 11. Generate JWT Authentication Tokens for Instant Login
+    const accessToken = generateAccessToken(userResult, companyResult.id);
+    const refreshToken = generateRefreshToken(userResult);
+
+    try {
+      await authRepository.createRefreshToken({
+        userId: userResult.id,
+        token: hashToken(refreshToken),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+    } catch (rtErr) {
+      console.warn("[TrialApplication] Refresh token store warning:", rtErr.message);
+    }
+
+    // 12. Record Audit Log
+    try {
+      await auditService.createAuditLog({
+        companyId: companyResult.id,
+        actorUserId: userResult.id,
+        action: "TRIAL_APPLICATION_AUTO_APPROVED",
+        entityType: "TRIAL_APPLICATION",
+        entityId: application.id,
+        metadata: {
+          applicationId: application.id,
+          companyName: companyResult.name,
+          companySlug: companyResult.slug,
+          ownerEmail: normalizedEmail,
+          trialStartsAt: now.toISOString(),
+          trialExpiresAt: expiresAt.toISOString(),
+          type: "SELF_SERVICE_INSTANT_ACTIVATION",
+        },
+      });
+    } catch (auditErr) {
+      console.warn("[TrialApplication] Audit log creation warning:", auditErr.message);
+    }
+
+    // 13. Build Workspace Login URL
+    const workspaceUrl = buildCompanyTenantUrl(companyResult, "/login");
+
+    // 14. Send Welcome & Approval Confirmation Email (Async/Non-blocking)
+    const formatDate = (date) =>
+      new Intl.DateTimeFormat("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(date);
+
+    try {
+      const emailContent = buildTrialApprovalEmail({
+        ownerName: validated.ownerName,
+        companyName: companyResult.name,
+        planName: trialPlan.planName,
+        startDate: formatDate(now),
+        endDate: formatDate(expiresAt),
+        seatLimit: trialPlan.seatLimit,
+        candidateLimit: trialPlan.candidateLimit,
+        inviteLimit: trialPlan.inviteLimit,
+        durationDays: trialPlan.durationDays,
+        durationHours: trialPlan.durationHours,
+        workspaceUrl,
+      });
+
+      sendEmail({
+        to: normalizedEmail,
+        subject: emailContent.subject,
+        html: emailContent.html,
+        text: emailContent.text,
+      })
+        .then(() => {
+          trialApplicationStore
+            .updateApplication(application.id, {
+              approvalEmailSent: true,
+              approvalEmailSentAt: new Date(),
+            })
+            .catch(() => {});
+        })
+        .catch((emailErr) => {
+          console.error("[TrialApplication] Async welcome email dispatch error:", emailErr.message);
+          trialApplicationStore
+            .updateApplication(application.id, {
+              approvalEmailSent: false,
+              approvalEmailError: emailErr.message,
+            })
+            .catch(() => {});
+        });
+    } catch (emailBuildErr) {
+      console.error("[TrialApplication] Email build error:", emailBuildErr.message);
+    }
+
     return {
-      message: "Trial application submitted successfully. Our team will review your application and send your workspace access link shortly.",
+      message: "30-Day Free Trial activated successfully! Workspace is live.",
+      tenantUrl: workspaceUrl,
+      accessToken,
+      refreshToken,
+      company: {
+        id: companyResult.id,
+        name: companyResult.name,
+        slug: companyResult.slug,
+        plan: companyResult.plan,
+        planExpiresAt: companyResult.planExpiresAt,
+      },
+      user: {
+        id: userResult.id,
+        email: userResult.email,
+        name: userResult.name,
+        role: "OWNER",
+      },
       application: {
         id: application.id,
         companyName: application.companyName,

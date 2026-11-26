@@ -158,9 +158,10 @@ class TrialApplicationStore {
     writeJsonFile(OTPS_FILE, filtered);
   }
 
-  // â”€â”€â”€ Application Storage Methods â”€â”€â”€
+  // ─── Application Storage Methods ───
 
   async createApplication(data) {
+    const now = new Date();
     const record = {
       id: `app_${crypto.randomUUID()}`,
       companyName: data.companyName.trim(),
@@ -173,18 +174,21 @@ class TrialApplicationStore {
       passwordHash: data.passwordHash,
       isBusinessEmail: Boolean(data.isBusinessEmail),
       emailVerified: true,
-      emailVerifiedAt: new Date(),
+      emailVerifiedAt: data.emailVerifiedAt || now,
       ipAddress: data.ipAddress || null,
       userAgent: data.userAgent || null,
-      status: TRIAL_APPLICATION_STATUS.PENDING_REVIEW,
-      reviewerId: null,
-      reviewedAt: null,
-      rejectionReason: null,
-      reviewNotes: null,
-      approvedCompanyId: null,
-      approvedCompanySlug: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      status: data.status || TRIAL_APPLICATION_STATUS.APPROVED,
+      reviewerId: data.reviewerId || null,
+      reviewedAt: data.reviewedAt || (data.status === TRIAL_APPLICATION_STATUS.APPROVED ? now : null),
+      rejectionReason: data.rejectionReason || null,
+      reviewNotes: data.reviewNotes || null,
+      approvedCompanyId: data.approvedCompanyId || null,
+      approvedCompanySlug: data.approvedCompanySlug || null,
+      approvalEmailSent: Boolean(data.approvalEmailSent),
+      approvalEmailSentAt: data.approvalEmailSentAt || null,
+      approvalEmailError: data.approvalEmailError || null,
+      createdAt: now,
+      updatedAt: now,
     };
 
     // 1. Try Prisma first
@@ -206,6 +210,12 @@ class TrialApplicationStore {
             ipAddress: record.ipAddress,
             userAgent: record.userAgent,
             status: record.status,
+            reviewerId: record.reviewerId,
+            reviewedAt: record.reviewedAt,
+            rejectionReason: record.rejectionReason,
+            reviewNotes: record.reviewNotes,
+            approvedCompanyId: record.approvedCompanyId,
+            approvedCompanySlug: record.approvedCompanySlug,
           },
         });
         return created;
@@ -221,6 +231,8 @@ class TrialApplicationStore {
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       emailVerifiedAt: record.emailVerifiedAt.toISOString(),
+      reviewedAt: record.reviewedAt ? (typeof record.reviewedAt === "string" ? record.reviewedAt : record.reviewedAt.toISOString()) : null,
+      approvalEmailSentAt: record.approvalEmailSentAt ? (typeof record.approvalEmailSentAt === "string" ? record.approvalEmailSentAt : record.approvalEmailSentAt.toISOString()) : null,
     });
     writeJsonFile(APPLICATIONS_FILE, apps);
     return record;

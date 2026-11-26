@@ -36,6 +36,13 @@ class TrialApplicationController {
       userAgent
     );
 
+    if (result.refreshToken) {
+      try {
+        const { setRefreshTokenCookie } = require("../auth/auth.utils");
+        setRefreshTokenCookie(res, result.refreshToken);
+      } catch (_) {}
+    }
+
     return SuccessResponse.send(res, result, StatusCodes.CREATED);
   });
 }
