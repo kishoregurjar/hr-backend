@@ -53,7 +53,14 @@ class TrialApplicationController {
       } catch (_) {}
     }
 
-    return SuccessResponse.send(res, result, StatusCodes.CREATED);
+    return SuccessResponse.send(
+      res,
+      {
+        message: result.message || "30-Day Free Trial activated successfully!",
+        data: result,
+      },
+      StatusCodes.CREATED
+    );
   });
 }
 
