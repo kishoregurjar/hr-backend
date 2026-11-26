@@ -23,6 +23,16 @@ class TrialApplicationController {
   });
 
   /**
+   * Verify Email OTP
+   * POST /api/v1/trial-applications/verify-otp
+   */
+  verifyOtp = asyncHandler(async (req, res) => {
+    const { email, otp } = req.body;
+    const result = await trialApplicationService.verifyOtp({ email, otp });
+    return SuccessResponse.send(res, result, StatusCodes.OK);
+  });
+
+  /**
    * Submit Trial Application (PENDING_REVIEW)
    * POST /api/v1/trial-applications/apply
    */

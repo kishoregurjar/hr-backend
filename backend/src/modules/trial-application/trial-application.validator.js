@@ -38,6 +38,15 @@ const sendOtpSchema = z.object({
     }),
 });
 
+const verifyOtpSchema = z.object({
+  email: z.string().trim().email("A valid email address is required."),
+  otp: z
+    .string()
+    .trim()
+    .length(6, "Verification OTP must be exactly 6 digits.")
+    .regex(/^\d{6}$/, "Verification OTP must contain digits only."),
+});
+
 const applyTrialSchema = z.object({
   companyName: z
     .string()
@@ -97,6 +106,7 @@ module.exports = {
   isDisposableEmail,
   isBusinessDomain,
   sendOtpSchema,
+  verifyOtpSchema,
   applyTrialSchema,
 };
 

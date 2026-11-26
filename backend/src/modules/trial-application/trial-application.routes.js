@@ -6,6 +6,7 @@ const trialApplicationController = require("./trial-application.controller");
 
 // Public endpoints
 router.post("/send-otp", trialApplicationController.sendOtp);
+router.post("/verify-otp", trialApplicationController.verifyOtp);
 router.post("/apply", trialApplicationController.applyTrial);
 
 module.exports = router;

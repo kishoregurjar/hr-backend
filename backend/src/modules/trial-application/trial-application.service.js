@@ -18,6 +18,7 @@ const {
   isDisposableEmail,
   isBusinessDomain,
   sendOtpSchema,
+  verifyOtpSchema,
   applyTrialSchema,
 } = require("./trial-application.validator");
 
@@ -197,6 +198,56 @@ class TrialApplicationService {
       message: `A 6-digit verification code has been dispatched to ${normalizedEmail}.`,
       cooldownSeconds: OTP_CONFIG.COOLDOWN_SECONDS,
       expiresInMinutes: OTP_CONFIG.EXPIRY_MINUTES,
+    };
+  }
+
+  /**
+   * 1b. Public Visitor: Verify Email OTP (Modal verification)
+   */
+  async verifyOtp({ email, otp }) {
+    const validated = verifyOtpSchema.parse({ email, otp });
+    const normalizedEmail = validated.email.toLowerCase().trim();
+
+    const otpRecord = await trialApplicationStore.findOtpByEmail(normalizedEmail);
+    if (!otpRecord) {
+      throw new AppError("Verification code not found or expired. Please request a new code.", {
+        statusCode: 400,
+        code: "OTP_NOT_FOUND",
+        isOperational: true,
+      });
+    }
+
+    if (new Date() > new Date(otpRecord.expiresAt)) {
+      await trialApplicationStore.deleteOtp(normalizedEmail);
+      throw new AppError("Verification code has expired. Please request a fresh code.", {
+        statusCode: 400,
+        code: "OTP_EXPIRED",
+        isOperational: true,
+      });
+    }
+
+    if ((otpRecord.attempts || 0) >= OTP_CONFIG.MAX_ATTEMPTS) {
+      await trialApplicationStore.deleteOtp(normalizedEmail);
+      throw new AppError("Maximum verification attempts exceeded. Please request a new code.", {
+        statusCode: 429,
+        code: "OTP_MAX_ATTEMPTS_EXCEEDED",
+        isOperational: true,
+      });
+    }
+
+    const submittedHash = hashOtp(validated.otp);
+    if (submittedHash !== otpRecord.otpHash) {
+      await trialApplicationStore.incrementOtpAttempts(normalizedEmail);
+      throw new AppError("Invalid verification code. Please check and try again.", {
+        statusCode: 400,
+        code: "INVALID_OTP",
+        isOperational: true,
+      });
+    }
+
+    return {
+      verified: true,
+      message: "Email verified successfully!",
     };
   }
 
