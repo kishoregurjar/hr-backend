@@ -494,7 +494,10 @@ class TrialApplicationService {
     }
 
     // 13. Build Workspace Login URL
-    const workspaceUrl = buildCompanyTenantUrl(companyResult, "/login");
+    const workspaceUrl = buildCompanyTenantUrl(companyResult, "/login", {
+      registered: "true",
+      email: normalizedEmail,
+    });
 
     // 14. Send Welcome & Approval Confirmation Email (Async/Non-blocking)
     const formatDate = (date) =>

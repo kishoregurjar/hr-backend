@@ -140,14 +140,14 @@ const buildTrialApprovalEmail = ({
 <body>
   <div class="container">
     <div class="header">
-      <div class="badge">Application Approved</div>
+      <div class="badge">Workspace Activated</div>
       <h1 style="margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px;">Your Free Trial Is Ready!</h1>
       <p style="margin: 8px 0 0; opacity: 0.95; font-size: 14px;">Welcome to HireQuest, ${safeOwner}</p>
     </div>
 
     <div class="content">
       <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 0;">
-        Great news! The Super Admin team has reviewed and approved your application for <strong>${safeCompany}</strong>. Your ${safeDays}-day evaluation period is now officially active.
+        Great news! Your ${safeDays}-day free trial workspace for <strong>${safeCompany}</strong> is now officially active with unlimited evaluation features.
       </p>
 
       <!-- Quota Cards -->
@@ -220,11 +220,11 @@ const buildTrialApprovalEmail = ({
 </body>
 </html>`;
 
-  const text = `Your HireQuest Free Trial Has Been Approved!
+  const text = `Your HireQuest Free Trial Workspace Is Live!
 
 Hello ${ownerName},
 
-Congratulations! Your Demo Trial application for ${companyName} has been approved by the HireQuest Super Admin team. Your ${safeDays}-day free trial is now officially active.
+Congratulations! Your Demo Trial workspace for ${companyName} is now officially active with unlimited evaluation features. Your ${safeDays}-day free trial has started.
 
 Trial & Plan Information:
 - Plan Tier: ${planName} (${safeDays}-Day Free Trial)
